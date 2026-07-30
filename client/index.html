@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>cubewars</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: #87ceeb;
+      }
+      #app {
+        width: 100vw;
+        height: 100vh;
+        display: block;
+      }
+      #status {
+        position: fixed;
+        top: 12px;
+        left: 12px;
+        padding: 6px 12px;
+        background: rgba(0, 0, 0, 0.6);
+        color: #fff;
+        font-family: system-ui, sans-serif;
+        font-size: 14px;
+        border-radius: 6px;
+        z-index: 10;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="status" data-state="connecting">connecting…</div>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
