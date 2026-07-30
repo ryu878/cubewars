@@ -1,0 +1,52 @@
+---
+description: Security baseline — secrets, exposure, auth, anti-cheat/logging safety for all agents
+globs:
+alwaysApply: true
+---
+
+# Security Baseline (mandatory)
+
+All agents must respect these rules in every change.
+
+## Secrets
+
+- Never commit API keys, passwords, tokens, session secrets, or private keys.
+- Use environment variables or secret managers; document in `config.vars.example` / README without real values.
+
+## Network and data exposure
+
+- Do not expose databases, caches, or admin/debug endpoints to the public internet without explicit design and auth.
+- Restrict ports in Docker Compose to what is required.
+- Use TLS for any traffic carrying session tokens or player data.
+
+## Authoritative server / anti-cheat
+
+- Client input is **never** trusted. Every gameplay-relevant action (movement, combat, resource/economy changes, purchases) is validated and computed server-side.
+- Reject or clamp out-of-range, out-of-order, or too-frequent client messages instead of trusting client-reported state.
+- Do not leak other players' private state (position, inventory, hidden info) to a client that shouldn't see it — filter server → client payloads per player, not just per match.
+
+## Auth and sessions
+
+- Add authentication where required; rate-limit auth and other sensitive endpoints.
+- Session tokens: sufficiently random, expire, and are invalidated on logout — never embed secrets in URLs.
+- Passwords (if stored): hashed with a modern algorithm (e.g. bcrypt/argon2), never plaintext or reversible.
+
+## Web-specific
+
+- Sanitize/escape any user-generated content rendered in the client (chat, player names) to prevent XSS.
+- Set appropriate CORS policy; do not use wildcard origins for authenticated endpoints.
+- Validate and size-limit all client payloads (HTTP and WebSocket) server-side.
+
+## API and logging
+
+- Do not log secrets, credentials, tokens, or full auth headers.
+- Log authentication failures and anomalous input patterns (possible cheating/abuse) without logging sensitive payload contents.
+
+## Docker
+
+- Run containers with minimal required privileges.
+- Avoid unnecessary host volume mounts.
+
+## Review
+
+- For release-grade work, use `ai-office/checklists/release-checklist.md` and security items in `ai-office/checklists/review-checklist.md`.

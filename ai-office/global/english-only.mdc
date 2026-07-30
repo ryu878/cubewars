@@ -1,0 +1,40 @@
+---
+description: English-only for specs, docs, code comments, README; do not translate samples, prompts, or stored Russian work products
+alwaysApply: true
+---
+
+# English-only engineering artifacts (mandatory)
+
+Applies to **every agent** (Team Lead, Programmer, Tester, Critic, Judge, Infosec) and **every chat** in this repository.
+
+## Must be English (always, unless user scopes otherwise)
+
+Regardless of the language the **user** writes in, create and maintain these in **English**:
+
+- Specs / ТЗ: EPIC, Story, Task, architecture, intake, acceptance criteria
+- Project documentation: README, runbooks, setup guides, `ai-office/` process docs, policies, checklists, templates
+- Code comments, docstrings, developer-facing log messages, `config.vars.example` notes
+- Agent-authored handoffs and **new** QA / Critic / Judge / Infosec / final reports produced in this workflow
+- Commit messages when the agent authors them
+- Chat replies to the user (default English) — unless the user is writing in another language, in which case reply in that language; the **artifacts** above stay English regardless
+
+## Do NOT translate (leave as-is)
+
+Do **not** rewrite into English merely because non-English text is present:
+
+- Legal / contract text, extracted docs, customer templates
+- Example datasets, sample transcripts, fixture text meant to stay in the source language
+- User or product **prompts** that are intentionally in Russian (or another language)
+- Historical **work results** already stored in Russian (old notes, design dumps kept as source artifacts)
+- Third-party licenses, binaries, raw game/user data
+- Proper names, in-game text/localization strings, and project/folder IDs
+
+When unsure: if the file is **source material / sample / prompt / archived output / player-facing localized text**, leave language unchanged; if it is **engineering control plane** (spec, README, code comment, office process), use English.
+
+## Explicit user override
+
+If the user asks for another language for chat or for a specific deliverable (e.g. "reply in Russian", "write this report in Russian"), follow that for the scoped items only.
+
+## Legacy edits
+
+When editing an in-scope English artifact that still has mixed language in the **touched** sections, translate those sections to English. Do **not** bulk-translate out-of-scope folders (contracts, archived reports, localization files).

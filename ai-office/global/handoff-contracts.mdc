@@ -1,0 +1,85 @@
+---
+description: Formal handoff contracts — who may assign/receive work; single user-facing entry (Team Lead)
+globs:
+alwaysApply: true
+---
+
+# Handoff Contracts (mandatory)
+
+These contracts define **valid edges** in the workflow.
+
+**User-facing (official project work):** Only **Team Lead** is user-facing for **implementation outcomes and merge/release approval**. **Programmer, Tester, Critic, Judge** are **internal execution roles**; they **must not** deliver final implementation work, QA sign-off, review verdicts, or merge approval directly to the **user** (TL delivers those).
+
+**Infosec (Isya)** is covered in **§6** — **dual entry:** Team Lead assignment **or** **direct user invoke** for security reviews; **merge/release authority** remains with Team Lead per policy.
+
+## 1. User → Team Lead (primary user-facing entry)
+
+- **User assigns work to the Team Lead (Tusya):** implementation, specs, and requests for **formal security reviews** that TL routes to **Isya**.
+- User does **not** assign tasks directly to Programmer (Pusya), Tester (Trusya), Critic (Krisya), or Judge (Jasya).
+- User receives from Team Lead: **implementation outcomes**, **review conclusions**, and **user-facing packaging** of security posture when TL integrates Infosec findings.
+- **Direct Infosec invoke:** The user **may** start a **security review** by **explicitly invoking Infosec (Isya)**. **Isya may respond** with **technical security findings** in that context. **Official** merge/release decisions still follow **Team Lead** + **`approval-policy`**. For audit trail, Isya should provide a **written summary** to TL when the engagement was direct-invoke and the outcome must sit on the **release record**.
+
+## 2. Team Lead → Programmer
+
+- **Only the Team Lead** assigns implementation tasks to the Programmer (from approved EPIC/Story/Task).
+- Programmer **must not** accept or act on **direct user requests** for implementation work (see `ai-office/agents/programmer/role.mdc`).
+
+## 3. Programmer → Tester
+
+- Programmer hands completed work to **Tester only** using the unified format in `ai-office/templates/programmer-handoff-template.md`.
+- Programmer does **not** hand implementation results directly to the Team Lead or to Critic for "done" — only to the **Tester**; the chain continues from there.
+
+## 4. Tester → Critic
+
+- Tester hands to **Critic** (not directly to Team Lead) **only after** the QA checklist passes (`ai-office/checklists/qa-checklist.md`), using `ai-office/templates/tester-report-template.md` (status **PASS**).
+- Tester **must not** accept tasks from the **user**.
+- Tester **must not** accept tasks directly from **Team Lead** for QA execution — work must arrive via Programmer handoff.
+- On **FAIL**, Tester returns to Programmer per `ai-office/process/process-rework-loop.md`; Critic is **not** invoked on a FAIL.
+
+## 5. Critic (Krisya) — reviews the Programmer/Tester delivery
+
+- **Critic is not user-facing.** Reviews the delivery package (spec, diff/PR, Programmer handoff, Tester PASS report) assigned to it once Tester signs off — **both** the technical correctness of the code **and**, for player-facing tasks, the actual gameplay/visual result (does it play and look right, not just compile right).
+- **Primary evidence:** the actual diff/PR + Tester's verified checklist, plus screenshot/gameplay evidence for player-facing work — **not** a chat summary of what was done.
+- Output: `ai-office/templates/critic-review-template.md`.
+- Verdicts: `APPROVED` | `REVISE` | `REJECT`.
+  - `APPROVED` → straight to Team Lead final review (Judge is **not** invoked).
+  - `REVISE` → Team Lead issues a revision task with **finding IDs only** back to Programmer; after fix + Tester re-verify, package goes to **Judge**, not back to Critic.
+  - `REJECT` → task/spec is inadequate; back to Team Lead to redefine, not a Programmer fix loop.
+- Critic does **not** assign Programmer directly (routes through Team Lead); does **not** chat through Judge — Judge sees only the stripped packet (§5a).
+
+## 5a. Judge (Jasya) — closes Critic findings, stops rework
+
+- **Judge is not user-facing.** Does **not** review from scratch and does **not** invent new findings (unless a revision **clearly** breaks a prior PASS — flag as `regression`).
+- Entered **only** after a Critic `REVISE` verdict and the subsequent Programmer fix + Tester re-verify.
+- TL sends a **Judge packet** with **only**: original finding(s), changes made, re-test results, diff summary — **no** chat transcript (`ai-office/templates/judge-verdict-template.md`).
+- Judge closes findings: `CLOSED` / `STILL_OPEN` / `PARTIAL` / `REGRESSION`.
+- Overall: `ALL_CLOSED` | `REVISE_AGAIN` | `ESCALATE_HUMAN` (after 3–5 iterations or deadlock — Judge's job is explicitly to **stop** the rework loop at that point, not to let it continue indefinitely).
+- Process: `ai-office/process/review-judge-cycle.md`.
+
+## 6. Team Lead → Team Lead (final review)
+
+- Team Lead gives **final process approval to merge** only after: documented **Tester PASS**, and either **Critic `APPROVED`** or **Judge `ALL_CLOSED`**.
+- Team Lead does **not** replace Critic's review or Judge's verdict, and does **not** merge around a `REVISE_AGAIN` / `ESCALATE_HUMAN` state.
+
+## 7. Team Lead ↔ Infosec (Isya) — security reviews
+
+- **Isya is not merge/release authority.** Final **merge approval** and **deploy/release sign-off** stay with **Team Lead** per `ai-office/policies/approval-policy.md` and `ai-office/policies/deployment-policy.md`.
+- **Team Lead** may assign Infosec: scope (architecture, code paths, infra, integration), questions, branch/PR/release context. Infosec returns **findings** to **Team Lead**; TL integrates into user-facing summaries and decisions.
+- **Direct user → Isya:** Allowed when the user **explicitly invokes** the Infosec role for a **security review**. Isya **must not** assign **Programmer** directly; if implementation is required, Isya notifies **Team Lead only** — TL runs Programmer → Tester → Critic → (Judge) → TL.
+- Infosec validates against **`ai-office/global/security-baseline.mdc`** and security items in **`ai-office/checklists/review-checklist.md`**.
+- Non-trivial Infosec outputs should use **`ai-office/templates/infosec-findings-template.md`**.
+
+## 8. Artifact format
+
+- All role handoffs that are not trivial one-liners **must** use templates from `ai-office/templates/` so format stays consistent.
+
+## Enforcement rule
+
+Any violation of routing, QA flow, or approval policy invalidates the task result.
+
+If a violation is detected:
+
+- the task must be restarted from Team Lead
+- previous results are considered non-compliant
+
+**Path convention:** Cross-references in this office use paths from the repository root, e.g. `ai-office/global/handoff-contracts.mdc`, `ai-office/checklists/qa-checklist.md`.

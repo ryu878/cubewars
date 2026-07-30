@@ -1,0 +1,162 @@
+---
+description: Global engineering standards — TL-defined stack policy, intake routing, config/logging, security, EPIC/Story/Task, Definition of Done
+globs:
+alwaysApply: true
+---
+
+# Global Engineering Standards
+
+## Language (mandatory)
+
+All specs, reports, code comments, and agent replies: **English only** for engineering artifacts, unless the user explicitly requests another language. See **`ai-office/global/english-only.mdc`**.
+
+These rules apply to all agents in the project office.
+
+## Intake and routing (mandatory)
+
+1. **All work that changes or interprets the product** (implementation, QA outcomes, code review, security posture) is **assigned and reported through the Team Lead (Tusya).** The user does not assign tasks directly to Programmer, Tester, Critic, or Judge for official delivery. **Infosec (Isya):** dual entry (Team Lead assignment or direct invoke) — **`ai-office/global/handoff-contracts.mdc`** §6.
+2. The Team Lead is the **primary user-facing role** for those deliverables; **Infosec (Isya)** direct-invoke exception for security findings.
+3. Follow `ai-office/global/handoff-contracts.mdc` for who may hand off to whom.
+
+## Execution discipline
+
+Agents must not:
+
+- skip roles in the process
+- merge or deliver results without required approvals
+- reinterpret rules for convenience
+
+If unsure: escalate to Team Lead.
+
+---
+
+## Core Principles
+
+1. Prefer simple and reliable architecture over clever one.
+2. Deliverables must be **reproducible** for their scope (services, client build, scripts — as defined in the task).
+3. No solution should depend on one developer's local environment for **what the task commits to the repo**.
+4. Every component must have a clear responsibility.
+5. **The server is authoritative.** Any gameplay-relevant state (positions, resources, combat outcomes, economy, inventory) is computed and validated server-side. The client renders and predicts, but never becomes the source of truth for anything another player can be affected by.
+
+---
+
+## Technology stack policy (mandatory, fixed)
+
+cubewars is a **3D browser multiplayer shooter**. The following stack is **fixed for the whole project**. Every agent (Team Lead included) uses it as-is — do **not** substitute, do **not** add a second library/framework for a concern this list already covers, and do **not** introduce alternatives without the **user's explicit sign-off**, recorded in the task spec.
+
+| Concern | Choice |
+|---|---|
+| **Client (3D rendering, input, prediction)** | **Three.js** + **TypeScript** |
+| **Client build/dev server** | **Vite** |
+| **Client UI/HUD/menus** (outside the 3D canvas) | Plain HTML/CSS + TypeScript — no UI framework (React/Vue/etc.) unless the user explicitly approves one for a specific, sufficiently complex menu system |
+| **Server (authoritative game state)** | **Node.js** + **TypeScript** |
+| **Real-time transport** | Raw **WebSocket** (`ws` package) — no Socket.IO, no other framework on top |
+| **Shared protocol/types** | A `shared/` package (npm workspace) with message/protocol types, imported by both client and server — one definition, not duplicated |
+| **Hit detection / shooting** | Server-side **raycast/AABB**, hand-rolled — no full physics engine by default |
+| **Physics engine (only if a task explicitly needs rigid-body physics)** | **Rapier** (via `@dimforge/rapier3d`) — the only physics engine to use if/when one is needed; do not add a second one |
+| **Monorepo layout** | npm workspaces: `client/`, `server/`, `shared/` at repo root |
+| **Package manager** | npm |
+| **Visual / gameplay QA evidence** | **Playwright** (headless browser) to launch the client and capture screenshots of actual gameplay (movement, jump, shooting, general scene) as evidence for Tester/Critic — see `ai-office/checklists/qa-checklist.md` |
+
+Programmer implements only what the spec calls for within this stack — do not introduce a framework, library, or service "because it's common for this kind of thing," and do not reach for a different tool than the table above for a concern it already covers.
+
+When a task needs a small utility library for something the table above doesn't cover (e.g. a math/UUID helper), the Programmer may pick a minimal, well-established option and **must** state that choice in the handoff to Tester for visibility. This does not extend to anything that competes with a choice already fixed above (rendering, transport, physics, UI framework).
+
+If a task seems to genuinely need a deviation from this table, Team Lead raises it with the **user** before assigning the task — this is not a call Team Lead or Programmer makes unilaterally.
+
+---
+
+## Configuration Rules
+
+When the task includes **runnable services or configurable tools**, configure via **environment variables** in the process environment:
+
+- Shell: `export KEY=value` (Linux) / `set KEY=value` (Windows).
+- Document variables in **README** and/or committed **`config.vars.example`** (plain `KEY=value` template, no dot-prefix).
+- Do **not** commit real `.env` files with secrets. A `.env.example` with placeholder values is acceptable if the chosen stack conventionally uses `.env` (e.g. Node.js tooling) — real secrets still never enter Git.
+- Application code reads configuration from environment/config, never hardcodes secrets or endpoints.
+
+When **Docker** is in the approved stack for the task, provide **Dockerfile** / **docker-compose.yml** as specified.
+
+**README.md** should explain how to run or use what the task delivers.
+
+Secrets must NEVER be committed to Git.
+
+---
+
+## Logging
+
+**Long-running services** (game server, matchmaking, backend API) should log: startup/shutdown, errors, external calls where relevant, material game-state transitions (match start/end, player join/leave, purchases) — to stdout/stderr unless the task specifies otherwise.
+
+**Client-side / small scripts / build tools:** log or trace as appropriate to the task; Team Lead sets expectations in acceptance criteria.
+
+---
+
+## Project structure policy (fixed root layout)
+
+Per the fixed stack (npm workspaces), the repository root is:
+
+- `client/` — Three.js/TypeScript game client (rendering, input, prediction, UI/HUD), built with Vite
+- `server/` — Node.js/TypeScript authoritative game server, real-time transport over `ws`
+- `shared/` — protocol/message types imported by both `client/` and `server/`
+- `docker/`, `scripts/`, `tests/`, `docs/` — as needed
+
+A task only **touches** the relevant subset of this layout — a single-component task doesn't need to create files in all three workspaces. **Narrow tasks** (a single UI component, a single message handler, a build-tooling fix, docs-only) use a simplified slice of it. **Team Lead** defines what's in scope per task, but the top-level layout itself does not change.
+
+Root artifacts (**Dockerfile**, **docker-compose.yml**, package manifest, **`config.vars.example`**) appear **when the spec requires them** for that deliverable.
+
+---
+
+## Agile Specification Requirement
+
+All work must be defined in:
+
+EPIC → Story → Task structure.
+
+Development cannot begin without defined tasks.
+
+---
+
+## Security
+
+Secrets must never appear in:
+
+- Git
+- source code
+- configuration files committed to repository
+
+Use environment variables or secret managers. See `ai-office/global/security-baseline.mdc`.
+
+---
+
+## Real-time / multiplayer requirements
+
+When the task delivers a **networked / real-time** component (WebSocket game loop, matchmaking, live state sync):
+
+- Validate every client message server-side (type, range, rate) before applying it to game state.
+- Rate-limit or debounce client input to prevent flooding.
+- Handle disconnect/reconnect explicitly (does the player's match/session survive a drop?).
+- Keep game/simulation logic separate from transport/networking code.
+- Log connect/disconnect, errors, and anomalous input patterns (possible cheating/abuse) where applicable.
+
+Skip or narrow this section for **non-realtime** tasks (pure UI, docs-only, tooling) per Team Lead spec.
+
+---
+
+## Definition of Done
+
+A task is complete when **acceptance criteria from the Team Lead's spec** are met. Typically this includes:
+
+- Delivered artifacts match the task (code, configs, docs — as specified).
+- **README** (or equivalent) updated if behaviour or setup changed.
+- **README** and/or **`config.vars.example`** updated if new configuration surface was introduced.
+- **No secrets** in the repository (`ai-office/global/security-baseline.mdc`).
+- **Logging / observability** as required by the task.
+- **Build / tests / run** — only what the spec requires.
+- **Tester PASS** and, per the standard chain, a **Critic** verdict of `APPROVED` (or `ALL_CLOSED` from Judge after revision) — see `ai-office/process/review-judge-cycle.md`.
+
+---
+
+## Where specs and QA evidence live
+
+- Filled EPIC/Story/Task specs (instances, not templates): `docs/tasks/epic-<NN>-<slug>.md`, following `ai-office/task-intake.md`.
+- Tester's gameplay screenshot evidence: `qa-artifacts/<task-id>/` (git-ignored — ephemeral QA evidence, not a build artifact to commit).
