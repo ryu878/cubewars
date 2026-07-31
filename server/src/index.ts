@@ -30,10 +30,22 @@ const MIN_INPUT_INTERVAL_MS = 15;
 // Reject oversized payloads outright before attempting to parse JSON.
 const MAX_MESSAGE_BYTES = 1024;
 
+// Flood-guard drops are logged in aggregate rather than one line per drop
+// (that would just be a different flavor of log spam). We log immediately
+// on the first debounce hit for a connection (so a flood shows up in the
+// log right away), then at most once per this interval thereafter while
+// the flood continues, summarizing how many messages were dropped since
+// the last log line. Normal ~30Hz play never hits the debounce path, so
+// this produces zero extra log noise under normal play (security-baseline.mdc
+// "log anomalous input patterns").
+const FLOOD_LOG_INTERVAL_MS = 5000;
+
 const wss = new WebSocketServer({ port: PORT });
 const registry = new PlayerRegistry();
 const sockets = new Map<string, WebSocket>();
 const lastInputAcceptedAt = new Map<string, number>();
+const floodDropCounts = new Map<string, number>();
+const floodDropLastLoggedAt = new Map<string, number>();
 
 console.log(`[server] cubewars game server listening on ws://localhost:${PORT}`);
 console.log(`[server] tick rate: ${TICK_HZ}Hz (${TICK_MS}ms)`);
@@ -67,8 +79,21 @@ wss.on("connection", (socket: WebSocket) => {
     const now = Date.now();
     const last = lastInputAcceptedAt.get(playerId) ?? 0;
     if (now - last < MIN_INPUT_INTERVAL_MS) {
-      // Silently debounce — this is expected under normal jitter, not
-      // necessarily an attack, so it doesn't warrant a log line every time.
+      // Debounce the input, but don't debounce out of visibility entirely:
+      // a sustained flood is a possible abuse pattern and should leave a
+      // trace in the log (see FLOOD_LOG_INTERVAL_MS comment above), just
+      // not one line per dropped message.
+      const dropCount = (floodDropCounts.get(playerId) ?? 0) + 1;
+      floodDropCounts.set(playerId, dropCount);
+      const lastLoggedAt = floodDropLastLoggedAt.get(playerId) ?? 0;
+      if (lastLoggedAt === 0 || now - lastLoggedAt >= FLOOD_LOG_INTERVAL_MS) {
+        console.warn(
+          `[server] flood guard: dropped ${dropCount} input message(s) from ${playerId} ` +
+            `(exceeding ${MIN_INPUT_INTERVAL_MS}ms min interval)`
+        );
+        floodDropLastLoggedAt.set(playerId, now);
+        floodDropCounts.set(playerId, 0);
+      }
       return;
     }
 
@@ -91,12 +116,18 @@ wss.on("connection", (socket: WebSocket) => {
       return;
     }
     lastInputAcceptedAt.set(playerId, now);
+    // Accepted normally — clear any stale drop count so a later, unrelated
+    // flood starts its aggregate count from zero instead of carrying over
+    // counts from an earlier burst that never got logged.
+    floodDropCounts.delete(playerId);
   });
 
   socket.on("close", () => {
     registry.remove(playerId);
     sockets.delete(playerId);
     lastInputAcceptedAt.delete(playerId);
+    floodDropCounts.delete(playerId);
+    floodDropLastLoggedAt.delete(playerId);
     console.log(`[server] player disconnected: ${playerId} (${registry.size()} online)`);
   });
 
