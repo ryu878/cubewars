@@ -59,9 +59,12 @@ export interface PlayerRecord {
   /** Confirmed kill count (EPIC 5 Story 5.2), in-memory only — resets on server restart, no persistence in this scope. Incremented exclusively in fire() below, the same place death is resolved, so this can never drift from what actually killed a player. */
   kills: number;
   /**
-   * Weapon ownership + ammo (EPIC 6 "Weapons & Ammo"). Persists across death/
-   * respawn — a player keeps their picked-up weapons and remaining ammo
-   * after respawning (only health/position/alive reset); reset only on
+   * Weapon ownership + ammo (EPIC 6 "Weapons & Ammo"). Reset to the
+   * pistol-only baseline on every respawn (see applyBaselineLoadout()) —
+   * picked-up weapons/ammo are lost on death, matching arena-FFA convention
+   * (Quake/UT-style pickups) and the EPIC's "ammo scarcity has real stakes"
+   * intent (Critic non-blocking recommendation, folded in before merge).
+   * Also reset on a brand-new connection (spawn()) and, trivially, on
    * disconnect (the whole PlayerRecord is discarded, see remove()).
    */
   ownedWeapons: Set<WeaponType>;
@@ -109,6 +112,21 @@ export interface RespawnOutcome {
   playerId: string;
   position: Vector3;
   health: number;
+}
+
+/**
+ * Apply the pistol-only baseline loadout to `player`, in place. Used by both
+ * spawn() (a brand-new connection) and processRespawns() (EPIC 6 Critic
+ * review non-blocking recommendation, folded in before merge: weapon/ammo
+ * ownership resets on death rather than persisting indefinitely, matching
+ * arena-FFA convention and the "ammo scarcity has real stakes" intent the
+ * EPIC is building toward) — one baseline definition, not a literal
+ * duplicated in two places.
+ */
+function applyBaselineLoadout(player: Pick<PlayerRecord, "ownedWeapons" | "equippedWeapon" | "ammo">): void {
+  player.ownedWeapons = new Set<WeaponType>(["pistol"]);
+  player.equippedWeapon = "pistol";
+  player.ammo = {};
 }
 
 /**
@@ -199,13 +217,16 @@ export class PlayerRegistry {
       alive: true,
       respawnAtMs: null,
       kills: 0,
-      // EPIC 6: every player starts owning and equipping only the pistol
-      // (WEAPON_STATS.pistol) — rifle/grenade launcher must be picked up.
-      ownedWeapons: new Set<WeaponType>(["pistol"]),
+      // Placeholder values, immediately overwritten below by
+      // applyBaselineLoadout() — the same pistol-only baseline reapplied on
+      // every respawn (processRespawns()), so there is exactly one
+      // definition of "the starting loadout" instead of a duplicated literal.
+      ownedWeapons: new Set<WeaponType>(),
       equippedWeapon: "pistol",
       ammo: {},
       intent: { moveForward: 0, moveRight: 0, jump: false },
     };
+    applyBaselineLoadout(record);
     this.players.set(id, record);
     return record;
   }
@@ -410,7 +431,13 @@ export class PlayerRegistry {
    * Check every dead player's respawn timer against `nowMs` (server clock)
    * and respawn any that are due: full health, a fresh spawn position
    * (same pool/collision-safety as spawn()), cleared intent (so a stale
-   * held key from before death can't trigger an instant post-respawn jump).
+   * held key from before death can't trigger an instant post-respawn jump),
+   * and the loadout reset to pistol-only via applyBaselineLoadout() —
+   * EPIC 6 Critic non-blocking recommendation, folded in before merge:
+   * picked-up weapons/ammo do not persist across death (arena-FFA
+   * convention, "ammo scarcity has real stakes"). The caller (index.ts) is
+   * responsible for re-sending this player's LoadoutMessage so their own
+   * HUD reflects the reset — this method only mutates server state.
    * Returns the set of respawns that happened this call, for the caller to
    * broadcast as RespawnEvent messages.
    */
@@ -427,6 +454,7 @@ export class PlayerRegistry {
       player.alive = true;
       player.respawnAtMs = null;
       player.intent = { moveForward: 0, moveRight: 0, jump: false };
+      applyBaselineLoadout(player);
 
       outcomes.push({ playerId: player.id, position: { ...player.position }, health: player.health });
     }

@@ -445,6 +445,11 @@ const tickInterval = setInterval(() => {
       health: respawn.health,
     };
     broadcast(respawnMessage);
+    // EPIC 6 (Critic non-blocking recommendation, folded in before merge):
+    // processRespawns() resets this player's loadout back to pistol-only —
+    // resend their private LoadoutMessage so their own HUD reflects that
+    // immediately, rather than only on their next fire/switch/pickup.
+    sendLoadout(respawn.playerId);
     console.log(
       `[server] respawn: ${respawn.playerId} at (${respawn.position.x.toFixed(1)}, ${respawn.position.z.toFixed(1)})`,
     );
