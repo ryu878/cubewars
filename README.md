@@ -61,6 +61,17 @@ docs/     specs (EPIC/Story/Task), filed under docs/tasks/
 ai-office/ the multi-agent delivery process (Team Lead/Programmer/Tester/Critic/Judge/Infosec)
 ```
 
+## Controls
+
+Click the canvas to lock the pointer and start playing:
+
+- **Mouse** — look around (yaw + pitch, pitch clamped so you can't flip over)
+- **W / A / S / D** — move relative to look direction
+- **Space** — jump
+- **Esc** — release pointer lock
+
+Movement/look is predicted locally for responsiveness, but the **server is authoritative**: it computes and broadcasts every player's real position, and no client's self-reported position is ever trusted or relayed to other players directly (see `ai-office/global/security-baseline.mdc`). Every other connected player is rendered as a capsule avatar; you don't see your own (first-person).
+
 ## Current status
 
-EPIC 1 (project scaffolding) — see `docs/tasks/epic-01-project-scaffolding.md`. The client renders a navigable 3D scene and connects to the server over WebSocket; no gameplay yet.
+EPIC 2 (player movement & multiplayer sync) — see `docs/tasks/epic-02-movement-and-sync.md`. First-person pointer-lock controls (mouse-look, WASD, jump) replace EPIC 1's `OrbitControls` demo camera; the server maintains an authoritative player registry, validates/clamps movement input, and broadcasts world state to all connected clients at 20Hz. No map/collision/shooting yet — flat ground movement only.
