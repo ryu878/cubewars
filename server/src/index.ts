@@ -25,11 +25,15 @@ const TICK_HZ = BROADCAST_TICK_HZ;
 const TICK_MS = 1000 / TICK_HZ;
 const TICK_DT_SECONDS = TICK_MS / 1000;
 
-// Flood guard: reject input messages arriving faster than this per
-// connection, independent of what the client claims its own send rate is
-// (global-standards.mdc "Rate-limit or debounce client input to prevent
-// flooding"). The client sends at ~30Hz by design (see client handoff notes);
-// this cap allows headroom for jitter while still bounding worst case.
+// Flood guard: reject ANY client message (input, fire, ...) arriving faster
+// than this per connection, independent of what the client claims its own
+// send rate is (global-standards.mdc "Rate-limit or debounce client input to
+// prevent flooding"). The client sends at ~30Hz by design (see client
+// handoff notes); this cap allows headroom for jitter while still bounding
+// worst case. This is a single shared per-connection floor across all
+// message types (see lastAcceptedMessageAt below) — it is NOT specific to
+// "input" messages, on purpose: a connection that only ever sends "fire"
+// must be bounded by it too (EPIC 4 F-001).
 const MIN_INPUT_INTERVAL_MS = 15;
 
 // Reject oversized payloads outright before attempting to parse JSON.
@@ -55,10 +59,21 @@ const FIRE_COOLDOWN_MS = COMBAT.fireCooldownMs;
 const wss = new WebSocketServer({ port: PORT });
 const registry = new PlayerRegistry();
 const sockets = new Map<string, WebSocket>();
-const lastInputAcceptedAt = new Map<string, number>();
+// Shared across ALL recognized message types (input, fire, ...) — this is
+// what the generic MIN_INPUT_INTERVAL_MS debounce above reads/writes. It
+// used to be updated only from the "input" branch (EPIC 4 F-001), which let
+// a fire-only message stream bypass the debounce entirely; it is now
+// updated as soon as a message is recognized as a known, non-flooded type,
+// regardless of type.
+const lastAcceptedMessageAt = new Map<string, number>();
 const lastFireAcceptedAt = new Map<string, number>();
 const floodDropCounts = new Map<string, number>();
 const floodDropLastLoggedAt = new Map<string, number>();
+// Same aggregate/throttled-logging pattern as floodDropCounts above, applied
+// to fire messages rejected specifically by the weapon cooldown (as opposed
+// to the generic flood debounce) — see EPIC 4 F-001.
+const fireCooldownDropCounts = new Map<string, number>();
+const fireCooldownDropLastLoggedAt = new Map<string, number>();
 
 /** Send a server message to every currently-open connection. */
 function broadcast(message: ServerMessage): void {
@@ -100,7 +115,7 @@ wss.on("connection", (socket: WebSocket) => {
     }
 
     const now = Date.now();
-    const last = lastInputAcceptedAt.get(playerId) ?? 0;
+    const last = lastAcceptedMessageAt.get(playerId) ?? 0;
     if (now - last < MIN_INPUT_INTERVAL_MS) {
       // Debounce the input, but don't debounce out of visibility entirely:
       // a sustained flood is a possible abuse pattern and should leave a
@@ -139,7 +154,7 @@ wss.on("connection", (socket: WebSocket) => {
         console.warn(`[server] dropped out-of-range/malformed input from ${playerId}`);
         return;
       }
-      lastInputAcceptedAt.set(playerId, now);
+      lastAcceptedMessageAt.set(playerId, now);
       // Do NOT reset floodDropCounts here: the debounce gate lets some
       // messages through periodically even during a sustained flood, so
       // resetting on every accepted input wipes the in-progress count before
@@ -151,6 +166,14 @@ wss.on("connection", (socket: WebSocket) => {
     }
 
     if (parsed.type === "fire") {
+      // Count this fire message against the shared generic debounce
+      // immediately, unconditionally — before the dead-player check or the
+      // weapon-cooldown check below. Otherwise a fire-only stream (dead or
+      // alive, on/off cooldown) would never feed lastAcceptedMessageAt and
+      // would keep bypassing the MIN_INPUT_INTERVAL_MS floor entirely, which
+      // is exactly EPIC 4 F-001.
+      lastAcceptedMessageAt.set(playerId, now);
+
       // Dead players can't fire (Story 4.2 AC) — not logged as an anomaly,
       // this is an expected race while a client's own respawn state is
       // still in flight.
@@ -158,7 +181,20 @@ wss.on("connection", (socket: WebSocket) => {
 
       const lastFire = lastFireAcceptedAt.get(playerId) ?? 0;
       if (now - lastFire < FIRE_COOLDOWN_MS) {
-        console.warn(`[server] fire rate limit: dropped fire from ${playerId} (weapon cooldown)`);
+        // Same aggregate/throttled pattern as the flood-guard drop log
+        // above (EPIC 4 F-001) — one line per dropped fire attempt would
+        // reproduce the exact per-message log-spam this fix removes.
+        const dropCount = (fireCooldownDropCounts.get(playerId) ?? 0) + 1;
+        fireCooldownDropCounts.set(playerId, dropCount);
+        const lastLoggedAt = fireCooldownDropLastLoggedAt.get(playerId) ?? 0;
+        if (lastLoggedAt === 0 || now - lastLoggedAt >= FLOOD_LOG_INTERVAL_MS) {
+          console.warn(
+            `[server] fire rate limit: dropped ${dropCount} fire message(s) from ${playerId} ` +
+              `(exceeding ${FIRE_COOLDOWN_MS}ms weapon cooldown)`
+          );
+          fireCooldownDropLastLoggedAt.set(playerId, now);
+          fireCooldownDropCounts.set(playerId, 0);
+        }
         return;
       }
       lastFireAcceptedAt.set(playerId, now);
@@ -202,10 +238,12 @@ wss.on("connection", (socket: WebSocket) => {
   socket.on("close", () => {
     registry.remove(playerId);
     sockets.delete(playerId);
-    lastInputAcceptedAt.delete(playerId);
+    lastAcceptedMessageAt.delete(playerId);
     lastFireAcceptedAt.delete(playerId);
     floodDropCounts.delete(playerId);
     floodDropLastLoggedAt.delete(playerId);
+    fireCooldownDropCounts.delete(playerId);
+    fireCooldownDropLastLoggedAt.delete(playerId);
     console.log(`[server] player disconnected: ${playerId} (${registry.size()} online)`);
   });
 
