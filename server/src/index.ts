@@ -116,10 +116,13 @@ wss.on("connection", (socket: WebSocket) => {
       return;
     }
     lastInputAcceptedAt.set(playerId, now);
-    // Accepted normally — clear any stale drop count so a later, unrelated
-    // flood starts its aggregate count from zero instead of carrying over
-    // counts from an earlier burst that never got logged.
-    floodDropCounts.delete(playerId);
+    // Do NOT reset floodDropCounts here: the debounce gate lets some
+    // messages through periodically even during a sustained flood, so
+    // resetting on every accepted input wipes the in-progress count before
+    // it can build up to a representative total. The counter is only
+    // reset where a summary is actually logged (the debounce-hit branch
+    // above, immediate first-hit log and periodic ~FLOOD_LOG_INTERVAL_MS
+    // log) and on disconnect below.
   });
 
   socket.on("close", () => {
