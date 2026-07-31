@@ -69,14 +69,23 @@ Click the canvas to lock the pointer and start playing:
 - **W / A / S / D** — move relative to look direction
 - **Click** (while locked) — fire
 - **Space** — jump
+- **E** — switch weapon (cycles forward through weapons you own, in tier order)
 - **Tab** (hold) — show the live scoreboard
 - **Esc** — release pointer lock
 
 Movement/look is predicted locally for responsiveness, but the **server is authoritative**: it computes and broadcasts every player's real position, and no client's self-reported position is ever trusted or relayed to other players directly (see `ai-office/global/security-baseline.mdc`). Every other connected player is rendered as a capsule avatar; you don't see your own (first-person).
 
-Combat is server-authoritative too: firing sends a bare "fire" event, and the server resolves the actual hitscan raycast from its own tracked position/yaw/pitch for that player — the client never states an aim origin/direction, let alone a hit, of its own. See "Current status" below for the exact model.
+Combat is server-authoritative too: firing sends a bare "fire" event, and the server resolves the actual hitscan raycast from its own tracked position/yaw/pitch **and equipped weapon** for that player — the client never states an aim origin/direction, a weapon, or a hit, of its own. See "Current status" below for the exact model.
 
 ## Current status
+
+EPIC 6 (Weapons & Ammo) — see `docs/tasks/epic-06-weapons-ammo.md`. Replaces the single fixed pistol with a 3-tier weapon system, built entirely server-authoritative on top of EPIC 4's hitscan and EPIC 3's arena geometry:
+
+- **Weapon tiers:** pistol (tier 0, 25 dmg, 300ms cooldown, infinite ammo, owned from spawn), rifle (tier 1, 50 dmg, 250ms cooldown, 12 ammo/pickup, 48 max), grenade launcher (tier 2, 100 dmg/one-shot-kill, 1500ms cooldown, 2 ammo/pickup, 6 max) — one balance table, `WEAPON_STATS` in `shared/src/weapons.ts`, consumed by both server enforcement and client HUD/pickup color.
+- **Pickups:** a small, generic, instantiable spawner (`server/src/pickupSpawner.ts`) tracks 6 fixed spawn points (`PICKUP_SPAWN_POINTS`, `shared/src/pickups.ts`) spread across both sites, mid lane, and the tunnel. Walking within 1.5 units of an active pickup (server-checked against the player's own tracked position, every tick) unlocks the weapon (if not owned) and tops up ammo, capped at the weapon's max — **but only if it would actually benefit the player**: a pickup for a weapon you already own at max ammo is left untouched so it stays for someone else. Consumed pickups respawn after a delay that scales down with player count (weapon: 25s base / 10s min; ammo: 18s base / 7s min).
+- **Auto-equip / switching:** picking up a weapon you didn't previously own auto-equips it only if its tier is higher than what's currently equipped ("always have the best"). `E` cycles forward through owned weapons in tier order (pistol → rifle → grenade launcher → pistol → …), server-decided (`registry.cycleWeapon()`) — the client only ever sends a bare "cycle" intent, never a target weapon, same anti-spoofing posture as `FireEvent`.
+- **Ammo/loadout privacy:** each player's own equipped weapon + remaining ammo is sent via a private `LoadoutMessage`, to that player's socket only — never broadcast to opponents (a small addition to `security-baseline.mdc`'s "filter server → client payloads per player" for this EPIC, since ammo counts aren't otherwise gameplay-visible to other players). Pickup on/off state (which world pickups are currently available) **is** broadcast to everyone, the same way the scoreboard is.
+- **Dry weapons:** firing with 0 ammo does nothing server-side (no damage, no further decrement); the HUD shows "EMPTY" so the player knows to switch or find ammo. The pistol never runs dry.
 
 EPIC 5 (Match Flow Polish) — see `docs/tasks/epic-05-match-flow.md`. Builds directly on EPIC 4's death/respawn logic (reused, not duplicated) to make a match read as an actual ongoing game:
 

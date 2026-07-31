@@ -4,6 +4,8 @@
 
 import type { Vector3 } from "./types.js";
 export type { Vector3 } from "./types.js";
+import type { WeaponType } from "./weapons.js";
+import type { PickupStatus } from "./pickups.js";
 // EPIC 3 "The Arena": the single source of truth for map geometry, spawn
 // points, and their collision resolution — see mapData.ts / collision.ts
 // doc comments. Re-exported here so both client and server keep importing
@@ -13,6 +15,10 @@ export * from "./collision.js";
 // EPIC 4 "Shooting & Combat": shared hitscan math/constants — see
 // combat.ts doc comment.
 export * from "./combat.js";
+// EPIC 6 "Weapons & Ammo": weapon tier/balance table and generic
+// pickup-spawn infrastructure — see weapons.ts / pickups.ts doc comments.
+export * from "./weapons.js";
+export * from "./pickups.js";
 
 export const PROTOCOL_VERSION = 1;
 
@@ -80,7 +86,20 @@ export interface FireEvent {
   type: "fire";
 }
 
-export type ClientMessage = PlayerInputMessage | FireEvent;
+/**
+ * Client -> server: cycle the equipped weapon forward through owned weapons
+ * in tier order (EPIC 6 Story 6.2, "E" key). Carries no target-weapon
+ * payload on purpose, same anti-spoofing posture as FireEvent above: the
+ * client requests "cycle to the next one", never "set my weapon to X" — the
+ * server alone (server/src/playerRegistry.ts `cycleWeapon()`) decides what
+ * "next" means from its own authoritative record of what this player owns
+ * and currently has equipped.
+ */
+export interface SwitchWeaponEvent {
+  type: "switch_weapon";
+}
+
+export type ClientMessage = PlayerInputMessage | FireEvent | SwitchWeaponEvent;
 
 /** A single player's authoritative, server-computed state as broadcast to all clients. */
 export interface PlayerState {
@@ -174,6 +193,41 @@ export interface ScoreboardMessage {
   players: PlayerScore[];
 }
 
+/**
+ * Server -> the OWNING player's socket only (never broadcast to everyone —
+ * see EPIC 6 spec risk note / security-baseline.mdc "filter server -> client
+ * payloads per player, not just per match"): this player's current equipped
+ * weapon, its remaining ammo, and the full set of weapons owned. Sent
+ * whenever any of those change (initial spawn, weapon/ammo pickup, `E`
+ * switch, ammo decrementing on fire) so the HUD (client/src/combatHud.ts)
+ * always reflects the server's own authoritative loadout state — the client
+ * never guesses or locally decrements its own ammo.
+ */
+export interface LoadoutMessage {
+  type: "loadout";
+  equippedWeapon: WeaponType;
+  /** Remaining ammo for the currently equipped weapon, or null for an infinite-ammo weapon (the pistol). */
+  ammo: number | null;
+  /** Every weapon this player currently owns, in tier order (WEAPON_ORDER). Always includes "pistol". */
+  ownedWeapons: WeaponType[];
+}
+
+/**
+ * Server -> all clients: the full current on/off state of every pickup
+ * spawn point (EPIC 6 Story 6.1/6.2), broadcast whenever any changes (a
+ * pickup consumed, a pickup respawned) or a client freshly connects — same
+ * "always the full list, never a delta" convention as ScoreboardMessage, for
+ * the same reason (a client that just joined or missed an update is still
+ * correct from the very next message). Static per-point identity
+ * (category/weapon/position) lives in shared/src/pickups.ts's
+ * PICKUP_SPAWN_POINTS and does not need to be re-sent — only the dynamic
+ * `active` flag does.
+ */
+export interface PickupStateMessage {
+  type: "pickup_state";
+  pickups: PickupStatus[];
+}
+
 export type ServerMessage =
   | WelcomeMessage
   | WorldStateMessage
@@ -181,4 +235,6 @@ export type ServerMessage =
   | DeathEvent
   | RespawnEvent
   | KillEvent
-  | ScoreboardMessage;
+  | ScoreboardMessage
+  | LoadoutMessage
+  | PickupStateMessage;
