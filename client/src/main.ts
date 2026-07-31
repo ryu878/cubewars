@@ -3,6 +3,7 @@ import { ARENA_BOUNDS, ARENA_GEOMETRY, type PlayerInputMessage, type WorldStateM
 import { GameConnection } from "./network";
 import { FpsController } from "./fpsController";
 import { RemotePlayers } from "./remotePlayers";
+import { CombatHud } from "./combatHud";
 
 const statusEl = document.getElementById("status") as HTMLDivElement;
 const hintEl = document.getElementById("hint") as HTMLDivElement;
@@ -60,7 +61,17 @@ for (const box of ARENA_GEOMETRY) {
 }
 
 // --- First-person controls (replaces EPIC 1's OrbitControls demo camera) ---
-const fps = new FpsController(camera, renderer.domElement);
+const hud = new CombatHud();
+const fps = new FpsController(camera, renderer.domElement, {
+  onFire: () => {
+    // Immediate local "juice" — cosmetic only, fired before any server
+    // round trip. The actual hit outcome (if any) only ever comes from the
+    // server's HitEvent broadcast below (security-baseline.mdc: the client
+    // never unilaterally declares a hit).
+    hud.showMuzzleFlash();
+    connection.send({ type: "fire" });
+  },
+});
 const remotePlayers = new RemotePlayers(scene);
 
 function updateHint(): void {
@@ -104,8 +115,28 @@ const connection = new GameConnection(wsUrl, {
     remotePlayers.sync(message.players, selfId);
     if (selfId) {
       const self = message.players.find((p) => p.id === selfId);
-      if (self) fps.reconcile(self.position);
+      if (self) {
+        fps.reconcile(self.position);
+        // Health/alive are the continuous source of truth (server-computed
+        // every tick) — HUD and local movement/fire gating are driven from
+        // here every world_state, not only from the one-off hit/death/
+        // respawn events below, so a missed event still self-corrects on
+        // the next tick.
+        fps.setAlive(self.alive);
+        hud.setHealth(self.health);
+        hud.setDead(!self.alive);
+      }
     }
+  },
+  onHit: (message) => {
+    if (message.shooterId === selfId) hud.showHitMarker();
+    if (message.targetId === selfId) hud.showDamageFlash();
+  },
+  onDeath: (message) => {
+    if (message.playerId === selfId) hud.setDead(true);
+  },
+  onRespawn: (message) => {
+    if (message.playerId === selfId) hud.setDead(false);
   },
   onClose: () => {
     statusEl.textContent = "disconnected";

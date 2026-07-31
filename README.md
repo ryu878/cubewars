@@ -67,11 +67,14 @@ Click the canvas to lock the pointer and start playing:
 
 - **Mouse** — look around (yaw + pitch, pitch clamped so you can't flip over)
 - **W / A / S / D** — move relative to look direction
+- **Click** (while locked) — fire
 - **Space** — jump
 - **Esc** — release pointer lock
 
 Movement/look is predicted locally for responsiveness, but the **server is authoritative**: it computes and broadcasts every player's real position, and no client's self-reported position is ever trusted or relayed to other players directly (see `ai-office/global/security-baseline.mdc`). Every other connected player is rendered as a capsule avatar; you don't see your own (first-person).
 
+Combat is server-authoritative too: firing sends a bare "fire" event, and the server resolves the actual hitscan raycast from its own tracked position/yaw/pitch for that player — the client never states an aim origin/direction, let alone a hit, of its own. See "Current status" below for the exact model.
+
 ## Current status
 
-EPIC 3 (The Arena — de_dust-inspired map) — see `docs/tasks/epic-03-arena-map.md`. The flat placeholder field from EPIC 1/2 is replaced by a static, sandy-toned arena: outer boundary walls, two open "site" areas (west/east), a mid lane and a parallel tunnel connecting them, and crate cover — all defined once in `shared/src/mapData.ts` (`ARENA_GEOMETRY`, `SPAWN_POINTS`) and rendered by the client from that exact data. Collision against the same AABB list (`shared/src/collision.ts`) is applied both client-side (prediction/feel, `client/src/fpsController.ts`) and server-side (authoritative, `server/src/playerRegistry.ts`) — a player cannot end up inside a wall or crate in the server's broadcast state. Spawns are chosen from `SPAWN_POINTS` inside the two sites. EPIC 2's movement/jump/multiplayer-sync behavior is unchanged. No shooting yet.
+EPIC 4 (Shooting & Combat) — see `docs/tasks/epic-04-shooting-combat.md`. Players can now fight: clicking while pointer-locked fires a hitscan shot resolved entirely server-side (`server/src/combat.ts`) against **both** the shared `ARENA_GEOMETRY` (shots are blocked by walls/crates) **and** other players' hitboxes (an axis-aligned bounding box matching the same capsule dimensions rendered client-side — see `shared/src/combat.ts` for the exact approximation); nearest candidate along the ray wins, so a wall/crate closer than a player blocks the shot. Health (100 max, 25 dmg/hit, so 4 hits to kill), death, and a 3-second respawn timer are tracked per-player in `server/src/playerRegistry.ts` and broadcast every tick via `WorldStateMessage.players[].health/alive`, plus one-off `HitEvent`/`DeathEvent`/`RespawnEvent` messages for cosmetic feedback triggers (`shared/src/index.ts`). The client shows a crosshair, a health readout, and short muzzle-flash/hit-marker/damage-flash pulses (`client/src/combatHud.ts`) — all cosmetic; the client never unilaterally declares a hit or a kill. Dead players' avatars are hidden client-side and their movement/fire is frozen server-side until respawn. EPIC 3's arena/collision and EPIC 2's movement/jump/sync are unchanged.

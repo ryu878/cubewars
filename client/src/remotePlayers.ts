@@ -3,12 +3,15 @@
 // renders their own avatar.
 
 import * as THREE from "three";
-import type { PlayerState } from "@cubewars/shared";
+import { PLAYER_HITBOX_CYLINDER_LENGTH, PLAYER_HITBOX_RADIUS, type PlayerState } from "@cubewars/shared";
 
 // Matches the EPIC 1 placeholder capsule (radius 0.5, length 1.2) and its
-// ground placement (center at y=1.1 when feet are at y=0).
-const CAPSULE_RADIUS = 0.5;
-const CAPSULE_LENGTH = 1.2;
+// ground placement (center at y=1.1 when feet are at y=0). Radius/length are
+// imported from shared/src/combat.ts so the server's hitscan AABB
+// approximation (playerHitboxBounds()) matches exactly what's rendered here
+// — one set of dimensions, not duplicated (EPIC 4 Story 4.1 risk note).
+const CAPSULE_RADIUS = PLAYER_HITBOX_RADIUS;
+const CAPSULE_LENGTH = PLAYER_HITBOX_CYLINDER_LENGTH;
 const CAPSULE_CENTER_Y = CAPSULE_RADIUS + CAPSULE_LENGTH / 2;
 
 export class RemotePlayers {
@@ -34,6 +37,13 @@ export class RemotePlayers {
       }
       mesh.position.set(player.position.x, player.position.y + CAPSULE_CENTER_Y, player.position.z);
       mesh.rotation.y = player.yaw;
+      // EPIC 4 Story 4.2 AC: "Other clients see the death (avatar
+      // disappears/changes state) and the respawn (avatar reappears)".
+      // Driven directly by the continuous alive flag in world_state (not a
+      // one-off event) so a client that joins/reconnects mid-death still
+      // renders the correct state immediately, without needing to have
+      // observed the original DeathEvent.
+      mesh.visible = player.alive;
     }
 
     // Anyone missing from this snapshot (disconnected) loses their avatar.
