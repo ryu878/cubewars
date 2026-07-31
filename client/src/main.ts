@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { PlayerInputMessage, WorldStateMessage } from "@cubewars/shared";
+import { ARENA_BOUNDS, ARENA_GEOMETRY, type PlayerInputMessage, type WorldStateMessage } from "@cubewars/shared";
 import { GameConnection } from "./network";
 import { FpsController } from "./fpsController";
 import { RemotePlayers } from "./remotePlayers";
@@ -8,10 +8,13 @@ const statusEl = document.getElementById("status") as HTMLDivElement;
 const hintEl = document.getElementById("hint") as HTMLDivElement;
 const appEl = document.getElementById("app") as HTMLDivElement;
 
-// --- Scene (unchanged from EPIC 1 — ground/blocks/sky are EPIC 3/4's job) ---
+// --- Scene: sandy/tan de_dust-inspired arena (EPIC 3) ---
+const SKY_COLOR = 0xbfd8e8;
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87ceeb); // sky blue
-scene.fog = new THREE.Fog(0x87ceeb, 30, 120);
+scene.background = new THREE.Color(SKY_COLOR);
+// Arena spans roughly 92x52 units — fog range widened from EPIC 1/2's flat
+// field so the far site is still visible across mid/tunnel sightlines.
+scene.fog = new THREE.Fog(SKY_COLOR, 40, 170);
 
 const camera = new THREE.PerspectiveCamera(
   70,
@@ -25,36 +28,35 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 appEl.appendChild(renderer.domElement);
 
-// --- Lighting (avoid the flat/grey default-Three.js look) ---
-const hemiLight = new THREE.HemisphereLight(0xffffff, 0x3a6e3a, 0.9);
+// --- Lighting (avoid the flat/grey default-Three.js look; warm desert bounce light) ---
+const hemiLight = new THREE.HemisphereLight(0xfff3d6, 0x8a7355, 0.95);
 scene.add(hemiLight);
 
-const sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
+const sunLight = new THREE.DirectionalLight(0xfff0d0, 1.3);
 sunLight.position.set(20, 30, 10);
 scene.add(sunLight);
 
-// --- Ground ---
-const groundGeo = new THREE.PlaneGeometry(80, 80);
-const groundMat = new THREE.MeshStandardMaterial({ color: 0x4caf50 });
+// --- Ground: sandy plane sized to the arena's outer envelope (shared/mapData.ts) ---
+const groundWidth = ARENA_BOUNDS.maxX - ARENA_BOUNDS.minX + 8;
+const groundDepth = ARENA_BOUNDS.maxZ - ARENA_BOUNDS.minZ + 8;
+const groundGeo = new THREE.PlaneGeometry(groundWidth, groundDepth);
+const groundMat = new THREE.MeshStandardMaterial({ color: 0xe3c98c }); // sandy tan
 const ground = new THREE.Mesh(groundGeo, groundMat);
 ground.rotation.x = -Math.PI / 2;
 scene.add(ground);
 
-// --- Scattered colorful blocks (low-poly, Roblox-ish blockiness) ---
-const blockMatA = new THREE.MeshStandardMaterial({ color: 0xffb703 });
-const blockMatB = new THREE.MeshStandardMaterial({ color: 0x219ebc });
-for (let i = 0; i < 8; i++) {
-  const size = 1.5 + Math.random() * 1.5;
-  const block = new THREE.Mesh(
-    new THREE.BoxGeometry(size, size, size),
-    i % 2 === 0 ? blockMatA : blockMatB,
-  );
-  block.position.set(
-    (Math.random() - 0.5) * 40,
-    size / 2,
-    (Math.random() - 0.5) * 40,
-  );
-  scene.add(block);
+// --- Arena geometry: render every wall/crate from the shared, server-matching
+// AABB list (EPIC 3 Story 3.2) — this is the ONE layout definition, also used
+// for collision in fpsController.ts and server/src/playerRegistry.ts. ---
+const wallMat = new THREE.MeshStandardMaterial({ color: 0xb08d57 }); // sandstone
+const crateMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b }); // wood crate
+for (const box of ARENA_GEOMETRY) {
+  const geometry = new THREE.BoxGeometry(box.size.x, box.size.y, box.size.z);
+  const material = box.kind === "wall" ? wallMat : crateMat;
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.set(box.center.x, box.center.y, box.center.z);
+  mesh.name = box.id;
+  scene.add(mesh);
 }
 
 // --- First-person controls (replaces EPIC 1's OrbitControls demo camera) ---

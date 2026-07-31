@@ -2,6 +2,15 @@
 // Consumed directly as TypeScript source (no build step) by both Vite (client)
 // and tsx (server) — keep this package dependency-free and framework-agnostic.
 
+import type { Vector3 } from "./types.js";
+export type { Vector3 } from "./types.js";
+// EPIC 3 "The Arena": the single source of truth for map geometry, spawn
+// points, and their collision resolution — see mapData.ts / collision.ts
+// doc comments. Re-exported here so both client and server keep importing
+// everything from "@cubewars/shared" (this package's "main"/"types" entry).
+export * from "./mapData.js";
+export * from "./collision.js";
+
 export const PROTOCOL_VERSION = 1;
 
 // --- Movement tuning (shared so client prediction and the server's
@@ -20,12 +29,6 @@ export const MOVEMENT = {
 
 /** Server broadcast tick rate for world-state updates (Hz). See EPIC 2 handoff for rationale. */
 export const BROADCAST_TICK_HZ = 20;
-
-export interface Vector3 {
-  x: number;
-  y: number;
-  z: number;
-}
 
 export interface WelcomeMessage {
   type: "welcome";
