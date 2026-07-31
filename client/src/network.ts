@@ -5,6 +5,8 @@ import type {
   DeathEvent,
   HitEvent,
   KillEvent,
+  LoadoutMessage,
+  PickupStateMessage,
   RespawnEvent,
   ScoreboardMessage,
   ServerMessage,
@@ -25,6 +27,10 @@ export interface NetworkHandlers {
   onKill?: (message: KillEvent) => void;
   /** The full current scoreboard (EPIC 5 Story 5.2) — always a complete replacement list, never a delta. */
   onScoreboard?: (message: ScoreboardMessage) => void;
+  /** This client's own current weapon/ammo loadout (EPIC 6) — private to this connection, drives the weapon HUD. */
+  onLoadout?: (message: LoadoutMessage) => void;
+  /** The full current on/off state of every world pickup (EPIC 6 Story 6.1) — always a complete replacement list, never a delta. */
+  onPickupState?: (message: PickupStateMessage) => void;
   onClose?: () => void;
   onError?: (err: Event) => void;
 }
@@ -54,6 +60,10 @@ export class GameConnection {
           handlers.onKill?.(message);
         } else if (message.type === "scoreboard") {
           handlers.onScoreboard?.(message);
+        } else if (message.type === "loadout") {
+          handlers.onLoadout?.(message);
+        } else if (message.type === "pickup_state") {
+          handlers.onPickupState?.(message);
         }
       } catch (err) {
         console.error("[client] failed to parse server message", err);

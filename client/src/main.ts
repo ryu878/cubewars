@@ -1,11 +1,18 @@
 import * as THREE from "three";
-import { ARENA_BOUNDS, ARENA_GEOMETRY, type PlayerInputMessage, type WorldStateMessage } from "@cubewars/shared";
+import {
+  ARENA_BOUNDS,
+  ARENA_GEOMETRY,
+  WEAPON_STATS,
+  type PlayerInputMessage,
+  type WorldStateMessage,
+} from "@cubewars/shared";
 import { GameConnection } from "./network";
 import { FpsController } from "./fpsController";
 import { RemotePlayers } from "./remotePlayers";
 import { CombatHud } from "./combatHud";
 import { KillFeed } from "./killFeed";
 import { Scoreboard } from "./scoreboard";
+import { PickupRenderer } from "./pickups";
 
 const statusEl = document.getElementById("status") as HTMLDivElement;
 const hintEl = document.getElementById("hint") as HTMLDivElement;
@@ -75,6 +82,23 @@ const fps = new FpsController(camera, renderer.domElement, {
   },
 });
 const remotePlayers = new RemotePlayers(scene);
+// EPIC 6 Story 6.1/6.2: static pickup meshes, visibility driven purely by
+// the server's PickupStateMessage broadcasts (see onPickupState below) —
+// this renderer never decides pickup state itself.
+const pickupRenderer = new PickupRenderer(scene);
+
+// EPIC 6 Story 6.2: "E" cycles the equipped weapon. Edge-triggered on
+// keydown (event.repeat guards against the OS's own key-repeat firing this
+// on every repeat tick while held) and gated on pointer lock, same as fire
+// — the actual cycle order/logic is entirely server-decided
+// (registry.cycleWeapon(), server/src/playerRegistry.ts); this only ever
+// sends a bare intent, never a target weapon (see SwitchWeaponEvent doc
+// comment, shared/src/index.ts).
+window.addEventListener("keydown", (event) => {
+  if (event.code !== "KeyE" || event.repeat) return;
+  if (!fps.isLocked()) return;
+  connection.send({ type: "switch_weapon" });
+});
 
 function updateHint(): void {
   hintEl.style.display = fps.isLocked() ? "none" : "flex";
@@ -153,6 +177,16 @@ const connection = new GameConnection(wsUrl, {
   },
   onScoreboard: (message) => {
     scoreboard.update(message.players);
+  },
+  onLoadout: (message) => {
+    // EPIC 6: this client's own equipped weapon + ammo, entirely
+    // server-decided (LoadoutMessage is private to this connection, see
+    // server/src/index.ts sendLoadout()) — the HUD only ever renders it.
+    const stats = WEAPON_STATS[message.equippedWeapon];
+    hud.setWeapon(stats.displayName, stats.color, message.ammo);
+  },
+  onPickupState: (message) => {
+    pickupRenderer.sync(message.pickups);
   },
   onClose: () => {
     statusEl.textContent = "disconnected";

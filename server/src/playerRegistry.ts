@@ -7,10 +7,13 @@ import {
   MAX_PITCH,
   MOVEMENT,
   SPAWN_POINTS,
+  WEAPON_ORDER,
+  WEAPON_STATS,
   resolveHorizontalCollisions,
   type PlayerScore,
   type PlayerState,
   type Vector3,
+  type WeaponType,
 } from "@cubewars/shared";
 import { performHitscan } from "./combat.js";
 
@@ -55,6 +58,17 @@ export interface PlayerRecord {
   respawnAtMs: number | null;
   /** Confirmed kill count (EPIC 5 Story 5.2), in-memory only — resets on server restart, no persistence in this scope. Incremented exclusively in fire() below, the same place death is resolved, so this can never drift from what actually killed a player. */
   kills: number;
+  /**
+   * Weapon ownership + ammo (EPIC 6 "Weapons & Ammo"). Persists across death/
+   * respawn — a player keeps their picked-up weapons and remaining ammo
+   * after respawning (only health/position/alive reset); reset only on
+   * disconnect (the whole PlayerRecord is discarded, see remove()).
+   */
+  ownedWeapons: Set<WeaponType>;
+  /** Currently equipped weapon; always a member of ownedWeapons. */
+  equippedWeapon: WeaponType;
+  /** Remaining ammo per non-pistol weapon owned so far. Absent key == 0 (never picked up). Pistol is never tracked here (WEAPON_STATS.pistol.infiniteAmmo). */
+  ammo: Partial<Record<WeaponType, number>>;
   /** Latest validated input intent — physics integrates from this every tick, not from raw message timing. */
   intent: {
     moveForward: number;
@@ -63,8 +77,24 @@ export interface PlayerRecord {
   };
 }
 
+/** Result of PlayerRegistry.applyPickup() — whether the pickup-consumption rule (EPIC 6 spec) says this pickup actually benefited the player. */
+export interface ApplyPickupResult {
+  applied: boolean;
+}
+
+/** This player's current weapon/ammo state, for building a LoadoutMessage (shared/src/index.ts) — sent only to the owning player's own socket, never broadcast (server/src/index.ts sendLoadout()). */
+export interface LoadoutSnapshot {
+  equippedWeapon: WeaponType;
+  ammo: number | null;
+  ownedWeapons: WeaponType[];
+}
+
 export type FireOutcome =
-  | { hit: false }
+  | {
+      hit: false;
+      /** True if the miss was because the equipped weapon had 0 ammo (EPIC 6 "dry weapon" rule) — the caller logs this distinctly from a normal aim-miss. */
+      dry: boolean;
+    }
   | {
       hit: true;
       targetId: string;
@@ -169,6 +199,11 @@ export class PlayerRegistry {
       alive: true,
       respawnAtMs: null,
       kills: 0,
+      // EPIC 6: every player starts owning and equipping only the pistol
+      // (WEAPON_STATS.pistol) — rifle/grenade launcher must be picked up.
+      ownedWeapons: new Set<WeaponType>(["pistol"]),
+      equippedWeapon: "pistol",
+      ammo: {},
       intent: { moveForward: 0, moveRight: 0, jump: false },
     };
     this.players.set(id, record);
@@ -227,24 +262,45 @@ export class PlayerRegistry {
 
   /**
    * Resolve a fire event for `shooterId` using the server's own
-   * authoritative hitscan (server/src/combat.ts). Returns `{ hit: false }`
-   * if the shooter doesn't exist, is dead, or the ray didn't connect with
-   * another player (miss or blocked by geometry) — the caller (index.ts)
-   * only broadcasts a HitEvent/DeathEvent when `hit` is true, so a client
-   * can never make itself or anyone else take damage by merely claiming a
-   * hit (security-baseline.mdc).
+   * authoritative hitscan (server/src/combat.ts) and the shooter's own
+   * SERVER-TRACKED equipped weapon (never client-supplied — see
+   * shared/src/index.ts FireEvent doc comment; EPIC 6 keeps that discipline:
+   * there is still no client-side weapon/damage field anywhere in
+   * FireEvent). Returns `{ hit: false, dry }` if the shooter doesn't exist,
+   * is dead, the equipped weapon is out of ammo (`dry: true` — EPIC 6 "dry
+   * weapon" rule: no damage, ammo not further decremented, doesn't even
+   * attempt a hitscan), or the ray didn't connect with another player (miss
+   * or blocked by geometry, `dry: false`). The caller (index.ts) only
+   * broadcasts a HitEvent/DeathEvent when `hit` is true, so a client can
+   * never make itself or anyone else take damage by merely claiming a hit
+   * (security-baseline.mdc).
+   *
+   * Ammo is decremented here for every ACCEPTED shot (whether it goes on to
+   * hit or miss) for any non-pistol weapon — matches real trigger-pull
+   * semantics and the EPIC 6 Story 6.3 AC ("decrements ammo by 1 per
+   * confirmed accepted shot"), not only on a landed hit.
    */
   fire(shooterId: string): FireOutcome {
     const shooter = this.players.get(shooterId);
-    if (!shooter || !shooter.alive) return { hit: false };
+    if (!shooter || !shooter.alive) return { hit: false, dry: false };
+
+    const weapon = shooter.equippedWeapon;
+    const stats = WEAPON_STATS[weapon];
+    if (!stats.infiniteAmmo) {
+      const currentAmmo = shooter.ammo[weapon] ?? 0;
+      if (currentAmmo <= 0) {
+        return { hit: false, dry: true };
+      }
+      shooter.ammo[weapon] = currentAmmo - 1;
+    }
 
     const result = performHitscan(shooter, this.players.values());
-    if (!result.hitPlayerId || !result.point) return { hit: false };
+    if (!result.hitPlayerId || !result.point) return { hit: false, dry: false };
 
     const target = this.players.get(result.hitPlayerId);
-    if (!target || !target.alive) return { hit: false }; // defensive: target could not exist / already dead
+    if (!target || !target.alive) return { hit: false, dry: false }; // defensive: target could not exist / already dead
 
-    target.health = Math.max(0, target.health - COMBAT.damagePerHit);
+    target.health = Math.max(0, target.health - stats.damage);
     let killed = false;
     if (target.health <= 0) {
       target.alive = false;
@@ -259,12 +315,95 @@ export class PlayerRegistry {
     return {
       hit: true,
       targetId: target.id,
-      damage: COMBAT.damagePerHit,
+      damage: stats.damage,
       targetHealth: target.health,
       point: result.point,
       killed,
       respawnAtMs: target.respawnAtMs,
     };
+  }
+
+  /** The equipped weapon's fire cooldown for `id` (EPIC 6), used by index.ts's per-connection fire-rate gate in place of the old fixed COMBAT.fireCooldownMs. Falls back to the pistol's cooldown if the player is unknown (caller should already have checked existence/aliveness before relying on this). */
+  getFireCooldownMs(id: string): number {
+    const player = this.players.get(id);
+    const weapon = player?.equippedWeapon ?? "pistol";
+    return WEAPON_STATS[weapon].cooldownMs;
+  }
+
+  /**
+   * Apply the EPIC 6 pickup effect for `weapon` to player `id`: unlock the
+   * weapon if not already owned, then add its ammoPerPickup to current ammo
+   * capped at maxAmmo (one mechanic for both "weapon pickup" and "ammo
+   * pickup" — see shared/src/pickups.ts PickupSpawnPoint doc comment).
+   * Auto-equips ONLY on a first-time unlock whose tier is higher than the
+   * currently-equipped weapon's tier ("always have the best", EPIC 6 spec).
+   * Returns `applied: false` (and changes nothing) if the pickup would have
+   * no effect — already owned at max ammo — per the EPIC 6
+   * pickup-consumption rule: the caller (index.ts) must NOT consume the
+   * world pickup in that case, so it stays for someone who can use it.
+   */
+  applyPickup(id: string, weapon: WeaponType): ApplyPickupResult {
+    const player = this.players.get(id);
+    if (!player) return { applied: false };
+    // Defensive: PICKUP_SPAWN_POINTS never targets "pistol" (spec: pistol is
+    // never a pickup), but guard here too rather than trust the caller.
+    if (weapon === "pistol") return { applied: false };
+
+    const stats = WEAPON_STATS[weapon];
+    const alreadyOwned = player.ownedWeapons.has(weapon);
+    const currentAmmo = player.ammo[weapon] ?? 0;
+    if (alreadyOwned && currentAmmo >= stats.maxAmmo) {
+      return { applied: false };
+    }
+
+    player.ownedWeapons.add(weapon);
+    player.ammo[weapon] = Math.min(stats.maxAmmo, currentAmmo + stats.ammoPerPickup);
+    if (!alreadyOwned && stats.tier > WEAPON_STATS[player.equippedWeapon].tier) {
+      player.equippedWeapon = weapon;
+    }
+    return { applied: true };
+  }
+
+  /**
+   * Cycle `id`'s equipped weapon forward through OWNED weapons in tier order
+   * (EPIC 6 Story 6.2, "E" key) — pistol -> rifle -> grenade launcher ->
+   * pistol -> ..., skipping tiers not owned. Returns false (no change
+   * applied) if the player is unknown or owns only one weapon (nothing to
+   * cycle to — "pressing E with only the pistol owned does nothing" AC), so
+   * the caller can skip broadcasting/logging a no-op.
+   */
+  cycleWeapon(id: string): boolean {
+    const player = this.players.get(id);
+    if (!player) return false;
+
+    const owned = WEAPON_ORDER.filter((weapon) => player.ownedWeapons.has(weapon));
+    if (owned.length <= 1) return false;
+
+    const currentIndex = owned.indexOf(player.equippedWeapon);
+    const next = owned[(currentIndex + 1) % owned.length];
+    if (next === player.equippedWeapon) return false;
+    player.equippedWeapon = next;
+    return true;
+  }
+
+  /** This player's current loadout, for building a private LoadoutMessage (server/src/index.ts sendLoadout()) — null if the player is unknown (e.g. already disconnected). */
+  getLoadout(id: string): LoadoutSnapshot | null {
+    const player = this.players.get(id);
+    if (!player) return null;
+
+    const stats = WEAPON_STATS[player.equippedWeapon];
+    const ammo = stats.infiniteAmmo ? null : (player.ammo[player.equippedWeapon] ?? 0);
+    const ownedWeapons = WEAPON_ORDER.filter((weapon) => player.ownedWeapons.has(weapon));
+    return { equippedWeapon: player.equippedWeapon, ammo, ownedWeapons };
+  }
+
+  /** Id + current position of every currently-alive player — used by index.ts's tick loop to check pickup proximity (server/src/pickupSpawner.ts) without exposing the internal PlayerRecord map. */
+  alivePlayerPositions(): Array<{ id: string; position: Vector3 }> {
+    const list: Array<{ id: string; position: Vector3 }> = [];
+    for (const player of this.players.values()) {
+      if (player.alive) list.push({ id: player.id, position: player.position });
+    }
+    return list;
   }
 
   /**

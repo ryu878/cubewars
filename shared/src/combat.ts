@@ -45,16 +45,18 @@ export const PLAYER_HITBOX_CYLINDER_LENGTH = 1.2;
 /** Full feet-to-head height of the hitscan AABB, matching the rendered capsule's total extent (radius + cylinder + radius). */
 export const PLAYER_HITBOX_HEIGHT = PLAYER_HITBOX_CYLINDER_LENGTH + 2 * PLAYER_HITBOX_RADIUS;
 
-/** Tunable combat constants — one definition for both server enforcement and any client-side display/prediction. */
+/**
+ * Tunable combat constants — one definition for both server enforcement and
+ * any client-side display/prediction. Weapon-specific damage/fire-cooldown/
+ * ammo (EPIC 6 "Weapons & Ammo") live in shared/src/weapons.ts's
+ * WEAPON_STATS instead of here — this file keeps only what applies
+ * regardless of which weapon is equipped.
+ */
 export const COMBAT = {
   /** Starting/max health, in HP. */
   maxHealth: 100,
-  /** Flat damage applied per confirmed hit. */
-  damagePerHit: 25,
   /** Delay between death and automatic respawn, ms. */
   respawnDelayMs: 3000,
-  /** Minimum interval the server allows between accepted fire events from one connection, ms (server-enforced weapon rate limit; independent of the generic anti-flood debounce in server/src/index.ts). */
-  fireCooldownMs: 300,
   /** Maximum hitscan ray length, in world units. Comfortably exceeds the arena's ~105-unit diagonal (shared/src/mapData.ts ARENA_BOUNDS) so no in-bounds shot is ever truncated early. */
   hitscanMaxRange: 150,
 } as const;
