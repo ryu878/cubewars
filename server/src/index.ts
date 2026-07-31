@@ -66,7 +66,14 @@ const FLOOD_LOG_INTERVAL_MS = 5000;
 // resolves to a hitscan attempt, i.e. the weapon's rate of fire.
 const FIRE_COOLDOWN_MS = COMBAT.fireCooldownMs;
 
-const wss = new WebSocketServer({ port: PORT });
+// Infosec F1 (EPIC 4 review): ws@8's own default maxPayload is 100 MiB — the
+// library would fully buffer any frame up to that size into memory BEFORE
+// the app-level MAX_MESSAGE_BYTES check below ever runs, undercutting the
+// flood-guard work above (which only bounds message *rate*, not frame
+// *size*). Setting maxPayload here makes ws itself reject/close oversized
+// frames (code 1009) at the framing layer, before app code ever sees them.
+// Reuses MAX_MESSAGE_BYTES rather than introducing a second magic number.
+const wss = new WebSocketServer({ port: PORT, maxPayload: MAX_MESSAGE_BYTES });
 const registry = new PlayerRegistry();
 const sockets = new Map<string, WebSocket>();
 // Shared across EVERY message shape a connection can send (input, fire,
@@ -193,7 +200,7 @@ wss.on("connection", (socket: WebSocket) => {
     }
 
     const raw = data.toString();
-    if (raw.length > MAX_MESSAGE_BYTES) {
+    if (Buffer.byteLength(raw) > MAX_MESSAGE_BYTES) {
       oversizedDropTracker.record(playerId, now);
       return;
     }
