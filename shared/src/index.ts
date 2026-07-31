@@ -138,4 +138,47 @@ export interface RespawnEvent {
   health: number;
 }
 
-export type ServerMessage = WelcomeMessage | WorldStateMessage | HitEvent | DeathEvent | RespawnEvent;
+/**
+ * Server -> all clients: a kill happened (EPIC 5 Story 5.1). This is
+ * strictly additive to DeathEvent above — reuses the exact same death
+ * resolution in server/src/playerRegistry.ts's fire(), it does not introduce
+ * a second health/death system. DeathEvent remains the source of truth for
+ * "this player is dead and will respawn at X"; KillEvent exists purely to
+ * drive a transient kill-feed line and is broadcast to EVERY connected
+ * client, not just the attacker/victim, per the Story 5.1 acceptance
+ * criterion ("visible feed entry on every connected client").
+ */
+export interface KillEvent {
+  type: "kill";
+  attackerId: string;
+  victimId: string;
+}
+
+/** One player's server-authoritative kill count, as shown on the scoreboard (EPIC 5 Story 5.2). */
+export interface PlayerScore {
+  id: string;
+  kills: number;
+}
+
+/**
+ * Server -> all clients: the full current scoreboard (EPIC 5 Story 5.2),
+ * broadcast whenever it changes (a kill, a player joining, a player
+ * leaving) — event-driven like DeathEvent/RespawnEvent rather than sent
+ * every tick, since kill counts change far less often than position. Always
+ * carries the FULL list (not a delta), so a client that just joined — or
+ * missed an earlier update — is correct immediately from the next message,
+ * without needing to have observed every prior change.
+ */
+export interface ScoreboardMessage {
+  type: "scoreboard";
+  players: PlayerScore[];
+}
+
+export type ServerMessage =
+  | WelcomeMessage
+  | WorldStateMessage
+  | HitEvent
+  | DeathEvent
+  | RespawnEvent
+  | KillEvent
+  | ScoreboardMessage;

@@ -4,6 +4,8 @@ import { GameConnection } from "./network";
 import { FpsController } from "./fpsController";
 import { RemotePlayers } from "./remotePlayers";
 import { CombatHud } from "./combatHud";
+import { KillFeed } from "./killFeed";
+import { Scoreboard } from "./scoreboard";
 
 const statusEl = document.getElementById("status") as HTMLDivElement;
 const hintEl = document.getElementById("hint") as HTMLDivElement;
@@ -102,6 +104,14 @@ statusEl.dataset.state = "connecting";
 
 let selfId: string | null = null;
 
+// EPIC 5: kill feed and scoreboard are both driven entirely by server
+// broadcasts (KillEvent / ScoreboardMessage) wired below — neither ever
+// decides a kill or a score itself. `() => selfId` (not a snapshot) because
+// both are constructed before the async "welcome" message resolves this
+// client's own id.
+const killFeed = new KillFeed(() => selfId);
+const scoreboard = new Scoreboard(() => selfId);
+
 const connection = new GameConnection(wsUrl, {
   onOpen: () => {
     statusEl.textContent = "connected (waiting for welcome)";
@@ -137,6 +147,12 @@ const connection = new GameConnection(wsUrl, {
   },
   onRespawn: (message) => {
     if (message.playerId === selfId) hud.setDead(false);
+  },
+  onKill: (message) => {
+    killFeed.addKill(message.attackerId, message.victimId);
+  },
+  onScoreboard: (message) => {
+    scoreboard.update(message.players);
   },
   onClose: () => {
     statusEl.textContent = "disconnected";

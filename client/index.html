@@ -181,6 +181,88 @@
       #deathOverlay.visible {
         display: flex;
       }
+
+      /* --- EPIC 5 match flow: kill feed + scoreboard --- */
+
+      #killFeed {
+        position: fixed;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        z-index: 9;
+        pointer-events: none;
+        font-family: system-ui, sans-serif;
+      }
+      .kill-feed-entry {
+        padding: 5px 12px;
+        background: rgba(0, 0, 0, 0.6);
+        color: #fff;
+        font-size: 13px;
+        border-radius: 6px;
+        opacity: 1;
+        transition: opacity 400ms ease-out;
+        white-space: nowrap;
+      }
+      .kill-feed-entry.involves-self {
+        background: rgba(120, 20, 20, 0.75);
+      }
+      .kill-feed-entry.fading {
+        opacity: 0;
+      }
+      .kill-feed-name {
+        font-weight: 600;
+      }
+
+      #scoreboard {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        min-width: 260px;
+        max-height: 60vh;
+        overflow-y: auto;
+        background: rgba(0, 0, 0, 0.75);
+        color: #fff;
+        font-family: system-ui, sans-serif;
+        border-radius: 8px;
+        padding: 10px 14px;
+        z-index: 11;
+        display: none;
+        pointer-events: none;
+      }
+      #scoreboard.visible {
+        display: block;
+      }
+      #scoreboard h2 {
+        margin: 0 0 8px;
+        font-size: 14px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #ccc;
+      }
+      .scoreboard-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 24px;
+        padding: 4px 0;
+        font-size: 14px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .scoreboard-row:first-child {
+        border-top: none;
+      }
+      .scoreboard-row.self .scoreboard-name {
+        color: #ffdd33;
+      }
+      .scoreboard-kills {
+        font-variant-numeric: tabular-nums;
+        font-weight: 600;
+      }
     </style>
   </head>
   <body>
@@ -191,10 +273,15 @@
     <div id="damageFlash" aria-hidden="true"></div>
     <div id="muzzleFlash" aria-hidden="true"></div>
     <div id="deathOverlay"><div>You died &mdash; respawning&hellip;</div></div>
+    <div id="killFeed" aria-hidden="true"></div>
+    <div id="scoreboard" aria-hidden="true">
+      <h2>Scoreboard</h2>
+      <div id="scoreboardList"></div>
+    </div>
     <div id="hint">
       <div class="hint-box">
         <strong>Click to play</strong><br />
-        WASD move &middot; Mouse look &middot; Click to fire &middot; Space jump &middot; Esc to release
+        WASD move &middot; Mouse look &middot; Click to fire &middot; Space jump &middot; Esc to release &middot; Hold Tab for scoreboard
       </div>
     </div>
     <div id="app"></div>

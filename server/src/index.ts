@@ -7,7 +7,9 @@ import {
   type ClientMessage,
   type DeathEvent,
   type HitEvent,
+  type KillEvent,
   type RespawnEvent,
+  type ScoreboardMessage,
   type ServerMessage,
   type WelcomeMessage,
   type WorldStateMessage,
@@ -156,6 +158,20 @@ function broadcast(message: ServerMessage): void {
   }
 }
 
+/**
+ * Broadcast the full current scoreboard (EPIC 5 Story 5.2) to every
+ * connected client, including whoever just triggered the change — called on
+ * join, leave, and kill, so a newly-joined client always sees a correct,
+ * complete list (itself at 0 kills) rather than only future deltas.
+ */
+function broadcastScoreboard(): void {
+  const scoreboard: ScoreboardMessage = {
+    type: "scoreboard",
+    players: registry.getScores(),
+  };
+  broadcast(scoreboard);
+}
+
 console.log(`[server] cubewars game server listening on ws://localhost:${PORT}`);
 console.log(`[server] tick rate: ${TICK_HZ}Hz (${TICK_MS}ms)`);
 
@@ -172,6 +188,11 @@ wss.on("connection", (socket: WebSocket) => {
     serverTimeMs: Date.now(),
   };
   socket.send(JSON.stringify(welcome));
+  // EPIC 5 Story 5.2 AC: "a newly-joined player appears in the list at 0
+  // kills" — broadcast to everyone (including this new connection, already
+  // in `sockets` above) so the just-joined client also gets the full,
+  // correct list immediately instead of waiting for someone else's next kill.
+  broadcastScoreboard();
 
   socket.on("message", (data, isBinary) => {
     // Debounce check runs FIRST, before any binary/size/parse/type-dispatch
@@ -269,6 +290,19 @@ wss.on("connection", (socket: WebSocket) => {
         };
         broadcast(deathMessage);
         console.log(`[server] death: ${outcome.targetId} killed by ${playerId}`);
+
+        // EPIC 5 Story 5.1: additive to the DeathEvent above (same
+        // registry.fire() resolution, not a second death system) — a
+        // dedicated event purely to drive kill-feed UI on every connected
+        // client, not just attacker/victim.
+        const killMessage: KillEvent = {
+          type: "kill",
+          attackerId: playerId,
+          victimId: outcome.targetId,
+        };
+        broadcast(killMessage);
+        // Story 5.2: kill count changed, refresh every client's scoreboard.
+        broadcastScoreboard();
       }
       return;
     }
@@ -289,6 +323,9 @@ wss.on("connection", (socket: WebSocket) => {
     unknownTypeDropTracker.clear(playerId);
     malformedInputDropTracker.clear(playerId);
     console.log(`[server] player disconnected: ${playerId} (${registry.size()} online)`);
+    // Story 5.2 AC: "a disconnected player is removed" from every remaining
+    // client's scoreboard.
+    broadcastScoreboard();
   });
 
   socket.on("error", (err) => {

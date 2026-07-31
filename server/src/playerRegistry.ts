@@ -8,6 +8,7 @@ import {
   MOVEMENT,
   SPAWN_POINTS,
   resolveHorizontalCollisions,
+  type PlayerScore,
   type PlayerState,
   type Vector3,
 } from "@cubewars/shared";
@@ -52,6 +53,8 @@ export interface PlayerRecord {
   alive: boolean;
   /** Server timestamp (Date.now()-based) at which a dead player should respawn; null while alive. */
   respawnAtMs: number | null;
+  /** Confirmed kill count (EPIC 5 Story 5.2), in-memory only — resets on server restart, no persistence in this scope. Incremented exclusively in fire() below, the same place death is resolved, so this can never drift from what actually killed a player. */
+  kills: number;
   /** Latest validated input intent — physics integrates from this every tick, not from raw message timing. */
   intent: {
     moveForward: number;
@@ -78,21 +81,74 @@ export interface RespawnOutcome {
   health: number;
 }
 
+/**
+ * Anti-clustering threshold (EPIC 5 Story 5.3), in world units: a spawn
+ * point with an alive player closer than this is treated as "occupied" and
+ * excluded when a safer alternative exists. SPAWN_POINTS (shared/src/mapData.ts)
+ * are laid out with ~16 units between the nearest points within one site and
+ * ~68 units between the two sites, so this only ever excludes the
+ * literal nearest neighbor(s) of an occupied point, not an entire site.
+ */
+const MIN_SPAWN_SEPARATION = 12;
+
 export class PlayerRegistry {
   private players = new Map<string, PlayerRecord>();
 
   /**
-   * Pick one of the arena's pre-checked spawn points (EPIC 3 Story 3.3 /
-   * Task 5) and jitter a little so multiple players don't stack exactly on
-   * top of each other, then re-resolve against the same collision geometry
-   * used every simulation tick — a defensive guarantee that a spawn can
-   * never land inside a wall/crate even if a future edit moves SPAWN_POINTS
-   * closer to geometry than intended. Shared by both initial spawn() and
-   * respawn (processRespawns()) so there is exactly one spawn-picking
-   * implementation.
+   * Anti-clustering heuristic (EPIC 5 Story 5.3): rank every candidate in
+   * SPAWN_POINTS by its distance to the NEAREST currently-alive player, then
+   * pick randomly among whichever candidates clear MIN_SPAWN_SEPARATION
+   * (adds variety instead of always the single farthest point). If the
+   * arena is crowded enough that no candidate clears the margin, fall back
+   * to the single point with the largest such distance ("farthest from
+   * other players") rather than picking blindly at random — this is the
+   * "prefer the spawn point farthest from other players" fallback the Story
+   * 5.3 AC explicitly allows. With zero alive players (first connection),
+   * every point is equally fine and this reduces to a plain random pick,
+   * same as before this EPIC.
+   */
+  private chooseSpawnPoint(): Vector3 {
+    const others: Vector3[] = [];
+    for (const player of this.players.values()) {
+      if (player.alive) others.push(player.position);
+    }
+
+    if (others.length === 0) {
+      return SPAWN_POINTS[Math.floor(Math.random() * SPAWN_POINTS.length)];
+    }
+
+    const ranked = SPAWN_POINTS.map((point) => {
+      let nearestDistance = Infinity;
+      for (const other of others) {
+        const distance = Math.hypot(point.x - other.x, point.z - other.z);
+        if (distance < nearestDistance) nearestDistance = distance;
+      }
+      return { point, nearestDistance };
+    });
+
+    const clear = ranked.filter((candidate) => candidate.nearestDistance >= MIN_SPAWN_SEPARATION);
+    if (clear.length > 0) {
+      return clear[Math.floor(Math.random() * clear.length)].point;
+    }
+
+    let farthest = ranked[0];
+    for (const candidate of ranked) {
+      if (candidate.nearestDistance > farthest.nearestDistance) farthest = candidate;
+    }
+    return farthest.point;
+  }
+
+  /**
+   * Pick a spawn point via the anti-clustering heuristic above, then jitter
+   * a little (so repeat spawns at the same point don't land pixel-identical)
+   * and re-resolve against the same collision geometry used every
+   * simulation tick — a defensive guarantee that a spawn can never land
+   * inside a wall/crate even if a future edit moves SPAWN_POINTS closer to
+   * geometry than intended. Shared by both initial spawn() and respawn
+   * (processRespawns()) so there is exactly one spawn-picking implementation.
    */
   private pickSpawnPosition(): Vector3 {
-    const base = SPAWN_POINTS[Math.floor(Math.random() * SPAWN_POINTS.length)];
+    const base = this.chooseSpawnPoint();
     const jitterRadius = 2;
     const angle = Math.random() * Math.PI * 2;
     const jitterX = Math.cos(angle) * jitterRadius * Math.random();
@@ -112,6 +168,7 @@ export class PlayerRegistry {
       health: COMBAT.maxHealth,
       alive: true,
       respawnAtMs: null,
+      kills: 0,
       intent: { moveForward: 0, moveRight: 0, jump: false },
     };
     this.players.set(id, record);
@@ -193,6 +250,10 @@ export class PlayerRegistry {
       target.alive = false;
       target.respawnAtMs = Date.now() + COMBAT.respawnDelayMs;
       killed = true;
+      // EPIC 5 Story 5.2: the shooter's confirmed kill count, incremented in
+      // exactly this one place (the same spot death is resolved) so it can
+      // never drift from what actually killed a player.
+      shooter.kills += 1;
     }
 
     return {
@@ -300,6 +361,22 @@ export class PlayerRegistry {
       player.velocityY = 0;
       player.grounded = true;
     }
+  }
+
+  /**
+   * Current kill count for every connected player (EPIC 5 Story 5.2),
+   * highest kills first (ties broken by id) — sorted server-side so the
+   * client stays a plain renderer of what the server already decided,
+   * rather than re-deriving presentation order from raw per-player data
+   * itself.
+   */
+  getScores(): PlayerScore[] {
+    const scores: PlayerScore[] = [];
+    for (const player of this.players.values()) {
+      scores.push({ id: player.id, kills: player.kills });
+    }
+    scores.sort((a, b) => b.kills - a.kills || a.id.localeCompare(b.id));
+    return scores;
   }
 
   toWorldState(): PlayerState[] {

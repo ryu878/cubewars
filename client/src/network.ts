@@ -4,7 +4,9 @@ import type {
   ClientMessage,
   DeathEvent,
   HitEvent,
+  KillEvent,
   RespawnEvent,
+  ScoreboardMessage,
   ServerMessage,
   WorldStateMessage,
 } from "@cubewars/shared";
@@ -19,6 +21,10 @@ export interface NetworkHandlers {
   onDeath?: (message: DeathEvent) => void;
   /** A previously-dead player respawned (EPIC 4 Story 4.2) — cosmetic feedback trigger only. */
   onRespawn?: (message: RespawnEvent) => void;
+  /** A kill happened (EPIC 5 Story 5.1) — drives the transient kill-feed line, broadcast to every client. */
+  onKill?: (message: KillEvent) => void;
+  /** The full current scoreboard (EPIC 5 Story 5.2) — always a complete replacement list, never a delta. */
+  onScoreboard?: (message: ScoreboardMessage) => void;
   onClose?: () => void;
   onError?: (err: Event) => void;
 }
@@ -44,6 +50,10 @@ export class GameConnection {
           handlers.onDeath?.(message);
         } else if (message.type === "respawn") {
           handlers.onRespawn?.(message);
+        } else if (message.type === "kill") {
+          handlers.onKill?.(message);
+        } else if (message.type === "scoreboard") {
+          handlers.onScoreboard?.(message);
         }
       } catch (err) {
         console.error("[client] failed to parse server message", err);
