@@ -30,10 +30,36 @@
         z-index: 10;
         pointer-events: none;
       }
+      #hint {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.35);
+        color: #fff;
+        font-family: system-ui, sans-serif;
+        text-align: center;
+        z-index: 5;
+        /* Let clicks pass through to the canvas below so clicking the hint itself engages pointer lock. */
+        pointer-events: none;
+      }
+      #hint .hint-box {
+        padding: 16px 24px;
+        background: rgba(0, 0, 0, 0.5);
+        border-radius: 10px;
+        line-height: 1.6;
+      }
     </style>
   </head>
   <body>
     <div id="status" data-state="connecting">connecting…</div>
+    <div id="hint">
+      <div class="hint-box">
+        <strong>Click to play</strong><br />
+        WASD move &middot; Mouse look &middot; Space jump &middot; Esc to release
+      </div>
+    </div>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

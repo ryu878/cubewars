@@ -1,11 +1,14 @@
 import * as THREE from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import type { ServerMessage } from "@cubewars/shared";
+import type { PlayerInputMessage, WorldStateMessage } from "@cubewars/shared";
+import { GameConnection } from "./network";
+import { FpsController } from "./fpsController";
+import { RemotePlayers } from "./remotePlayers";
 
 const statusEl = document.getElementById("status") as HTMLDivElement;
+const hintEl = document.getElementById("hint") as HTMLDivElement;
 const appEl = document.getElementById("app") as HTMLDivElement;
 
-// --- Scene ---
+// --- Scene (unchanged from EPIC 1 — ground/blocks/sky are EPIC 3/4's job) ---
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb); // sky blue
 scene.fog = new THREE.Fog(0x87ceeb, 30, 120);
@@ -16,7 +19,6 @@ const camera = new THREE.PerspectiveCamera(
   0.1,
   1000,
 );
-camera.position.set(6, 5, 10);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -55,23 +57,15 @@ for (let i = 0; i < 8; i++) {
   scene.add(block);
 }
 
-// --- Placeholder player avatar ---
-const bodyMat = new THREE.MeshStandardMaterial({ color: 0xe63946 });
-const body = new THREE.Mesh(
-  new THREE.CapsuleGeometry(0.5, 1.2, 4, 8),
-  bodyMat,
-);
-body.position.y = 1.1;
-scene.add(body);
+// --- First-person controls (replaces EPIC 1's OrbitControls demo camera) ---
+const fps = new FpsController(camera, renderer.domElement);
+const remotePlayers = new RemotePlayers(scene);
 
-// --- Camera controls (drag to look around) ---
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 1, 0);
-controls.enableDamping = true;
-controls.dampingFactor = 0.08;
-controls.minDistance = 3;
-controls.maxDistance = 40;
-controls.update();
+function updateHint(): void {
+  hintEl.style.display = fps.isLocked() ? "none" : "flex";
+}
+document.addEventListener("pointerlockchange", updateHint);
+updateHint();
 
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -79,9 +73,11 @@ window.addEventListener("resize", () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+const clock = new THREE.Clock();
 function animate() {
   requestAnimationFrame(animate);
-  controls.update();
+  const dt = Math.min(clock.getDelta(), 0.1); // clamp so a tab-switch pause doesn't cause a huge jump
+  fps.update(dt);
   renderer.render(scene, camera);
 }
 animate();
@@ -91,31 +87,42 @@ const wsUrl = import.meta.env.VITE_CUBEWARS_WS_URL ?? "ws://localhost:7777";
 statusEl.textContent = `connecting to ${wsUrl}…`;
 statusEl.dataset.state = "connecting";
 
-const socket = new WebSocket(wsUrl);
+let selfId: string | null = null;
 
-socket.addEventListener("open", () => {
-  statusEl.textContent = "connected (waiting for welcome)";
-});
-
-socket.addEventListener("message", (event) => {
-  try {
-    const message = JSON.parse(event.data as string) as ServerMessage;
-    if (message.type === "welcome") {
-      statusEl.textContent = `connected — player ${message.playerId.slice(0, 8)}`;
-      statusEl.dataset.state = "connected";
+const connection = new GameConnection(wsUrl, {
+  onOpen: () => {
+    statusEl.textContent = "connected (waiting for welcome)";
+  },
+  onWelcome: (playerId) => {
+    selfId = playerId;
+    statusEl.textContent = `connected — player ${playerId.slice(0, 8)}`;
+    statusEl.dataset.state = "connected";
+  },
+  onWorldState: (message: WorldStateMessage) => {
+    remotePlayers.sync(message.players, selfId);
+    if (selfId) {
+      const self = message.players.find((p) => p.id === selfId);
+      if (self) fps.reconcile(self.position);
     }
-  } catch (err) {
-    console.error("[client] failed to parse server message", err);
-  }
+  },
+  onClose: () => {
+    statusEl.textContent = "disconnected";
+    statusEl.dataset.state = "disconnected";
+  },
+  onError: (err) => {
+    console.error("[client] websocket error", err);
+    statusEl.textContent = "connection error";
+    statusEl.dataset.state = "error";
+  },
 });
 
-socket.addEventListener("close", () => {
-  statusEl.textContent = "disconnected";
-  statusEl.dataset.state = "disconnected";
-});
-
-socket.addEventListener("error", (err) => {
-  console.error("[client] websocket error", err);
-  statusEl.textContent = "connection error";
-  statusEl.dataset.state = "error";
-});
+// Send input intent on a fixed interval, independent of render frame rate.
+// ~30Hz (33ms) is responsive without flooding the server; the server's own
+// broadcast tick is 20Hz (see server/src/index.ts). This is intent only —
+// the server computes and broadcasts the actual authoritative position.
+const INPUT_SEND_INTERVAL_MS = 33;
+setInterval(() => {
+  const intent = fps.getInputIntent();
+  const message: PlayerInputMessage = { type: "input", ...intent };
+  connection.send(message);
+}, INPUT_SEND_INTERVAL_MS);
