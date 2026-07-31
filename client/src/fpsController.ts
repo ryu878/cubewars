@@ -3,7 +3,7 @@
 // resulting position (security-baseline.mdc) — see reconcile().
 
 import * as THREE from "three";
-import { MOVEMENT } from "@cubewars/shared";
+import { MOVEMENT, resolveHorizontalCollisions } from "@cubewars/shared";
 
 const EYE_HEIGHT = 1.7;
 const MOUSE_SENSITIVITY = 0.0025;
@@ -109,8 +109,18 @@ export class FpsController {
     const rightX = Math.cos(this.yaw);
     const rightZ = -Math.sin(this.yaw);
 
-    this.position.x += (forwardX * moveForward + rightX * moveRight) * MOVEMENT.maxSpeed * dt;
-    this.position.z += (forwardZ * moveForward + rightZ * moveRight) * MOVEMENT.maxSpeed * dt;
+    const nextX = this.position.x + (forwardX * moveForward + rightX * moveRight) * MOVEMENT.maxSpeed * dt;
+    const nextZ = this.position.z + (forwardZ * moveForward + rightZ * moveRight) * MOVEMENT.maxSpeed * dt;
+
+    // Local collision prediction (EPIC 3 Story 3.3): resolve against the
+    // same shared ARENA_GEOMETRY the server uses, so walking into a wall
+    // stops the player immediately and responsively. This is a feel/
+    // prediction layer only — reconcile() below still pulls the visual
+    // position toward whatever the server's authoritative broadcast says,
+    // exactly as EPIC 2 already does for the rest of movement.
+    const resolved = resolveHorizontalCollisions(nextX, nextZ);
+    this.position.x = resolved.x;
+    this.position.z = resolved.z;
 
     if (this.keys.has("Space") && this.grounded) {
       this.velocityY = MOVEMENT.jumpSpeed;

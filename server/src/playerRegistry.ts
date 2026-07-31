@@ -2,9 +2,15 @@
 // Deliberately transport-agnostic: no `ws` types here, only game/simulation
 // state (per global-standards.mdc: keep game logic separate from transport).
 
-import { MOVEMENT, type PlayerState, type Vector3 } from "@cubewars/shared";
+import {
+  MOVEMENT,
+  SPAWN_POINTS,
+  resolveHorizontalCollisions,
+  type PlayerState,
+  type Vector3,
+} from "@cubewars/shared";
 
-/** Sanity bound so a malformed/runaway input can never send a player to infinity (no map/walls exist yet in EPIC 2). */
+/** Sanity bound so a malformed/runaway input can never send a player to infinity — a coarse outer clamp, independent of (and checked before) the precise wall/crate collision resolution below. */
 const WORLD_BOUND = 200;
 
 /** Clamp a value into [-1, 1] — defends against an out-of-range or malicious moveForward/moveRight. */
@@ -41,15 +47,25 @@ export class PlayerRegistry {
   private players = new Map<string, PlayerRecord>();
 
   spawn(id: string): PlayerRecord {
-    // Spread spawns out a little so multiple players don't stack exactly on top of each other.
-    const spawnRadius = 6;
+    // Pick one of the arena's pre-checked spawn points (EPIC 3 Story 3.3 /
+    // Task 5) and jitter a little so multiple players don't stack exactly
+    // on top of each other, then re-resolve against the same collision
+    // geometry used every simulation tick — a defensive guarantee that a
+    // spawn can never land inside a wall/crate even if a future edit moves
+    // SPAWN_POINTS closer to geometry than intended.
+    const base = SPAWN_POINTS[Math.floor(Math.random() * SPAWN_POINTS.length)];
+    const jitterRadius = 2;
     const angle = Math.random() * Math.PI * 2;
+    const jitterX = Math.cos(angle) * jitterRadius * Math.random();
+    const jitterZ = Math.sin(angle) * jitterRadius * Math.random();
+    const resolved = resolveHorizontalCollisions(base.x + jitterX, base.z + jitterZ);
+
     const record: PlayerRecord = {
       id,
       position: {
-        x: Math.cos(angle) * spawnRadius * Math.random(),
+        x: resolved.x,
         y: MOVEMENT.groundY,
-        z: Math.sin(angle) * spawnRadius * Math.random(),
+        z: resolved.z,
       },
       velocityY: 0,
       grounded: true,
@@ -139,10 +155,19 @@ export class PlayerRegistry {
     const dx = (forwardX * moveForward + rightX * moveRight) * MOVEMENT.maxSpeed * dt;
     const dz = (forwardZ * moveForward + rightZ * moveRight) * MOVEMENT.maxSpeed * dt;
 
-    player.position.x = clampBound(player.position.x + dx);
-    player.position.z = clampBound(player.position.z + dz);
+    // Authoritative collision (EPIC 3 Story 3.3): resolve the proposed
+    // position against the exact same ARENA_GEOMETRY the client renders
+    // and predicts against. This is what actually matters for anti-cheat —
+    // no matter what the client's own prediction claims, the position
+    // broadcast to every player is clamped clear of every wall/crate here.
+    const proposedX = clampBound(player.position.x + dx);
+    const proposedZ = clampBound(player.position.z + dz);
+    const resolved = resolveHorizontalCollisions(proposedX, proposedZ);
+    player.position.x = resolved.x;
+    player.position.z = resolved.z;
 
-    // Vertical: gravity + jump, simple ground clamp (no map/walls in EPIC 2).
+    // Vertical: gravity + jump, simple ground clamp (map geometry is not
+    // height-aware for collision purposes — see collision.ts doc comment).
     if (intent.jump && player.grounded) {
       player.velocityY = MOVEMENT.jumpSpeed;
       player.grounded = false;
