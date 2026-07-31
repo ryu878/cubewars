@@ -50,14 +50,151 @@
         border-radius: 10px;
         line-height: 1.6;
       }
+
+      /* --- EPIC 4 combat HUD: crosshair, health, hit/damage/muzzle feedback, death overlay --- */
+
+      #crosshair {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        width: 18px;
+        height: 18px;
+        margin: -9px 0 0 -9px;
+        z-index: 6;
+        pointer-events: none;
+      }
+      #crosshair::before,
+      #crosshair::after {
+        content: "";
+        position: absolute;
+        background: rgba(255, 255, 255, 0.85);
+        box-shadow: 0 0 2px rgba(0, 0, 0, 0.6);
+      }
+      #crosshair::before {
+        left: 8px;
+        top: 0;
+        width: 2px;
+        height: 18px;
+      }
+      #crosshair::after {
+        top: 8px;
+        left: 0;
+        width: 18px;
+        height: 2px;
+      }
+
+      #healthHud {
+        position: fixed;
+        top: 12px;
+        right: 12px;
+        padding: 6px 12px;
+        background: rgba(0, 0, 0, 0.6);
+        color: #fff;
+        font-family: system-ui, sans-serif;
+        font-size: 14px;
+        border-radius: 6px;
+        z-index: 10;
+        pointer-events: none;
+      }
+      #healthHud[data-low="true"] {
+        color: #ff8a8a;
+      }
+
+      #hitMarker {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        width: 24px;
+        height: 24px;
+        margin: -12px 0 0 -12px;
+        z-index: 7;
+        opacity: 0;
+        transition: opacity 80ms ease-out;
+        pointer-events: none;
+      }
+      #hitMarker.visible {
+        opacity: 1;
+      }
+      #hitMarker::before,
+      #hitMarker::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 50%;
+        width: 3px;
+        height: 24px;
+        margin-left: -1.5px;
+        background: #ffdd33;
+      }
+      #hitMarker::before {
+        transform: rotate(45deg);
+      }
+      #hitMarker::after {
+        transform: rotate(-45deg);
+      }
+
+      #damageFlash {
+        position: fixed;
+        inset: 0;
+        z-index: 4;
+        background: radial-gradient(ellipse at center, rgba(220, 0, 0, 0) 55%, rgba(200, 0, 0, 0.45) 100%);
+        opacity: 0;
+        transition: opacity 120ms ease-out;
+        pointer-events: none;
+      }
+      #damageFlash.visible {
+        opacity: 1;
+      }
+
+      #muzzleFlash {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        width: 40px;
+        height: 40px;
+        margin: -20px 0 0 -20px;
+        border-radius: 50%;
+        background: rgba(255, 230, 150, 0.9);
+        z-index: 6;
+        opacity: 0;
+        transition: opacity 60ms ease-out;
+        pointer-events: none;
+      }
+      #muzzleFlash.visible {
+        opacity: 1;
+      }
+
+      #deathOverlay {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(80, 0, 0, 0.55);
+        color: #fff;
+        font-family: system-ui, sans-serif;
+        font-size: 22px;
+        text-align: center;
+        z-index: 8;
+        pointer-events: none;
+      }
+      #deathOverlay.visible {
+        display: flex;
+      }
     </style>
   </head>
   <body>
     <div id="status" data-state="connecting">connecting…</div>
+    <div id="healthHud" data-low="false">Health: 100</div>
+    <div id="crosshair" aria-hidden="true"></div>
+    <div id="hitMarker" aria-hidden="true"></div>
+    <div id="damageFlash" aria-hidden="true"></div>
+    <div id="muzzleFlash" aria-hidden="true"></div>
+    <div id="deathOverlay"><div>You died &mdash; respawning&hellip;</div></div>
     <div id="hint">
       <div class="hint-box">
         <strong>Click to play</strong><br />
-        WASD move &middot; Mouse look &middot; Space jump &middot; Esc to release
+        WASD move &middot; Mouse look &middot; Click to fire &middot; Space jump &middot; Esc to release
       </div>
     </div>
     <div id="app"></div>
