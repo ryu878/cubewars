@@ -295,6 +295,20 @@ export class PlayerRegistry {
     return this.players.get(id)?.alive ?? false;
   }
 
+  /**
+   * Direct read access to a player's full authoritative record (EPIC 9 bot
+   * AI — server/src/botAI.ts needs to read a bot's own position/yaw/alive
+   * state every tick to decide its next input intent, the same way it would
+   * read `PlayerState` fields if it were a client). Server-internal only,
+   * never serialized back to any client. Callers must still go through
+   * applyInput()/fire()/etc. for any state MUTATION — this getter exists for
+   * reads only, by convention (not enforced by the type system, since this
+   * stays entirely within the trusted server process).
+   */
+  getPlayer(id: string): PlayerRecord | undefined {
+    return this.players.get(id);
+  }
+
   size(): number {
     return this.players.size;
   }
