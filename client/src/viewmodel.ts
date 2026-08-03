@@ -15,7 +15,9 @@ import * as THREE from "three";
 import { WEAPON_ORDER, WEAPON_STATS, type WeaponType } from "@cubewars/shared";
 
 /** Lower-right, in front of the camera — typical FPS viewmodel placement. Camera-local space (camera looks down -z). */
-const VIEWMODEL_BASE_POSITION = new THREE.Vector3(0.32, -0.32, -0.55);
+const VIEWMODEL_BASE_POSITION = new THREE.Vector3(0.16, -0.12, -0.7);
+/** Uniform shrink applied to every weapon model so it reads as a held gun near the bottom-right, not an oversized prop filling a quarter of the screen. */
+const VIEWMODEL_SCALE = 0.7;
 
 const SWAY_SPEED = 1.6;
 const SWAY_AMPLITUDE_X = 0.012;
@@ -100,7 +102,7 @@ function buildRifleVisual(color: number): WeaponVisual {
   barrel.position.set(0, 0.01, -0.5);
   group.add(stock, body, barrel);
 
-  const { mesh: flashMesh, material: flashMaterial } = makeFlash(0xffcf70, 0.08);
+  const { mesh: flashMesh, material: flashMaterial } = makeFlash(0xff9d2e, 0.08);
   flashMesh.position.set(0, 0.01, -0.72);
   group.add(flashMesh);
 
@@ -162,6 +164,7 @@ export class WeaponViewmodel {
     for (const type of WEAPON_ORDER) {
       const visual = this.visuals[type];
       visual.group.visible = type === this.currentWeapon;
+      visual.group.scale.setScalar(VIEWMODEL_SCALE);
       this.root.add(visual.group);
     }
   }
