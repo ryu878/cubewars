@@ -146,7 +146,29 @@ export interface SwitchWeaponEvent {
   type: "switch_weapon";
 }
 
-export type ClientMessage = PlayerInputMessage | FireEvent | SwitchWeaponEvent;
+/**
+ * Match kind a connection can join (EPIC 9 "Bots & Match Modes" Architecture
+ * Section 2): `"public"` is the single persistent shared world (today's
+ * game, unchanged) — `"bots"` creates/joins a fresh private match with
+ * exactly this one connection + 2 AI-controlled bots.
+ */
+export type MatchMode = "public" | "bots";
+
+/**
+ * Client -> server: join a match (EPIC 9 Story 9.2). Sent exactly once per
+ * connection, after `welcome` and before any gameplay message
+ * (input/fire/switch_weapon) — the server does not spawn this connection
+ * into any match, and rejects/ignores gameplay messages from it, until this
+ * arrives (server/src/index.ts join-gating; security-baseline.mdc "reject
+ * what shouldn't be trusted"). No session persistence: a reconnect/refresh
+ * is a brand-new connection that must join again.
+ */
+export interface JoinMessage {
+  type: "join";
+  mode: MatchMode;
+}
+
+export type ClientMessage = PlayerInputMessage | FireEvent | SwitchWeaponEvent | JoinMessage;
 
 /** A single player's authoritative, server-computed state as broadcast to all clients. */
 export interface PlayerState {
