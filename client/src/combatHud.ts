@@ -21,6 +21,7 @@ function pulse(el: HTMLElement, timers: { handle: number | undefined }): void {
 
 export class CombatHud {
   private healthEl: HTMLElement;
+  private armorEl: HTMLElement;
   private hitMarkerEl: HTMLElement;
   private damageFlashEl: HTMLElement;
   private muzzleFlashEl: HTMLElement;
@@ -33,6 +34,7 @@ export class CombatHud {
 
   constructor() {
     this.healthEl = document.getElementById("healthHud") as HTMLElement;
+    this.armorEl = document.getElementById("armorHud") as HTMLElement;
     this.hitMarkerEl = document.getElementById("hitMarker") as HTMLElement;
     this.damageFlashEl = document.getElementById("damageFlash") as HTMLElement;
     this.muzzleFlashEl = document.getElementById("muzzleFlash") as HTMLElement;
@@ -45,6 +47,20 @@ export class CombatHud {
     const clamped = Math.max(0, Math.round(health));
     this.healthEl.textContent = `Health: ${clamped}`;
     this.healthEl.dataset.low = clamped <= 30 ? "true" : "false";
+  }
+
+  /**
+   * Update the on-screen armor readout (EPIC 7 Story 7.2 AC: "HUD shows
+   * armor value alongside health"). Always driven by the server's own
+   * PlayerState.armor (WorldStateMessage), never a locally-guessed value —
+   * same discipline as setHealth() above. Hidden (0 armor is still shown,
+   * not hidden) so the player always has a stable readout of "do I have any
+   * armor right now".
+   */
+  setArmor(armor: number): void {
+    const clamped = Math.max(0, Math.round(armor));
+    this.armorEl.textContent = `Armor: ${clamped}`;
+    this.armorEl.dataset.zero = clamped <= 0 ? "true" : "false";
   }
 
   /** Brief cosmetic pulse fired immediately on the local player's own click-to-fire, before any server confirmation — responsiveness "juice", not a claim of a landed hit. */

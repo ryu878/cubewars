@@ -10,6 +10,7 @@ import {
   WEAPON_ORDER,
   WEAPON_STATS,
   resolveHorizontalCollisions,
+  type PickupCategory,
   type PlayerScore,
   type PlayerState,
   type Vector3,
@@ -52,6 +53,15 @@ export interface PlayerRecord {
   pitch: number;
   /** Current health, [0, COMBAT.maxHealth]. */
   health: number;
+  /**
+   * Current armor, [0, COMBAT.maxArmor] (EPIC 7 "Health & Armor Pickups").
+   * Absorbs damage before health on a confirmed hit (see fire() below).
+   * Reset to 0 on every respawn (see applyBaselineLoadout()) and on a
+   * brand-new connection (spawn()) — armor does not persist across death
+   * (EPIC 7 spec Section 2), matching the pistol-only weapon reset EPIC 6
+   * already established.
+   */
+  armor: number;
   /** False while dead and waiting to respawn. */
   alive: boolean;
   /** Server timestamp (Date.now()-based) at which a dead player should respawn; null while alive. */
@@ -103,6 +113,8 @@ export type FireOutcome =
       targetId: string;
       damage: number;
       targetHealth: number;
+      /** Target's remaining armor after this hit's absorption math (EPIC 7 Section 2) — not part of the broadcast HitEvent (world_state's PlayerState.armor is the continuous source of truth for clients), only surfaced here for the caller's server-log line so Tester/ops can see the armor-absorbs-first math play out per hit. */
+      targetArmor: number;
       point: Vector3;
       killed: boolean;
       respawnAtMs: number | null;
@@ -115,18 +127,24 @@ export interface RespawnOutcome {
 }
 
 /**
- * Apply the pistol-only baseline loadout to `player`, in place. Used by both
- * spawn() (a brand-new connection) and processRespawns() (EPIC 6 Critic
- * review non-blocking recommendation, folded in before merge: weapon/ammo
- * ownership resets on death rather than persisting indefinitely, matching
- * arena-FFA convention and the "ammo scarcity has real stakes" intent the
- * EPIC is building toward) — one baseline definition, not a literal
- * duplicated in two places.
+ * Apply the pistol-only baseline loadout (plus zeroed armor, EPIC 7) to
+ * `player`, in place. Used by both spawn() (a brand-new connection) and
+ * processRespawns() (EPIC 6 Critic review non-blocking recommendation,
+ * folded in before merge: weapon/ammo ownership resets on death rather than
+ * persisting indefinitely, matching arena-FFA convention and the "ammo
+ * scarcity has real stakes" intent the EPIC is building toward) — one
+ * baseline definition, not a literal duplicated in two places. EPIC 7
+ * extends this same reset (rather than adding a second respawn-reset path,
+ * per the EPIC 7 spec's explicit instruction) to also zero armor: "armor
+ * does not persist across death ... it must be re-earned each life."
  */
-function applyBaselineLoadout(player: Pick<PlayerRecord, "ownedWeapons" | "equippedWeapon" | "ammo">): void {
+function applyBaselineLoadout(
+  player: Pick<PlayerRecord, "ownedWeapons" | "equippedWeapon" | "ammo" | "armor">,
+): void {
   player.ownedWeapons = new Set<WeaponType>(["pistol"]);
   player.equippedWeapon = "pistol";
   player.ammo = {};
+  player.armor = 0;
 }
 
 /**
@@ -214,13 +232,15 @@ export class PlayerRegistry {
       yaw: 0,
       pitch: 0,
       health: COMBAT.maxHealth,
+      armor: 0,
       alive: true,
       respawnAtMs: null,
       kills: 0,
       // Placeholder values, immediately overwritten below by
-      // applyBaselineLoadout() — the same pistol-only baseline reapplied on
-      // every respawn (processRespawns()), so there is exactly one
-      // definition of "the starting loadout" instead of a duplicated literal.
+      // applyBaselineLoadout() — the same pistol-only baseline (plus zeroed
+      // armor, EPIC 7) reapplied on every respawn (processRespawns()), so
+      // there is exactly one definition of "the starting loadout" instead of
+      // a duplicated literal.
       ownedWeapons: new Set<WeaponType>(),
       equippedWeapon: "pistol",
       ammo: {},
@@ -321,7 +341,22 @@ export class PlayerRegistry {
     const target = this.players.get(result.hitPlayerId);
     if (!target || !target.alive) return { hit: false, dry: false }; // defensive: target could not exist / already dead
 
-    target.health = Math.max(0, target.health - stats.damage);
+    // EPIC 7 "Health & Armor Pickups" Section 2 damage-absorption order:
+    // armor absorbs first. If armor fully covers this hit, only armor drops
+    // and health is untouched; otherwise armor is drained to 0 and exactly
+    // the remainder ("spillover") comes off health. This is computed here,
+    // server-side, from the target's own authoritative armor/health — never
+    // anything the client asserts (security-baseline.mdc), same discipline
+    // as the pre-EPIC-7 direct-to-health line this replaces. Worked example
+    // from the spec: 10 armor + a 25-damage pistol hit -> armor absorbs 10,
+    // spillover = 25 - 10 = 15 -> armor 0, health -= 15.
+    if (target.armor >= stats.damage) {
+      target.armor -= stats.damage;
+    } else {
+      const spillover = stats.damage - target.armor;
+      target.armor = 0;
+      target.health = Math.max(0, target.health - spillover);
+    }
     let killed = false;
     if (target.health <= 0) {
       target.alive = false;
@@ -338,6 +373,7 @@ export class PlayerRegistry {
       targetId: target.id,
       damage: stats.damage,
       targetHealth: target.health,
+      targetArmor: target.armor,
       point: result.point,
       killed,
       respawnAtMs: target.respawnAtMs,
@@ -352,23 +388,48 @@ export class PlayerRegistry {
   }
 
   /**
-   * Apply the EPIC 6 pickup effect for `weapon` to player `id`: unlock the
-   * weapon if not already owned, then add its ammoPerPickup to current ammo
-   * capped at maxAmmo (one mechanic for both "weapon pickup" and "ammo
-   * pickup" — see shared/src/pickups.ts PickupSpawnPoint doc comment).
-   * Auto-equips ONLY on a first-time unlock whose tier is higher than the
-   * currently-equipped weapon's tier ("always have the best", EPIC 6 spec).
-   * Returns `applied: false` (and changes nothing) if the pickup would have
-   * no effect — already owned at max ammo — per the EPIC 6
-   * pickup-consumption rule: the caller (index.ts) must NOT consume the
-   * world pickup in that case, so it stays for someone who can use it.
+   * Apply a pickup's effect to player `id`, dispatched by `category`
+   * (EPIC 6 "weapon"/"ammo", EPIC 7 "health"/"armor" — same entry point for
+   * all four so index.ts's tick loop stays a single call site, per the EPIC
+   * 7 spec's "reuse this EPIC's generic pickup-spawn infrastructure" ask).
+   * Every branch follows the same EPIC 6 §2 "consume only if useful"
+   * pickup-consumption rule: returns `applied: false` (and changes nothing)
+   * if the pickup would have no effect, so the caller (index.ts) must NOT
+   * consume the world pickup in that case — it stays for someone who can
+   * use it.
+   *
+   * - "weapon"/"ammo": unlock `weapon` if not already owned, then add its
+   *   ammoPerPickup to current ammo capped at maxAmmo (one mechanic for
+   *   both categories — see shared/src/pickups.ts PickupSpawnPoint doc
+   *   comment). Auto-equips ONLY on a first-time unlock whose tier is
+   *   higher than the currently-equipped weapon's tier ("always have the
+   *   best", EPIC 6 spec).
+   * - "health" (EPIC 7 §2): heal COMBAT.healthPickupAmount, capped at
+   *   COMBAT.maxHealth; no-op (not applied) if already at max health.
+   * - "armor" (EPIC 7 §2): add COMBAT.armorPickupAmount, capped at
+   *   COMBAT.maxArmor; no-op (not applied) if already at max armor.
    */
-  applyPickup(id: string, weapon: WeaponType): ApplyPickupResult {
+  applyPickup(id: string, category: PickupCategory, weapon?: WeaponType): ApplyPickupResult {
     const player = this.players.get(id);
     if (!player) return { applied: false };
-    // Defensive: PICKUP_SPAWN_POINTS never targets "pistol" (spec: pistol is
-    // never a pickup), but guard here too rather than trust the caller.
-    if (weapon === "pistol") return { applied: false };
+
+    if (category === "health") {
+      if (player.health >= COMBAT.maxHealth) return { applied: false };
+      player.health = Math.min(COMBAT.maxHealth, player.health + COMBAT.healthPickupAmount);
+      return { applied: true };
+    }
+
+    if (category === "armor") {
+      if (player.armor >= COMBAT.maxArmor) return { applied: false };
+      player.armor = Math.min(COMBAT.maxArmor, player.armor + COMBAT.armorPickupAmount);
+      return { applied: true };
+    }
+
+    // "weapon" / "ammo" (EPIC 6, unchanged behavior). Defensive: neither
+    // PICKUP_SPAWN_POINTS nor a well-formed caller ever supplies "pistol"
+    // (spec: pistol is never a pickup) or an undefined weapon for these two
+    // categories, but guard here too rather than trust the caller.
+    if (!weapon || weapon === "pistol") return { applied: false };
 
     const stats = WEAPON_STATS[weapon];
     const alreadyOwned = player.ownedWeapons.has(weapon);
@@ -554,6 +615,7 @@ export class PlayerRegistry {
         position: { ...player.position },
         yaw: player.yaw,
         health: player.health,
+        armor: player.armor,
         alive: player.alive,
       });
     }

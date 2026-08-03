@@ -59,6 +59,12 @@ export const COMBAT = {
   respawnDelayMs: 3000,
   /** Maximum hitscan ray length, in world units. Comfortably exceeds the arena's ~105-unit diagonal (shared/src/mapData.ts ARENA_BOUNDS) so no in-bounds shot is ever truncated early. */
   hitscanMaxRange: 150,
+  /** EPIC 7 "Health & Armor Pickups" Section 2: HP restored per health pickup, capped at maxHealth. */
+  healthPickupAmount: 25,
+  /** EPIC 7 Section 2: max armor value, 0-100. */
+  maxArmor: 100,
+  /** EPIC 7 Section 2: armor restored per armor pickup, capped at maxArmor (4 pickups for full armor). */
+  armorPickupAmount: 25,
 } as const;
 
 export interface Ray {

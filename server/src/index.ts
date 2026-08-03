@@ -352,8 +352,11 @@ wss.on("connection", (socket: WebSocket) => {
         point: outcome.point,
       };
       broadcast(hitMessage);
+      // EPIC 7: armor-remaining is appended so Tester/ops can see the
+      // armor-absorbs-first math (server/src/playerRegistry.ts fire()) play
+      // out per hit directly in the log, without needing a client HUD.
       console.log(
-        `[server] hit: ${playerId} -> ${outcome.targetId} (${outcome.damage} dmg, ${outcome.targetHealth} hp left)`,
+        `[server] hit: ${playerId} -> ${outcome.targetId} (${outcome.damage} dmg, ${outcome.targetHealth} hp left, ${outcome.targetArmor} armor left)`,
       );
 
       if (outcome.killed) {
@@ -455,33 +458,40 @@ const tickInterval = setInterval(() => {
     );
   }
 
-  // EPIC 6 Story 6.2: server-authoritative pickup-on-proximity, checked
-  // every tick against every currently ALIVE player's own server-tracked
-  // position (never a client-asserted "I picked this up" — security-
-  // baseline.mdc). Each alive player consumes at most the single nearest
-  // active pickup within range per tick; a pickup that would have no
-  // benefit (already owned at max ammo) is intentionally left untouched by
-  // registry.applyPickup() (EPIC 6 pickup-consumption rule), so it is never
-  // passed to pickupSpawner.consume() and stays for someone else.
+  // EPIC 6 Story 6.2 (extended by EPIC 7 for the "health"/"armor"
+  // categories): server-authoritative pickup-on-proximity, checked every
+  // tick against every currently ALIVE player's own server-tracked position
+  // (never a client-asserted "I picked this up" — security-baseline.mdc).
+  // Each alive player consumes at most the single nearest active pickup
+  // within range per tick; a pickup that would have no benefit (already
+  // owned at max ammo, or already at max health/armor) is intentionally
+  // left untouched by registry.applyPickup() (EPIC 6 §2 / EPIC 7 §2
+  // pickup-consumption rule), so it is never passed to
+  // pickupSpawner.consume() and stays for someone else.
   let pickupStateChanged = false;
   for (const { id, position } of registry.alivePlayerPositions()) {
     const nearby = pickupSpawner.findNearby(position, PICKUP_RADIUS);
     if (!nearby) continue;
 
-    const { applied } = registry.applyPickup(id, nearby.weapon);
+    const { applied } = registry.applyPickup(id, nearby.category, nearby.weapon);
     if (!applied) continue;
 
     pickupSpawner.consume(nearby.id, nowMs);
     pickupStateChanged = true;
+    // EPIC 7's health/armor pickups don't touch the weapon loadout, but
+    // resending it here unconditionally is harmless (sendLoadout() is a
+    // no-op cost, and keeps this one call site simple for all 4 categories).
     sendLoadout(id);
-    console.log(`[server] pickup: ${id} picked up ${nearby.category} "${nearby.id}" (${nearby.weapon})`);
+    const weaponSuffix = nearby.weapon ? ` (${nearby.weapon})` : "";
+    console.log(`[server] pickup: ${id} picked up ${nearby.category} "${nearby.id}"${weaponSuffix}`);
   }
 
   // Pickup respawns are time-driven, same pattern as player respawns above.
   const pickupRespawns = pickupSpawner.processRespawns(nowMs);
   for (const item of pickupRespawns) {
     pickupStateChanged = true;
-    console.log(`[server] pickup respawn: "${item.id}" (${item.category} ${item.weapon}) is available again`);
+    const weaponSuffix = item.weapon ? ` ${item.weapon}` : "";
+    console.log(`[server] pickup respawn: "${item.id}" (${item.category}${weaponSuffix}) is available again`);
   }
 
   if (pickupStateChanged) {

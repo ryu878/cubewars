@@ -108,6 +108,15 @@ export interface PlayerState {
   yaw: number;
   /** Current health, [0, COMBAT.maxHealth]. */
   health: number;
+  /**
+   * Current armor, [0, COMBAT.maxArmor] (EPIC 7 "Health & Armor Pickups").
+   * Absorbs damage before health on a confirmed hit (see server/src/
+   * playerRegistry.ts fire()'s spillover math) and resets to 0 on respawn.
+   * Broadcast the same way as health (continuous source of truth every
+   * tick, not just on pickup) so a client's own HUD self-corrects even if it
+   * missed an intermediate update.
+   */
+  armor: number;
   /** False while dead and waiting to respawn — server stops applying movement/combat for this player while false. */
   alive: boolean;
 }
