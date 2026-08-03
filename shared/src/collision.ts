@@ -15,8 +15,13 @@
 // around, not cover you can vault/climb onto (documented "blocking, not
 // climbable" choice for this EPIC — see EPIC 3 handoff). Both outer
 // walls and crates are taller (or, for crates, at least as tall) than the
-// ~1m max jump height this game's MOVEMENT constants allow, so treating
-// them uniformly doesn't create a visibly "wrong" wall-vs-crate feel.
+// ~1m max jump height a normal (un-boosted) jump reaches with this game's
+// MOVEMENT constants, so treating them uniformly doesn't create a visibly
+// "wrong" wall-vs-crate feel. EPIC 8's bunny-hop boost can push a player
+// higher than that baseline mid-air, but since this function is Y-agnostic
+// (resolves purely on x/z, at ANY height — see above), a boosted hop still
+// cannot carry a player over/through a wall or crate: the horizontal
+// footprint stays blocked regardless of how high the player currently is.
 
 import { ARENA_GEOMETRY, boxBounds, type MapBox } from "./mapData.js";
 

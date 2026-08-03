@@ -3,7 +3,7 @@
 // resulting position (security-baseline.mdc) — see reconcile().
 
 import * as THREE from "three";
-import { EYE_HEIGHT, MAX_PITCH, MOVEMENT, resolveHorizontalCollisions } from "@cubewars/shared";
+import { BUNNY_HOP, EYE_HEIGHT, MAX_PITCH, MOVEMENT, resolveHorizontalCollisions } from "@cubewars/shared";
 
 const MOUSE_SENSITIVITY = 0.0025;
 
@@ -31,6 +31,12 @@ export class FpsController {
   private position: { x: number; y: number; z: number } = { x: 0, y: MOVEMENT.groundY, z: 0 };
   private velocityY = 0;
   private grounded = true;
+  /** EPIC 8 Story 8.2 local-prediction mirror of the server's bunny-hop gate — see server/src/playerRegistry.ts PlayerRecord.bunnyHopAvailable doc comment. Purely a feel/prediction aid; the server's own independent gate is authoritative (reconciled via reconcile() like the rest of movement). */
+  private bunnyHopAvailable = true;
+  /** One-shot latch set by the Space keydown listener below on a genuine (non-repeat) key-down, consumed by the next update() call — mirrors the server's applyInput()/stepPlayer() edge-detection so local prediction matches. */
+  private spacePressPending = false;
+  /** Local-prediction mirror of the server's airSpeedMultiplier (EPIC 8 Story 8.2) — 1 outside a boosted air-time. */
+  private airSpeedMultiplier = 1;
 
   constructor(
     private camera: THREE.PerspectiveCamera,
@@ -66,7 +72,20 @@ export class FpsController {
       this.pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, this.pitch));
     });
 
-    window.addEventListener("keydown", (event) => this.keys.add(event.code));
+    window.addEventListener("keydown", (event) => {
+      this.keys.add(event.code);
+      // EPIC 8 Story 8.2: latch a genuine Space key-down (event.repeat
+      // guards against the OS's own key-repeat firing this while held,
+      // same guard style as the "E" weapon-switch handler in main.ts) for
+      // update() to evaluate against the CURRENT grounded/bunnyHopAvailable
+      // state next frame — this is prediction only, gated the same way the
+      // server independently gates its own authoritative version
+      // (locked + alive), never trusted as-is for anything another player
+      // sees.
+      if (event.code === "Space" && !event.repeat && this.locked && this.alive) {
+        this.spacePressPending = true;
+      }
+    });
     window.addEventListener("keyup", (event) => this.keys.delete(event.code));
     // Avoid a "stuck key" if the window loses focus while a key is held.
     window.addEventListener("blur", () => this.keys.clear());
@@ -78,6 +97,11 @@ export class FpsController {
 
   /** Update the locally-known alive state from the server's world_state broadcast (EPIC 4 Story 4.2) — gates local movement/fire prediction only; the server independently enforces this regardless of client state. */
   setAlive(alive: boolean): void {
+    if (alive === false) {
+      // EPIC 8: don't let a Space press queued right before death carry
+      // over into a phantom boost prediction on the next life.
+      this.spacePressPending = false;
+    }
     this.alive = alive;
   }
 
@@ -121,6 +145,14 @@ export class FpsController {
 
   /** Advance local prediction by dt seconds and apply it to the camera transform. */
   update(dt: number): void {
+    // EPIC 8 Story 8.2: consume this frame's one-shot Space-keydown latch
+    // unconditionally, up front, so it never lingers into a later frame
+    // (e.g. across a not-locked/not-alive early return below) — mirrors the
+    // server's own always-clear-every-tick discipline (playerRegistry.ts
+    // stepPlayer()).
+    const spacePressed = this.spacePressPending;
+    this.spacePressPending = false;
+
     if (!this.locked) {
       // Task 7 fix (see constructor comment): keep the camera's position in
       // sync with `this.position` even while unlocked — previously this
@@ -145,14 +177,28 @@ export class FpsController {
       return;
     }
 
+    // EPIC 8 Story 8.2: predict the same one-boost-per-air-time bunny hop
+    // the server computes authoritatively (server/src/playerRegistry.ts
+    // stepPlayer()) — only fires on a genuine Space key-down (spacePressed,
+    // never a held key) while airborne and not yet used this air-time.
+    if (spacePressed && !this.grounded && this.bunnyHopAvailable) {
+      this.bunnyHopAvailable = false;
+      this.airSpeedMultiplier = BUNNY_HOP.speedMultiplier;
+      this.velocityY += MOVEMENT.jumpSpeed * BUNNY_HOP.verticalBoostFraction;
+    }
+
     const { moveForward, moveRight } = this.readMoveIntent();
     const forwardX = -Math.sin(this.yaw);
     const forwardZ = -Math.cos(this.yaw);
     const rightX = Math.cos(this.yaw);
     const rightZ = -Math.sin(this.yaw);
 
-    const nextX = this.position.x + (forwardX * moveForward + rightX * moveRight) * MOVEMENT.maxSpeed * dt;
-    const nextZ = this.position.z + (forwardZ * moveForward + rightZ * moveRight) * MOVEMENT.maxSpeed * dt;
+    const nextX =
+      this.position.x +
+      (forwardX * moveForward + rightX * moveRight) * MOVEMENT.maxSpeed * this.airSpeedMultiplier * dt;
+    const nextZ =
+      this.position.z +
+      (forwardZ * moveForward + rightZ * moveRight) * MOVEMENT.maxSpeed * this.airSpeedMultiplier * dt;
 
     // Local collision prediction (EPIC 3 Story 3.3): resolve against the
     // same shared ARENA_GEOMETRY the server uses, so walking into a wall
@@ -174,6 +220,11 @@ export class FpsController {
       this.position.y = MOVEMENT.groundY;
       this.velocityY = 0;
       this.grounded = true;
+      // EPIC 8 Story 8.2: landing makes the bunny hop available again and
+      // ends the boosted air-time's speed multiplier — mirrors the
+      // server's stepPlayer() ground-clamp branch.
+      this.bunnyHopAvailable = true;
+      this.airSpeedMultiplier = 1;
     }
 
     this.camera.position.set(this.position.x, this.position.y + EYE_HEIGHT, this.position.z);
