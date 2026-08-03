@@ -68,7 +68,7 @@ Click the canvas to lock the pointer and start playing:
 - **Mouse** — look around (yaw + pitch, pitch clamped so you can't flip over)
 - **W / A / S / D** — move relative to look direction
 - **Click** (while locked) — fire
-- **Space** — jump
+- **Space** — jump; press it again while still airborne (a genuine second press, not held) for a one-time bunny-hop boost — farther and higher, once per air-time
 - **E** — switch weapon (cycles forward through weapons you own, in tier order)
 - **Tab** (hold) — show the live scoreboard
 - **Esc** — release pointer lock
@@ -78,6 +78,11 @@ Movement/look is predicted locally for responsiveness, but the **server is autho
 Combat is server-authoritative too: firing sends a bare "fire" event, and the server resolves the actual hitscan raycast from its own tracked position/yaw/pitch **and equipped weapon** for that player — the client never states an aim origin/direction, a weapon, or a hit, of its own. See "Current status" below for the exact model.
 
 ## Current status
+
+EPIC 8 (Movement Tuning) — see `docs/tasks/epic-08-movement-tuning.md`. Two changes, both to the single shared `MOVEMENT` constant set so client and server never drift:
+
+- **Base speed:** ×1.33 (5 → 6.65 m/s), unchanged normal-jump physics otherwise.
+- **Bunny hop:** pressing Space a second time while still airborne (a genuine fresh press, edge-detected server-side against the server's own stored input state — not a held key) applies a one-time boost: 1.3× horizontal speed and +40% of `jumpSpeed` added to current vertical velocity, once per air-time, resetting on landing. Entirely server-computed and gated — a client can only ever send a boolean "jump" field, never a boost magnitude, and cannot chain multiple boosts in one air-time no matter how fast it spams the input. Still resolved through the same wall/crate collision as normal movement.
 
 EPIC 7 (Health & Armor) — see `docs/tasks/epic-07-health-armor.md`. Extends EPIC 6's generic pickup spawner with two new categories, no second spawner built:
 
