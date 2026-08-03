@@ -16,6 +16,8 @@ Spec format per `ai-office/task-intake.md`. Filed by Team Lead (Tusya).
 
 ## 2. Weapon balance (fixed by Team Lead — do not rebalance without asking)
 
+> **Superseded by EPIC 10:** the *Damage/hit* column below is historical. Current damage values (5 / 20 / 70, rebalanced for a slower time-to-kill) live in `docs/tasks/epic-10-weapon-viewmodel-visual-polish.md` Section 2 and in `shared/src/weapons.ts`'s `WEAPON_STATS` — that is the single source of truth. Cooldown/ammo-per-pickup/max-ammo columns below are still current (EPIC 10 did not touch them).
+
 | Weapon | Tier | Damage/hit | Fire cooldown | Ammo per pickup | Max ammo carried | Starts with |
 |---|---|---|---|---|---|---|
 | Pistol | 0 | 25 (4 hits to kill) | 300ms (unchanged from EPIC 4) | — | ∞ (never runs out) | Owned from spawn, always |

@@ -4,10 +4,14 @@
 // one definition, not duplicated, same discipline as MOVEMENT/COMBAT in
 // shared/src/index.ts and shared/src/combat.ts.
 //
-// Balance numbers below are fixed by Team Lead (docs/tasks/epic-06-weapons-ammo.md
-// Section 2) — do not rebalance without a spec update. They are named
-// constants specifically so they stay easy to tune later without hunting
-// through server/client code (EPIC 6 spec Risks).
+// Balance numbers below are fixed by Team Lead. Damage values were rebalanced
+// in EPIC 10 (docs/tasks/epic-10-weapon-viewmodel-visual-polish.md Section 2,
+// superseding the original EPIC 6 damage table — see
+// docs/tasks/epic-06-weapons-ammo.md Section 2 for the superseded numbers)
+// to slow down time-to-kill per user feedback. Cooldown/ammo economy are
+// unchanged from EPIC 6. Do not rebalance without a spec update. They are
+// named constants specifically so they stay easy to tune later without
+// hunting through server/client code (EPIC 6 spec Risks).
 
 export type WeaponType = "pistol" | "rifle" | "grenade_launcher";
 
@@ -38,7 +42,7 @@ export const WEAPON_STATS: Record<WeaponType, WeaponStats> = {
     type: "pistol",
     tier: 0,
     displayName: "Pistol",
-    damage: 25,
+    damage: 5, // EPIC 10 rebalance: 20 hits to kill at full HP (was 25/4 hits)
     cooldownMs: 300,
     ammoPerPickup: 0,
     maxAmmo: 0,
@@ -49,7 +53,7 @@ export const WEAPON_STATS: Record<WeaponType, WeaponStats> = {
     type: "rifle",
     tier: 1,
     displayName: "Rifle",
-    damage: 50,
+    damage: 20, // EPIC 10 rebalance: 5 hits to kill at full HP (was 50/2 hits)
     cooldownMs: 250,
     ammoPerPickup: 12,
     maxAmmo: 48,
@@ -60,7 +64,7 @@ export const WEAPON_STATS: Record<WeaponType, WeaponStats> = {
     type: "grenade_launcher",
     tier: 2,
     displayName: "Grenade Launcher",
-    damage: 100,
+    damage: 70, // EPIC 10 rebalance: guaranteed 2-hit kill at full HP, often a 1-hit finisher on a chipped target (was 100/1 hit)
     cooldownMs: 1500,
     ammoPerPickup: 2,
     maxAmmo: 6,
