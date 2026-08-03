@@ -313,6 +313,68 @@
         font-variant-numeric: tabular-nums;
         font-weight: 600;
       }
+
+      /* --- EPIC 9 mode-select screen (Story 9.2): shown before pointer lock
+         is even available, blocks all input until a mode is chosen --- */
+
+      #modeSelect {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(10, 10, 15, 0.88);
+        color: #fff;
+        font-family: system-ui, sans-serif;
+        text-align: center;
+        z-index: 20;
+      }
+      #modeSelect.hidden {
+        display: none;
+      }
+      #modeSelect .mode-select-box {
+        padding: 28px 36px;
+        background: rgba(0, 0, 0, 0.5);
+        border-radius: 12px;
+      }
+      #modeSelect h1 {
+        margin: 0 0 6px;
+        font-size: 22px;
+      }
+      #modeSelect p {
+        margin: 0 0 18px;
+        color: #ccc;
+        font-size: 13px;
+      }
+      #modeSelect .mode-select-buttons {
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+      }
+      #modeSelect button {
+        padding: 12px 20px;
+        font-family: inherit;
+        font-size: 15px;
+        font-weight: 600;
+        color: #fff;
+        background: #2f6fae;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      #modeSelect button:hover:not(:disabled) {
+        background: #3a84cc;
+      }
+      #modeSelect button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      #modeSelect #modeBotsBtn {
+        background: #8b5a2b;
+      }
+      #modeSelect #modeBotsBtn:hover:not(:disabled) {
+        background: #a56c34;
+      }
     </style>
   </head>
   <body>
@@ -334,6 +396,16 @@
       <div class="hint-box">
         <strong>Click to play</strong><br />
         WASD move &middot; Mouse look &middot; Click to fire &middot; Space jump &middot; E switch weapon &middot; Esc to release &middot; Hold Tab for scoreboard
+      </div>
+    </div>
+    <div id="modeSelect">
+      <div class="mode-select-box">
+        <h1>cubewars</h1>
+        <p>Choose how you want to play</p>
+        <div class="mode-select-buttons">
+          <button id="modePublicBtn" type="button" disabled>Multiplayer</button>
+          <button id="modeBotsBtn" type="button" disabled>vs Bots</button>
+        </div>
       </div>
     </div>
     <div id="app"></div>
