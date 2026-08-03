@@ -79,6 +79,14 @@ Combat is server-authoritative too: firing sends a bare "fire" event, and the se
 
 ## Current status
 
+EPIC 7 (Health & Armor) — see `docs/tasks/epic-07-health-armor.md`. Extends EPIC 6's generic pickup spawner with two new categories, no second spawner built:
+
+- **Health pickups:** +25 HP, capped at 100, consumed only if the player is below max — same "only if useful" rule as weapon/ammo pickups. Two spawn points, one per site.
+- **Armor pickups:** +25 armor, capped at 100 (four pickups for a full 100), same "only if useful" rule. Two spawn points, both in the tunnel — rarer/slower-respawning than health (35s base / 15s min vs. health's 20s base / 8s min) per the design intent that armor is a bigger commitment.
+- **Damage absorption order:** on a confirmed hit, armor absorbs first — `armor >= damage` reduces only armor; `armor < damage` zeroes armor and spills the remainder into health (`spillover = damage - armor`). Armor at 0 behaves exactly like pre-EPIC-7 (all damage to health). Entirely server-computed in `playerRegistry.ts`'s `fire()`, same authority discipline as everything else.
+- **Armor resets on respawn:** folded into the same reset path EPIC 6 added for weapons/ammo (`applyBaselineLoadout()`) — armor is always 0 right after respawning, regardless of pre-death level, matching "armor should not be present by default."
+- **Visual identity:** health renders as a white medkit box with a red cross; armor as a steel-blue octahedron — both shapes/colors distinct from every EPIC 6 weapon/ammo pickup so they're identifiable at a glance.
+
 EPIC 6 (Weapons & Ammo) — see `docs/tasks/epic-06-weapons-ammo.md`. Replaces the single fixed pistol with a 3-tier weapon system, built entirely server-authoritative on top of EPIC 4's hitscan and EPIC 3's arena geometry:
 
 - **Weapon tiers:** pistol (tier 0, 25 dmg, 300ms cooldown, infinite ammo, owned from spawn), rifle (tier 1, 50 dmg, 250ms cooldown, 12 ammo/pickup, 48 max), grenade launcher (tier 2, 100 dmg/one-shot-kill, 1500ms cooldown, 2 ammo/pickup, 6 max) — one balance table, `WEAPON_STATS` in `shared/src/weapons.ts`, consumed by both server enforcement and client HUD/pickup color.
