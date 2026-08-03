@@ -3,6 +3,7 @@ import {
   ARENA_BOUNDS,
   ARENA_GEOMETRY,
   WEAPON_STATS,
+  type MatchMode,
   type PlayerInputMessage,
   type WorldStateMessage,
 } from "@cubewars/shared";
@@ -13,6 +14,7 @@ import { CombatHud } from "./combatHud";
 import { KillFeed } from "./killFeed";
 import { Scoreboard } from "./scoreboard";
 import { PickupRenderer } from "./pickups";
+import { ModeSelect } from "./modeSelect";
 
 const statusEl = document.getElementById("status") as HTMLDivElement;
 const hintEl = document.getElementById("hint") as HTMLDivElement;
@@ -136,6 +138,19 @@ let selfId: string | null = null;
 const killFeed = new KillFeed(() => selfId);
 const scoreboard = new Scoreboard(() => selfId);
 
+// EPIC 9 Story 9.2: the mode-select overlay (client/index.html #modeSelect)
+// blocks play until the player picks "Multiplayer" or "vs Bots". The
+// callback below is the ONLY place `join` is ever sent, and it also gates
+// startInputLoop() (defined below) — so no input/fire/switch_weapon
+// message can be sent before this connection has joined a match, matching
+// the server's own independent gate (server/src/index.ts join-gating;
+// belt-and-suspenders, not a substitute for it — the server never trusts
+// the client to behave, per security-baseline.mdc).
+const modeSelect = new ModeSelect((mode: MatchMode) => {
+  connection.send({ type: "join", mode });
+  startInputLoop();
+});
+
 const connection = new GameConnection(wsUrl, {
   onOpen: () => {
     statusEl.textContent = "connected (waiting for welcome)";
@@ -144,6 +159,11 @@ const connection = new GameConnection(wsUrl, {
     selfId = playerId;
     statusEl.textContent = `connected — player ${playerId.slice(0, 8)}`;
     statusEl.dataset.state = "connected";
+    // EPIC 9 Story 9.2: only now is it safe to let the player pick a mode —
+    // GameConnection.send() silently drops anything sent before the socket
+    // is OPEN, and "welcome" is the server's confirmation this connection is
+    // live and has an id.
+    modeSelect.enable();
   },
   onWorldState: (message: WorldStateMessage) => {
     remotePlayers.sync(message.players, selfId);
@@ -205,11 +225,25 @@ const connection = new GameConnection(wsUrl, {
 
 // Send input intent on a fixed interval, independent of render frame rate.
 // ~30Hz (33ms) is responsive without flooding the server; the server's own
-// broadcast tick is 20Hz (see server/src/index.ts). This is intent only —
+// broadcast tick is 20Hz (see server/src/match.ts). This is intent only —
 // the server computes and broadcasts the actual authoritative position.
 const INPUT_SEND_INTERVAL_MS = 33;
-setInterval(() => {
-  const intent = fps.getInputIntent();
-  const message: PlayerInputMessage = { type: "input", ...intent };
-  connection.send(message);
-}, INPUT_SEND_INTERVAL_MS);
+let inputLoopStarted = false;
+/**
+ * Start sending PlayerInputMessage on the fixed interval above — called
+ * exactly once, from modeSelect's onSelect callback right after `join` is
+ * sent (EPIC 9 Story 9.2). Before that, this client never sends `input` at
+ * all: there is nothing useful to send (no match to move around in yet),
+ * and it avoids spamming the server's pre-join gameplay-message rejection
+ * path (server/src/index.ts notJoinedDropTracker) with an entire session's
+ * worth of pre-join traffic every 33ms.
+ */
+function startInputLoop(): void {
+  if (inputLoopStarted) return;
+  inputLoopStarted = true;
+  setInterval(() => {
+    const intent = fps.getInputIntent();
+    const message: PlayerInputMessage = { type: "input", ...intent };
+    connection.send(message);
+  }, INPUT_SEND_INTERVAL_MS);
+}
