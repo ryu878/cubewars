@@ -3,6 +3,7 @@
 // state (per global-standards.mdc: keep game logic separate from transport).
 
 import {
+  BUNNY_HOP,
   COMBAT,
   MAX_PITCH,
   MOVEMENT,
@@ -48,6 +49,34 @@ export interface PlayerRecord {
   position: Vector3;
   velocityY: number;
   grounded: boolean;
+  /**
+   * EPIC 8 Story 8.2 "bunny hop": true whenever this player is eligible to
+   * trigger a bunny-hop boost, i.e. has not already used one during the
+   * current air-time. Reset to true only on landing (see stepPlayer()'s
+   * ground-clamp branch) and set false the moment a boost is actually
+   * applied — this is the server-side gate that makes "one boost per
+   * air-time" enforceable no matter how many jump inputs a raw WS client
+   * sends while airborne (security-baseline.mdc: never trust client input
+   * as authoritative for gameplay-relevant state).
+   */
+  bunnyHopAvailable: boolean;
+  /**
+   * One-shot latch (EPIC 8 Story 8.2): set true by applyInput() when it
+   * observes a genuine false->true edge on the incoming `jump` field (a
+   * fresh Space key-down, never a held key or a level read in isolation —
+   * see applyInput() below), always consumed (read and cleared) by the very
+   * next stepPlayer() tick regardless of outcome, so it can never persist
+   * across multiple physics ticks or accumulate into more than one trigger.
+   */
+  pendingBunnyHopTrigger: boolean;
+  /**
+   * Horizontal move-speed multiplier for stepPlayer()'s dx/dz computation
+   * (EPIC 8 Story 8.2) — 1 normally, BUNNY_HOP.speedMultiplier for the rest
+   * of the current air-time once a boost triggers, reset to 1 on landing.
+   * See BUNNY_HOP doc comment (shared/src/index.ts) for why this is a
+   * temporary speed multiplier rather than a persisted velocity impulse.
+   */
+  airSpeedMultiplier: number;
   yaw: number;
   /** Look pitch, radians, clamped to [-MAX_PITCH, MAX_PITCH]. Tracked continuously from input messages (see clampPitch) so the hitscan raycast always fires along the player's actual current aim. */
   pitch: number;
@@ -229,6 +258,9 @@ export class PlayerRegistry {
       position: this.pickSpawnPosition(),
       velocityY: 0,
       grounded: true,
+      bunnyHopAvailable: true,
+      pendingBunnyHopTrigger: false,
+      airSpeedMultiplier: 1,
       yaw: 0,
       pitch: 0,
       health: COMBAT.maxHealth,
@@ -291,6 +323,19 @@ export class PlayerRegistry {
       !Number.isFinite(raw.pitch)
     ) {
       return false;
+    }
+
+    // EPIC 8 Story 8.2: detect a genuine false->true edge on the jump field
+    // BEFORE overwriting the stored level below — this is what turns "jump
+    // is currently held" (a level, per the PlayerInputMessage doc comment)
+    // into "the player just pressed Space" (an edge), server-side and from
+    // the server's own previously-stored state, never trusted as an
+    // asserted claim from the client. Latched (not overwritten to false)
+    // so it survives until the next physics tick consumes it even if
+    // several input messages arrive between ticks (the client sends at
+    // ~30Hz, the physics tick runs at 20Hz).
+    if (raw.jump && !player.intent.jump) {
+      player.pendingBunnyHopTrigger = true;
     }
 
     player.intent.moveForward = clampUnit(raw.moveForward);
@@ -511,6 +556,12 @@ export class PlayerRegistry {
       player.position = this.pickSpawnPosition();
       player.velocityY = 0;
       player.grounded = true;
+      // EPIC 8: a respawn is a fresh ground state, same as a brand-new
+      // connection (spawn()) — no lingering mid-air bunny-hop eligibility
+      // or speed multiplier should carry across a death.
+      player.bunnyHopAvailable = true;
+      player.pendingBunnyHopTrigger = false;
+      player.airSpeedMultiplier = 1;
       player.health = COMBAT.maxHealth;
       player.alive = true;
       player.respawnAtMs = null;
@@ -541,6 +592,34 @@ export class PlayerRegistry {
     // are hidden client-side (client/src/remotePlayers.ts).
     if (!player.alive) return;
 
+    // EPIC 8 Story 8.2 "bunny hop": consume this tick's one-shot jump-edge
+    // latch (set by applyInput() on a genuine false->true edge of the
+    // client's `jump` field, i.e. an actual fresh Space key-down, never a
+    // held key) exactly once, regardless of outcome, so it can never linger
+    // into a later tick or accumulate. It only actually triggers the boost
+    // when the player is currently airborne AND has not already used one
+    // this air-time (bunnyHopAvailable) — this is the server-side gate that
+    // makes "at most one boost per air-time" hold even against a raw WS
+    // client spamming jump input while airborne (security-baseline.mdc). A
+    // press while grounded falls through here with no effect and is instead
+    // handled by the unchanged normal-jump trigger further below.
+    const bunnyHopTriggered = player.pendingBunnyHopTrigger;
+    player.pendingBunnyHopTrigger = false;
+    if (bunnyHopTriggered && !player.grounded && player.bunnyHopAvailable) {
+      player.bunnyHopAvailable = false;
+      // Horizontal: boost the move-speed multiplier for the rest of this
+      // air-time (reset to 1 on landing below) rather than a one-off
+      // velocity impulse — see BUNNY_HOP doc comment (shared/src/index.ts)
+      // for why, given this simulation recomputes horizontal displacement
+      // from input intent every tick instead of integrating a persisted
+      // horizontal velocity.
+      player.airSpeedMultiplier = BUNNY_HOP.speedMultiplier;
+      // Vertical: additive "kick" on top of whatever vertical velocity
+      // remains from the original jump (EPIC 8 spec Section 2) — not a
+      // fresh jump from ground height.
+      player.velocityY += MOVEMENT.jumpSpeed * BUNNY_HOP.verticalBoostFraction;
+    }
+
     const { intent } = player;
 
     // Clamp combined move-intent to unit length so diagonal movement (W+D)
@@ -561,8 +640,14 @@ export class PlayerRegistry {
     const rightX = Math.cos(player.yaw);
     const rightZ = -Math.sin(player.yaw);
 
-    const dx = (forwardX * moveForward + rightX * moveRight) * MOVEMENT.maxSpeed * dt;
-    const dz = (forwardZ * moveForward + rightZ * moveRight) * MOVEMENT.maxSpeed * dt;
+    // EPIC 8 Story 8.1: MOVEMENT.maxSpeed is the new ~6.65 m/s baseline
+    // (5 * 1.33, see shared/src/index.ts). airSpeedMultiplier is 1 outside
+    // an active bunny-hop boost, so this is a no-op change to normal
+    // movement — only a boosted air-time actually sees the extra factor.
+    const dx =
+      (forwardX * moveForward + rightX * moveRight) * MOVEMENT.maxSpeed * player.airSpeedMultiplier * dt;
+    const dz =
+      (forwardZ * moveForward + rightZ * moveRight) * MOVEMENT.maxSpeed * player.airSpeedMultiplier * dt;
 
     // Authoritative collision (EPIC 3 Story 3.3): resolve the proposed
     // position against the exact same ARENA_GEOMETRY the client renders
@@ -588,6 +673,12 @@ export class PlayerRegistry {
       player.position.y = MOVEMENT.groundY;
       player.velocityY = 0;
       player.grounded = true;
+      // EPIC 8 Story 8.2: landing is what makes a bunny hop available
+      // again ("grounded -> airborne -> [optional one boost] -> grounded
+      // resets the flag" per the EPIC spec) and ends the boosted air-time's
+      // speed multiplier.
+      player.bunnyHopAvailable = true;
+      player.airSpeedMultiplier = 1;
     }
   }
 

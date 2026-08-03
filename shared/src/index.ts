@@ -26,14 +26,51 @@ export const PROTOCOL_VERSION = 1;
 // authoritative simulation agree on the same constants — one definition,
 // not duplicated per EPIC 2 Story 2.2). ---
 export const MOVEMENT = {
-  /** Ground horizontal move speed, m/s. */
-  maxSpeed: 5,
+  /**
+   * Ground horizontal move speed, m/s. EPIC 8 Story 8.1: 1.33x the original
+   * EPIC 2 baseline (5 -> 5 * 1.33 = 6.65), expressed as the multiplication
+   * rather than the literal result so the balance intent stays visible at
+   * the one shared definition site (client + server both import this same
+   * constant, never a duplicated literal — see EPIC 8 Task 1).
+   */
+  maxSpeed: 5 * 1.33,
   /** Initial vertical velocity applied on jump, m/s. */
   jumpSpeed: 6,
   /** Downward acceleration, m/s^2. */
   gravity: 18,
   /** Ground plane height; player position.y never goes below this. */
   groundY: 0,
+} as const;
+
+/**
+ * Bunny hop tuning (EPIC 8 Story 8.2): a genuine second Space key-down while
+ * still airborne (not a held key, not a third+ press this same air-time)
+ * applies a one-time boost to the player's current velocity, gated and
+ * computed entirely server-side (server/src/playerRegistry.ts stepPlayer())
+ * — the client only predicts the same formula locally for feel
+ * (client/src/fpsController.ts), reconciled by the existing position
+ * reconciliation from EPIC 2. One definition, shared by both, per the same
+ * discipline as MOVEMENT above.
+ */
+export const BUNNY_HOP = {
+  /**
+   * Horizontal move-speed multiplier applied for the remainder of the
+   * current air-time once the boost triggers (reset to 1 on landing). The
+   * existing movement model computes horizontal displacement fresh from
+   * input intent every tick rather than integrating a persisted horizontal
+   * velocity (see MOVEMENT doc comment / stepPlayer()), so "boost the
+   * horizontal speed" is implemented as a temporary multiplier on
+   * MOVEMENT.maxSpeed for the rest of this hop rather than a one-off
+   * velocity impulse — same end result (faster, farther hop) without
+   * introducing a second horizontal-motion model.
+   */
+  speedMultiplier: 1.3,
+  /**
+   * Fraction of MOVEMENT.jumpSpeed added to (not replacing) the player's
+   * current vertical velocity when the boost triggers — a "kick" mid-air,
+   * not a fresh jump from ground height.
+   */
+  verticalBoostFraction: 0.4,
 } as const;
 
 /** Server broadcast tick rate for world-state updates (Hz). See EPIC 2 handoff for rationale. */
@@ -67,7 +104,17 @@ export interface PlayerInputMessage {
    * client-supplied aim direction at the moment of firing.
    */
   pitch: number;
-  /** Whether jump is being requested in this input sample. */
+  /**
+   * Whether the jump key (Space) is currently held down, sampled at the
+   * client's own input-send rate — a level, not an edge. The server derives
+   * BOTH the normal "jump when grounded" trigger (level-based, unchanged
+   * since EPIC 2) AND the EPIC 8 bunny-hop trigger (a false->true edge
+   * detected server-side by comparing consecutive samples of this field,
+   * never trusted as a client-asserted "this was a fresh press" — see
+   * server/src/playerRegistry.ts applyInput()/stepPlayer()) from this same
+   * field, so the protocol itself does not need a second "jump edge" message
+   * type.
+   */
   jump: boolean;
 }
 
