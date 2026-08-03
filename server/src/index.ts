@@ -1,80 +1,46 @@
 import { randomUUID } from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
-import {
-  BROADCAST_TICK_HZ,
-  COMBAT,
-  PICKUP_RADIUS,
-  PROTOCOL_VERSION,
-  type ClientMessage,
-  type DeathEvent,
-  type HitEvent,
-  type KillEvent,
-  type LoadoutMessage,
-  type PickupStateMessage,
-  type RespawnEvent,
-  type ScoreboardMessage,
-  type ServerMessage,
-  type WelcomeMessage,
-  type WorldStateMessage,
-} from "@cubewars/shared";
-import { PlayerRegistry } from "./playerRegistry.js";
-import { PickupSpawner } from "./pickupSpawner.js";
+import { BROADCAST_TICK_HZ, PROTOCOL_VERSION, type ClientMessage, type WelcomeMessage } from "@cubewars/shared";
+import { MatchManager } from "./matchManager.js";
+import type { Match } from "./match.js";
 
 const PORT = Number(process.env.CUBEWARS_SERVER_PORT ?? 7777);
 
-// Broadcast + physics tick rate. 20 Hz (50ms) is a reasonable balance for a
-// small-scale casual multiplayer game: frequent enough that other players'
-// movement doesn't look choppy locally, infrequent enough to keep
-// bandwidth/CPU low without needing client-side interpolation yet (EPIC 2
-// risk note). Revisit if/when the player count or map size grows.
-const TICK_HZ = BROADCAST_TICK_HZ;
-const TICK_MS = 1000 / TICK_HZ;
-const TICK_DT_SECONDS = TICK_MS / 1000;
-
-// Flood guard: reject ANY client message (input, fire, binary, oversized,
-// non-JSON, unrecognized-type — literally anything arriving on the socket)
-// faster than this per connection, independent of what the client claims
-// its own send rate is (global-standards.mdc "Rate-limit or debounce client
-// input to prevent flooding"). The client sends at ~30Hz by design (see
-// client handoff notes); this cap allows headroom for jitter while still
-// bounding worst case. This is a single shared per-connection floor across
-// EVERY message shape (see lastAcceptedMessageAt below): the debounce check
-// runs first, before binary/size/JSON-parse/type-dispatch, and the
-// timestamp is stamped immediately once a message clears that check —
-// BEFORE we know whether it will turn out to be binary, oversized,
-// non-JSON, unknown-type, or a valid input/fire. That is deliberate: a
+// Flood guard: reject ANY client message (input, fire, join, binary,
+// oversized, non-JSON, unrecognized-type — literally anything arriving on
+// the socket) faster than this per connection, independent of what the
+// client claims its own send rate is (global-standards.mdc "Rate-limit or
+// debounce client input to prevent flooding"). The client sends at ~30Hz by
+// design (see client handoff notes); this cap allows headroom for jitter
+// while still bounding worst case. This is a single shared per-connection
+// floor across EVERY message shape (see lastAcceptedMessageAt below): the
+// debounce check runs first, before binary/size/JSON-parse/type-dispatch,
+// and the timestamp is stamped immediately once a message clears that check
+// — BEFORE we know whether it will turn out to be binary, oversized,
+// non-JSON, unknown-type, or a valid join/input/fire. That is deliberate: a
 // connection that only ever sends garbage of any single shape must still be
-// bounded by this floor (EPIC 4 F-001; round 1 fixed this for "fire" only,
-// round 2 closes it for every remaining shape).
+// bounded by this floor (EPIC 4 F-001; carried unchanged through EPIC 9's
+// match refactor — this debounce is connection-scoped, not match-scoped, so
+// it applies identically whether or not the connection has joined a match
+// yet).
 const MIN_INPUT_INTERVAL_MS = 15;
 
 // Reject oversized payloads outright before attempting to parse JSON.
 const MAX_MESSAGE_BYTES = 1024;
 
-// Every "drop this message" path below (flood guard, fire cooldown, binary,
-// oversized, non-JSON, unknown-type, malformed-input) logs in aggregate
-// rather than one line per drop (that would just be a different flavor of
-// log spam, and — per Critic F-001 round 2 — synchronous console.warn calls
-// at flood volumes could plausibly stall the single-threaded event loop and
-// delay the tick for every player, not just the offending connection). Each
-// drop path logs immediately on its first hit for a connection (so a flood
-// shows up in the log right away), then at most once per this interval
-// thereafter while it continues, summarizing how many messages were dropped
-// since the last log line. Normal ~30Hz play never hits any drop path, so
-// this produces zero extra log noise under normal play (security-baseline.mdc
-// "log anomalous input patterns").
+// Every "drop this message" path below (flood guard, fire cooldown, not
+// joined yet, already joined, binary, oversized, non-JSON, unknown-type,
+// malformed-input) logs in aggregate rather than one line per drop (that
+// would just be a different flavor of log spam, and — per Critic F-001
+// round 2 — synchronous console.warn calls at flood volumes could plausibly
+// stall the single-threaded event loop and delay the tick for every player,
+// not just the offending connection). Each drop path logs immediately on its
+// first hit for a connection (so a flood shows up in the log right away),
+// then at most once per this interval thereafter while it continues,
+// summarizing how many messages were dropped since the last log line. Normal
+// play never hits any drop path, so this produces zero extra log noise under
+// normal play (security-baseline.mdc "log anomalous input patterns").
 const FLOOD_LOG_INTERVAL_MS = 5000;
-
-// Weapon rate limit (EPIC 4 Story 4.1, made per-weapon by EPIC 6): a
-// SEPARATE, stricter cooldown from the generic MIN_INPUT_INTERVAL_MS
-// anti-flood floor above — that floor caps how fast ANY message (input or
-// fire) is accepted per connection at all; this one specifically caps how
-// often a "fire" message actually resolves to a hitscan attempt, i.e. the
-// weapon's rate of fire. EPIC 6 replaces the single fixed constant that used
-// to live here with `registry.getFireCooldownMs(playerId)`, read fresh on
-// every fire attempt from the shooter's own server-tracked equipped weapon
-// (WEAPON_STATS[...].cooldownMs, shared/src/weapons.ts) — see the "fire"
-// branch of the message handler below.
 
 // Infosec F1 (EPIC 4 review): ws@8's own default maxPayload is 100 MiB — the
 // library would fully buffer any frame up to that size into memory BEFORE
@@ -84,34 +50,31 @@ const FLOOD_LOG_INTERVAL_MS = 5000;
 // frames (code 1009) at the framing layer, before app code ever sees them.
 // Reuses MAX_MESSAGE_BYTES rather than introducing a second magic number.
 const wss = new WebSocketServer({ port: PORT, maxPayload: MAX_MESSAGE_BYTES });
-const registry = new PlayerRegistry();
-// EPIC 6 Story 6.1: player-count source is a callback into the registry's
-// own live alive-player list, not a captured snapshot — see PickupSpawner's
-// constructor doc comment for why this stays instantiable-per-match rather
-// than a module-level singleton (EPIC 9 compatibility note).
-const pickupSpawner = new PickupSpawner(() => registry.alivePlayerPositions().length);
-const sockets = new Map<string, WebSocket>();
-// Shared across EVERY message shape a connection can send (input, fire,
-// binary, oversized, non-JSON, unknown-type, malformed-input — literally
-// anything the "message" handler below sees) — this is what the generic
-// MIN_INPUT_INTERVAL_MS debounce reads/writes. Round 1 (EPIC 4 F-001) fixed
-// this being updated only from the "input" branch, which let a fire-only
-// stream bypass the debounce. Round 2 fixes it being updated only for
-// input/fire, which let binary/oversized/non-JSON/unknown-type/malformed
-// streams bypass it: the timestamp is now stamped once, right after the
-// debounce check itself passes, before any binary/size/parse/type-dispatch
-// logic runs — see the "message" handler below.
+
+// EPIC 9 "Bots & Match Modes": the server's game state is now N independent
+// match instances (see match.ts / matchManager.ts) instead of one global
+// PlayerRegistry/PickupSpawner/tick-interval. This module now only handles
+// transport (WS connections, per-connection flood/rate-limit guards,
+// message parsing/dispatch, join routing) — never game/simulation logic
+// itself (global-standards.mdc: keep game logic separate from transport).
+const matchManager = new MatchManager();
+
+// Shared across EVERY message shape a connection can send (join, input,
+// fire, binary, oversized, non-JSON, unknown-type, malformed-input —
+// literally anything the "message" handler below sees) — this is what the
+// generic MIN_INPUT_INTERVAL_MS debounce reads/writes. Connection-scoped
+// (keyed by connection id, which never changes for the lifetime of one WS
+// connection regardless of which match it later joins), same as before
+// EPIC 9.
 const lastAcceptedMessageAt = new Map<string, number>();
 const lastFireAcceptedAt = new Map<string, number>();
 
 /**
- * Aggregate/throttled-logging "drop tracker" for a single drop reason
- * (flood guard, fire cooldown, binary, oversized, non-JSON, unknown-type,
- * malformed-input — see EPIC 4 F-001 rounds 1 and 2). One line per dropped
- * message would just reproduce the log-spam / event-loop-stall risk this
- * pattern exists to avoid, so instead each reason tracks a per-connection
- * drop count and logs a summary immediately on the first drop, then at most
- * once per FLOOD_LOG_INTERVAL_MS while drops continue.
+ * Aggregate/throttled-logging "drop tracker" for a single drop reason. One
+ * line per dropped message would just reproduce the log-spam / event-loop-
+ * stall risk this pattern exists to avoid, so instead each reason tracks a
+ * per-connection drop count and logs a summary immediately on the first
+ * drop, then at most once per FLOOD_LOG_INTERVAL_MS while drops continue.
  */
 function createDropTracker(describe: (playerId: string, count: number, extra?: string) => string) {
   const counts = new Map<string, number>();
@@ -119,8 +82,7 @@ function createDropTracker(describe: (playerId: string, count: number, extra?: s
   return {
     // `extra` is optional free-form context appended by the caller (used by
     // fireCooldownDropTracker below to report the actual weapon-specific
-    // cooldown that was exceeded, since EPIC 6 made that value per-weapon
-    // instead of one fixed constant) — every other tracker ignores it.
+    // cooldown that was exceeded) — every other tracker ignores it.
     record(playerId: string, now: number, extra?: string): void {
       const count = (counts.get(playerId) ?? 0) + 1;
       counts.set(playerId, count);
@@ -164,71 +126,38 @@ const unknownTypeDropTracker = createDropTracker(
 const malformedInputDropTracker = createDropTracker(
   (playerId, count) => `[server] dropped ${count} out-of-range/malformed input message(s) from ${playerId}`,
 );
-
-/** Send a server message to every currently-open connection. */
-function broadcast(message: ServerMessage): void {
-  const payload = JSON.stringify(message);
-  for (const socket of sockets.values()) {
-    if (socket.readyState === socket.OPEN) {
-      socket.send(payload);
-    }
-  }
-}
-
-/**
- * Broadcast the full current scoreboard (EPIC 5 Story 5.2) to every
- * connected client, including whoever just triggered the change — called on
- * join, leave, and kill, so a newly-joined client always sees a correct,
- * complete list (itself at 0 kills) rather than only future deltas.
- */
-function broadcastScoreboard(): void {
-  const scoreboard: ScoreboardMessage = {
-    type: "scoreboard",
-    players: registry.getScores(),
-  };
-  broadcast(scoreboard);
-}
-
-/**
- * Broadcast the full current pickup on/off state (EPIC 6 Story 6.1) to every
- * connected client — same "always the full list" convention as
- * broadcastScoreboard() above, and for the same reason (a newly-joined or
- * momentarily-missed-a-message client is still correct from the very next
- * broadcast). Called on connect, on any pickup consumed, and on any pickup
- * respawn.
- */
-function broadcastPickupState(): void {
-  const message: PickupStateMessage = {
-    type: "pickup_state",
-    pickups: pickupSpawner.list().map((item) => ({ id: item.id, active: item.active })),
-  };
-  broadcast(message);
-}
-
-/**
- * Send `playerId`'s current weapon loadout (equipped weapon, remaining
- * ammo, owned weapons) to THEIR socket only — never broadcast (EPIC 6 spec
- * risk note / security-baseline.mdc: don't leak one player's ammo/inventory
- * to opponents who have no gameplay need to see it). No-op if the player or
- * socket is no longer around (e.g. a race with a just-processed disconnect).
- */
-function sendLoadout(playerId: string): void {
-  const loadout = registry.getLoadout(playerId);
-  if (!loadout) return;
-  const socket = sockets.get(playerId);
-  if (!socket || socket.readyState !== socket.OPEN) return;
-  const message: LoadoutMessage = { type: "loadout", ...loadout };
-  socket.send(JSON.stringify(message));
-}
+// EPIC 9 Story 9.2 AC: "the player cannot send input/fire/switch_weapon
+// before joining a mode" — every gameplay message type is rejected with this
+// tracker until this connection's `join` has been processed.
+const notJoinedDropTracker = createDropTracker(
+  (playerId, count) =>
+    `[server] dropped ${count} gameplay message(s) from ${playerId} sent before joining a match`,
+);
+// A connection can only join once (no mode-switch mid-session, no session
+// persistence per EPIC 9 spec Section 2) — a second "join" is dropped and
+// logged as an anomaly rather than silently re-spawning/re-parenting the
+// connection into a different match.
+const alreadyJoinedDropTracker = createDropTracker(
+  (playerId, count) => `[server] dropped ${count} duplicate join message(s) from ${playerId} (already joined)`,
+);
 
 console.log(`[server] cubewars game server listening on ws://localhost:${PORT}`);
-console.log(`[server] tick rate: ${TICK_HZ}Hz (${TICK_MS}ms)`);
+console.log(`[server] tick rate: ${BROADCAST_TICK_HZ}Hz (per match — see server/src/match.ts)`);
+
+/** Total currently-open WS connections (joined or not) — ops/logging visibility only, mirrors the pre-EPIC-9 "(${registry.size()} online)" log with a transport-level count now that there is no single global registry. */
+let connectionCount = 0;
 
 wss.on("connection", (socket: WebSocket) => {
   const playerId = randomUUID();
-  sockets.set(playerId, socket);
-  registry.spawn(playerId);
-  console.log(`[server] player connected: ${playerId} (${registry.size()} online)`);
+  connectionCount += 1;
+  console.log(`[server] connection opened: ${playerId} (${connectionCount} connected)`);
+
+  // EPIC 9: this connection is not a member of ANY match until it sends
+  // "join" (see the "join" branch below / Match.addHuman()) — every other
+  // message type is gated on `match` being non-null. `let`, not const:
+  // reassigned exactly once, from null to the joined Match, by the "join"
+  // branch below.
+  let match: Match | null = null;
 
   const welcome: WelcomeMessage = {
     type: "welcome",
@@ -237,38 +166,18 @@ wss.on("connection", (socket: WebSocket) => {
     serverTimeMs: Date.now(),
   };
   socket.send(JSON.stringify(welcome));
-  // EPIC 5 Story 5.2 AC: "a newly-joined player appears in the list at 0
-  // kills" — broadcast to everyone (including this new connection, already
-  // in `sockets` above) so the just-joined client also gets the full,
-  // correct list immediately instead of waiting for someone else's next kill.
-  broadcastScoreboard();
-  // EPIC 6: this player's starting loadout (pistol only) — private, this
-  // socket only. Broadcasting current pickup on/off state to everyone
-  // (including this new connection) mirrors broadcastScoreboard() above so a
-  // freshly-joined client immediately sees which world pickups are already
-  // taken, instead of waiting for the next consume/respawn.
-  sendLoadout(playerId);
-  broadcastPickupState();
 
   socket.on("message", (data, isBinary) => {
     // Debounce check runs FIRST, before any binary/size/parse/type-dispatch
     // logic, and independent of message shape (EPIC 4 F-001 round 2): a
     // connection already inside the debounce window gets dropped here
-    // regardless of whether the message would have been binary, oversized,
-    // non-JSON, unknown-type, or a valid input/fire.
+    // regardless of what the message would have turned out to be.
     const now = Date.now();
     const last = lastAcceptedMessageAt.get(playerId) ?? 0;
     if (now - last < MIN_INPUT_INTERVAL_MS) {
       floodDropTracker.record(playerId, now);
       return;
     }
-    // This message clears the debounce floor: stamp the timestamp
-    // immediately, BEFORE we know anything else about it, so that the next
-    // message — of ANY shape — is correctly bounded by MIN_INPUT_INTERVAL_MS.
-    // This is what actually closes F-001: previously the timestamp was only
-    // stamped deep inside the "input"/"fire" branches, so a flood of
-    // binary/oversized/non-JSON/unknown-type messages (which never reach
-    // those branches) never fed the debounce and bypassed it entirely.
     lastAcceptedMessageAt.set(playerId, now);
 
     if (isBinary) {
@@ -295,8 +204,36 @@ wss.on("connection", (socket: WebSocket) => {
       return;
     }
 
+    if (parsed.type === "join") {
+      if (match) {
+        alreadyJoinedDropTracker.record(playerId, now);
+        return;
+      }
+      if (parsed.mode !== "public" && parsed.mode !== "bots") {
+        unknownTypeDropTracker.record(playerId, now);
+        return;
+      }
+
+      match = parsed.mode === "public" ? matchManager.getPublicMatch() : matchManager.createBotsMatch(playerId);
+      match.addHuman(playerId, socket);
+      console.log(
+        `[server] player joined match "${match.id}" (mode=${parsed.mode}): ${playerId} ` +
+          `(${match.humanCount()} human(s) in match)`,
+      );
+      return;
+    }
+
+    // Every other message type is gameplay-relevant and requires an active
+    // match membership first (EPIC 9 Story 9.2 AC / security-baseline.mdc
+    // "reject what shouldn't be trusted") — a connection that hasn't sent
+    // "join" yet cannot move, fire, or switch weapons in any match.
+    if (!match) {
+      notJoinedDropTracker.record(playerId, now);
+      return;
+    }
+
     if (parsed.type === "input") {
-      const accepted = registry.applyInput(playerId, parsed);
+      const accepted = match.registry.applyInput(playerId, parsed);
       if (!accepted) {
         malformedInputDropTracker.record(playerId, now);
         return;
@@ -308,13 +245,13 @@ wss.on("connection", (socket: WebSocket) => {
       // Dead players can't fire (Story 4.2 AC) — not logged as an anomaly,
       // this is an expected race while a client's own respawn state is
       // still in flight.
-      if (!registry.isAlive(playerId)) return;
+      if (!match.registry.isAlive(playerId)) return;
 
-      // EPIC 6: the rate-of-fire cap is now the shooter's own equipped
-      // weapon's cooldown (WEAPON_STATS[...].cooldownMs), read fresh every
-      // fire attempt from the server's own authoritative record — never a
-      // single fixed constant, and never anything the client asserts.
-      const cooldownMs = registry.getFireCooldownMs(playerId);
+      // EPIC 6: the rate-of-fire cap is the shooter's own equipped weapon's
+      // cooldown (WEAPON_STATS[...].cooldownMs), read fresh every fire
+      // attempt from the server's own authoritative record — never a single
+      // fixed constant, and never anything the client asserts.
+      const cooldownMs = match.registry.getFireCooldownMs(playerId);
       const lastFire = lastFireAcceptedAt.get(playerId) ?? 0;
       if (now - lastFire < cooldownMs) {
         fireCooldownDropTracker.record(playerId, now, `${cooldownMs}ms`);
@@ -322,66 +259,13 @@ wss.on("connection", (socket: WebSocket) => {
       }
       lastFireAcceptedAt.set(playerId, now);
 
-      // registry.fire() performs the actual authoritative hitscan
-      // (server/src/combat.ts) from the shooter's own server-tracked
-      // position/yaw/pitch/equipped-weapon — nothing here trusts anything
-      // the client sent beyond "I fired now" (security-baseline.mdc). It
-      // also decrements ammo server-side for non-pistol weapons, so the
-      // loadout (ammo count) may have changed regardless of hit/miss/dry —
-      // resend it so the shooter's own HUD stays accurate.
-      const outcome = registry.fire(playerId);
-      sendLoadout(playerId);
-
-      if (!outcome.hit) {
-        if (outcome.dry) {
-          // EPIC 6 Story 6.3 "dry weapon" rule: 0 ammo, no damage, nothing
-          // further decremented. Logged distinctly from an ordinary aim-miss
-          // (which stays silent, as before EPIC 6) so Tester/ops can find
-          // "ammo ran out" events in the log.
-          console.log(`[server] ammo depleted: ${playerId} tried to fire with 0 ammo`);
-        }
-        return;
-      }
-
-      const hitMessage: HitEvent = {
-        type: "hit",
-        shooterId: playerId,
-        targetId: outcome.targetId,
-        damage: outcome.damage,
-        targetHealth: outcome.targetHealth,
-        point: outcome.point,
-      };
-      broadcast(hitMessage);
-      // EPIC 7: armor-remaining is appended so Tester/ops can see the
-      // armor-absorbs-first math (server/src/playerRegistry.ts fire()) play
-      // out per hit directly in the log, without needing a client HUD.
-      console.log(
-        `[server] hit: ${playerId} -> ${outcome.targetId} (${outcome.damage} dmg, ${outcome.targetHealth} hp left, ${outcome.targetArmor} armor left)`,
-      );
-
-      if (outcome.killed) {
-        const deathMessage: DeathEvent = {
-          type: "death",
-          playerId: outcome.targetId,
-          killerId: playerId,
-          respawnAtMs: outcome.respawnAtMs ?? Date.now() + COMBAT.respawnDelayMs,
-        };
-        broadcast(deathMessage);
-        console.log(`[server] death: ${outcome.targetId} killed by ${playerId}`);
-
-        // EPIC 5 Story 5.1: additive to the DeathEvent above (same
-        // registry.fire() resolution, not a second death system) — a
-        // dedicated event purely to drive kill-feed UI on every connected
-        // client, not just attacker/victim.
-        const killMessage: KillEvent = {
-          type: "kill",
-          attackerId: playerId,
-          victimId: outcome.targetId,
-        };
-        broadcast(killMessage);
-        // Story 5.2: kill count changed, refresh every client's scoreboard.
-        broadcastScoreboard();
-      }
+      // match.resolveFire() performs the actual authoritative hitscan
+      // (server/src/combat.ts, via registry.fire()) from the shooter's own
+      // server-tracked position/yaw/pitch/equipped-weapon, and broadcasts
+      // whatever it resolved to (hit/death/kill) scoped to this match only
+      // — nothing here trusts anything the client sent beyond "I fired now"
+      // (security-baseline.mdc).
+      match.resolveFire(playerId);
       return;
     }
 
@@ -389,14 +273,12 @@ wss.on("connection", (socket: WebSocket) => {
       // EPIC 6 Story 6.2 "E" key: server-decided "cycle to the next OWNED
       // weapon in tier order" — see registry.cycleWeapon() doc comment for
       // why this carries no client-supplied target weapon. Returns false
-      // (and this stays a no-op, nothing broadcast/logged) if there's
-      // nothing to cycle to (only the pistol owned) — matches the AC
-      // "pressing E with only the pistol owned does nothing".
-      const changed = registry.cycleWeapon(playerId);
+      // (no-op, nothing broadcast/logged) if there's nothing to cycle to.
+      const changed = match.registry.cycleWeapon(playerId);
       if (changed) {
-        sendLoadout(playerId);
-        const loadout = registry.getLoadout(playerId);
-        console.log(`[server] switch: ${playerId} -> ${loadout?.equippedWeapon ?? "?"}`);
+        match.sendLoadout(playerId);
+        const loadout = match.registry.getLoadout(playerId);
+        console.log(`[server] [${match.id}] switch: ${playerId} -> ${loadout?.equippedWeapon ?? "?"}`);
       }
       return;
     }
@@ -405,8 +287,14 @@ wss.on("connection", (socket: WebSocket) => {
   });
 
   socket.on("close", () => {
-    registry.remove(playerId);
-    sockets.delete(playerId);
+    // EPIC 9: tears down this connection's match membership (and, for a
+    // "bots" match whose last human this was, the whole match — see
+    // Match.removeHuman() / MatchManager). No-op if this connection never
+    // joined any match.
+    if (match) {
+      match.removeHuman(playerId);
+    }
+    connectionCount -= 1;
     lastAcceptedMessageAt.delete(playerId);
     lastFireAcceptedAt.delete(playerId);
     floodDropTracker.clear(playerId);
@@ -416,10 +304,11 @@ wss.on("connection", (socket: WebSocket) => {
     nonJsonDropTracker.clear(playerId);
     unknownTypeDropTracker.clear(playerId);
     malformedInputDropTracker.clear(playerId);
-    console.log(`[server] player disconnected: ${playerId} (${registry.size()} online)`);
-    // Story 5.2 AC: "a disconnected player is removed" from every remaining
-    // client's scoreboard.
-    broadcastScoreboard();
+    notJoinedDropTracker.clear(playerId);
+    alreadyJoinedDropTracker.clear(playerId);
+    console.log(
+      `[server] connection closed: ${playerId} (${connectionCount} connected, ${matchManager.size()} live match(es))`,
+    );
   });
 
   socket.on("error", (err) => {
@@ -431,83 +320,7 @@ wss.on("error", (err) => {
   console.error("[server] WebSocketServer error:", err);
 });
 
-const tickInterval = setInterval(() => {
-  const nowMs = Date.now();
-  registry.step(TICK_DT_SECONDS);
-
-  // Respawn is time-driven, not event-driven — check every tick rather than
-  // only right after a kill, so respawn happens on schedule even though the
-  // kill itself was resolved out-of-band (immediately, in the "fire" message
-  // handler above) rather than in this tick loop.
-  const respawns = registry.processRespawns(nowMs);
-  for (const respawn of respawns) {
-    const respawnMessage: RespawnEvent = {
-      type: "respawn",
-      playerId: respawn.playerId,
-      position: respawn.position,
-      health: respawn.health,
-    };
-    broadcast(respawnMessage);
-    // EPIC 6 (Critic non-blocking recommendation, folded in before merge):
-    // processRespawns() resets this player's loadout back to pistol-only —
-    // resend their private LoadoutMessage so their own HUD reflects that
-    // immediately, rather than only on their next fire/switch/pickup.
-    sendLoadout(respawn.playerId);
-    console.log(
-      `[server] respawn: ${respawn.playerId} at (${respawn.position.x.toFixed(1)}, ${respawn.position.z.toFixed(1)})`,
-    );
-  }
-
-  // EPIC 6 Story 6.2 (extended by EPIC 7 for the "health"/"armor"
-  // categories): server-authoritative pickup-on-proximity, checked every
-  // tick against every currently ALIVE player's own server-tracked position
-  // (never a client-asserted "I picked this up" — security-baseline.mdc).
-  // Each alive player consumes at most the single nearest active pickup
-  // within range per tick; a pickup that would have no benefit (already
-  // owned at max ammo, or already at max health/armor) is intentionally
-  // left untouched by registry.applyPickup() (EPIC 6 §2 / EPIC 7 §2
-  // pickup-consumption rule), so it is never passed to
-  // pickupSpawner.consume() and stays for someone else.
-  let pickupStateChanged = false;
-  for (const { id, position } of registry.alivePlayerPositions()) {
-    const nearby = pickupSpawner.findNearby(position, PICKUP_RADIUS);
-    if (!nearby) continue;
-
-    const { applied } = registry.applyPickup(id, nearby.category, nearby.weapon);
-    if (!applied) continue;
-
-    pickupSpawner.consume(nearby.id, nowMs);
-    pickupStateChanged = true;
-    // EPIC 7's health/armor pickups don't touch the weapon loadout, but
-    // resending it here unconditionally is harmless (sendLoadout() is a
-    // no-op cost, and keeps this one call site simple for all 4 categories).
-    sendLoadout(id);
-    const weaponSuffix = nearby.weapon ? ` (${nearby.weapon})` : "";
-    console.log(`[server] pickup: ${id} picked up ${nearby.category} "${nearby.id}"${weaponSuffix}`);
-  }
-
-  // Pickup respawns are time-driven, same pattern as player respawns above.
-  const pickupRespawns = pickupSpawner.processRespawns(nowMs);
-  for (const item of pickupRespawns) {
-    pickupStateChanged = true;
-    const weaponSuffix = item.weapon ? ` ${item.weapon}` : "";
-    console.log(`[server] pickup respawn: "${item.id}" (${item.category}${weaponSuffix}) is available again`);
-  }
-
-  if (pickupStateChanged) {
-    broadcastPickupState();
-  }
-
-  const worldState: WorldStateMessage = {
-    type: "world_state",
-    serverTimeMs: nowMs,
-    players: registry.toWorldState(),
-  };
-  broadcast(worldState);
-}, TICK_MS);
-
 process.on("SIGINT", () => {
   console.log("[server] shutting down");
-  clearInterval(tickInterval);
   wss.close(() => process.exit(0));
 });
