@@ -8,13 +8,21 @@
 // itself (security-baseline.mdc: the client renders, the server decides).
 //
 // Visual/color identity per the EPIC 6 spec (Section 2): weapon pickups are
-// a larger silhouette mesh in the weapon's color; ammo pickups are a small
-// crate in the SAME color family, so a player can tell "weapon vs. ammo for
-// that weapon" apart at a glance without walking up to it. EPIC 7 adds two
-// more, deliberately distinct from every weapon/ammo color AND from each
-// other in both color and shape (Task 5 ask): health is a near-white box
-// with a small red cross mark on top (medkit read), armor is a solid steel-
-// blue octahedron (a shape used nowhere else in the world).
+// a distinct-silhouette composite mesh in the weapon's color; ammo pickups
+// are a small crate in the SAME color family, so a player can tell "weapon
+// vs. ammo for that weapon" apart at a glance without walking up to it.
+// EPIC 7 adds two more, deliberately distinct from every weapon/ammo color
+// AND from each other in both color and shape (Task 5 ask): health is a
+// near-white box with a small red cross mark on top (medkit read), armor is
+// a faceted plate/shield shape.
+//
+// EPIC 10 Story 10.3: the weapon and armor meshes below were redesigned from
+// single primitives (a plain pillar box / octahedron) into small composite
+// groups (2-3 primitives each) so each reads as a distinct silhouette, not
+// just a differently-colored blob — pistol compact, rifle elongated, GL
+// bulky, armor plate-like. This is a mesh-only change: PICKUP_RADIUS and all
+// proximity/collision logic are untouched (server doesn't know or render
+// pickup shape at all).
 import * as THREE from "three";
 import {
   ARMOR_PICKUP_COLOR,
@@ -23,13 +31,10 @@ import {
   PICKUP_SPAWN_POINTS,
   WEAPON_STATS,
   type PickupStatus,
+  type WeaponType,
 } from "@cubewars/shared";
 
-/** Weapon pickup: an upright pillar-like silhouette, tall enough to read as "a weapon stand" from a distance. */
-const WEAPON_MESH_SIZE = { x: 0.5, y: 1.3, z: 0.5 };
-const WEAPON_MESH_CENTER_Y = WEAPON_MESH_SIZE.y / 2;
-
-/** Ammo pickup: a small crate, visually distinct in both size and proportion from the weapon pillar above. */
+/** Ammo pickup: a small crate, visually distinct in both size and proportion from the weapon composites below. */
 const AMMO_MESH_SIZE = { x: 0.55, y: 0.55, z: 0.55 };
 const AMMO_MESH_CENTER_Y = AMMO_MESH_SIZE.y / 2;
 
@@ -39,9 +44,56 @@ const HEALTH_MESH_CENTER_Y = HEALTH_MESH_SIZE.y / 2;
 /** The red cross mark sitting on top of the health box — two thin overlapping bars. */
 const HEALTH_CROSS_BAR_SIZE = { x: 0.44, y: 0.08, z: 0.12 };
 
-/** Armor pickup (EPIC 7): an octahedron, a shape not used by any other pickup/geometry in the scene, floating a bit taller than the ammo crate to read as "bigger commitment" (4 needed for full armor). */
-const ARMOR_MESH_RADIUS = 0.45;
-const ARMOR_MESH_CENTER_Y = 0.65;
+/** Armor pickup (EPIC 7 / redesigned EPIC 10): a flattened hexagonal "plate" disc plus a raised center boss, reading as a chest-plate/shield rather than a generic gem shape. */
+const ARMOR_PLATE_RADIUS = 0.5;
+const ARMOR_PLATE_DEPTH = 0.16;
+const ARMOR_PLATE_CENTER_Y = 0.55;
+
+/**
+ * Composite weapon-pickup silhouettes (EPIC 10 Story 10.3): pistol is
+ * compact/small, rifle is longer/elongated, grenade launcher is bulky
+ * (thick radius) — each built from 2-3 primitives sharing one glowing
+ * material per pickup (same "weapon pickups glow, ammo doesn't" discipline
+ * as before).
+ */
+function buildWeaponPickupMesh(weaponType: WeaponType, material: THREE.Material): THREE.Group {
+  const group = new THREE.Group();
+
+  if (weaponType === "pistol") {
+    // Compact: short grip block + a slim stub barrel — smallest silhouette of the three.
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.4, 0.22), material);
+    grip.position.set(0, 0.2, 0.06);
+    const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 0.42), material);
+    barrel.position.set(0, 0.42, -0.12);
+    group.add(grip, barrel);
+    return group;
+  }
+
+  if (weaponType === "rifle") {
+    // Elongated: stock + body + a protruding barrel — visibly longer than the pistol.
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.22, 0.42), material);
+    stock.position.set(0, 0.5, 0.32);
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, 0.55), material);
+    body.position.set(0, 0.5, -0.15);
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.55, 10), material);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.5, -0.68);
+    group.add(stock, body, barrel);
+    return group;
+  }
+
+  // grenade_launcher — bulky: thick tube + wide muzzle, reads as "heavy weapon" via bulk, not length.
+  const stock = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.36, 0.4), material);
+  stock.position.set(0, 0.45, 0.25);
+  const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.75, 12), material);
+  tube.rotation.x = Math.PI / 2;
+  tube.position.set(0, 0.45, -0.2);
+  const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.15, 12), material);
+  muzzle.rotation.x = Math.PI / 2;
+  muzzle.position.set(0, 0.45, -0.65);
+  group.add(stock, tube, muzzle);
+  return group;
+}
 
 export class PickupRenderer {
   private meshes = new Map<string, THREE.Object3D>();
@@ -56,7 +108,7 @@ export class PickupRenderer {
     }
   }
 
-  private buildMesh(category: string, weapon: string | undefined): THREE.Object3D {
+  private buildMesh(category: string, weapon: WeaponType | undefined): THREE.Object3D {
     if (category === "health") {
       const group = new THREE.Group();
       group.position.y = HEALTH_MESH_CENTER_Y;
@@ -88,33 +140,45 @@ export class PickupRenderer {
     }
 
     if (category === "armor") {
-      const geometry = new THREE.OctahedronGeometry(ARMOR_MESH_RADIUS);
+      // EPIC 10 Story 10.3: a flattened hexagonal "plate" disc (a low-radial-
+      // segment cylinder, which renders as a faceted hex plate) plus a
+      // raised center boss — reads as a chest-plate/shield rather than the
+      // previous generic octahedron gem.
+      const group = new THREE.Group();
+      group.position.y = ARMOR_PLATE_CENTER_Y;
+
       const material = new THREE.MeshStandardMaterial({
         color: ARMOR_PICKUP_COLOR,
         emissive: ARMOR_PICKUP_COLOR,
         emissiveIntensity: 0.3,
       });
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.position.y = ARMOR_MESH_CENTER_Y;
-      return mesh;
+      const plate = new THREE.Mesh(new THREE.CylinderGeometry(ARMOR_PLATE_RADIUS, ARMOR_PLATE_RADIUS, ARMOR_PLATE_DEPTH, 6), material);
+      plate.rotation.x = Math.PI / 2;
+      group.add(plate);
+
+      const boss = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 8), material);
+      boss.position.z = ARMOR_PLATE_DEPTH / 2 + 0.06;
+      group.add(boss);
+
+      return group;
     }
 
-    // "weapon" / "ammo" (EPIC 6, unchanged behavior).
-    const color = WEAPON_STATS[weapon as keyof typeof WEAPON_STATS].color;
-    const isWeapon = category === "weapon";
-    const size = isWeapon ? WEAPON_MESH_SIZE : AMMO_MESH_SIZE;
-    const centerY = isWeapon ? WEAPON_MESH_CENTER_Y : AMMO_MESH_CENTER_Y;
+    // "weapon": composite, distinct-silhouette shapes per Story 10.3.
+    if (category === "weapon" && weapon) {
+      const color = WEAPON_STATS[weapon].color;
+      // Weapon pickups glow slightly (emissive) so the silhouette reads
+      // clearly against the sandy ground even at range; ammo crates (below)
+      // stay a plain lit material to look visually smaller/more mundane.
+      const material = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.35 });
+      return buildWeaponPickupMesh(weapon, material);
+    }
 
-    const geometry = new THREE.BoxGeometry(size.x, size.y, size.z);
-    // Weapon pickups glow slightly (emissive) so the "bigger silhouette"
-    // reads clearly against the sandy ground even at range; ammo crates
-    // stay a plain lit material to look visually smaller/more mundane.
-    const material = isWeapon
-      ? new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.35 })
-      : new THREE.MeshStandardMaterial({ color });
-
+    // "ammo" (EPIC 6, unchanged behavior — a small crate in the weapon's color).
+    const color = WEAPON_STATS[weapon as WeaponType].color;
+    const geometry = new THREE.BoxGeometry(AMMO_MESH_SIZE.x, AMMO_MESH_SIZE.y, AMMO_MESH_SIZE.z);
+    const material = new THREE.MeshStandardMaterial({ color });
     const mesh = new THREE.Mesh(geometry, material);
-    mesh.position.y = centerY;
+    mesh.position.y = AMMO_MESH_CENTER_Y;
     return mesh;
   }
 

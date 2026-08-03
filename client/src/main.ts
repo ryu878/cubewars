@@ -5,6 +5,7 @@ import {
   WEAPON_STATS,
   type MatchMode,
   type PlayerInputMessage,
+  type WeaponType,
   type WorldStateMessage,
 } from "@cubewars/shared";
 import { GameConnection } from "./network";
@@ -15,18 +16,24 @@ import { KillFeed } from "./killFeed";
 import { Scoreboard } from "./scoreboard";
 import { PickupRenderer } from "./pickups";
 import { ModeSelect } from "./modeSelect";
+import { WeaponViewmodel } from "./viewmodel";
+import { buildSkyDome, buildWallTextures } from "./textures";
 
 const statusEl = document.getElementById("status") as HTMLDivElement;
 const hintEl = document.getElementById("hint") as HTMLDivElement;
 const appEl = document.getElementById("app") as HTMLDivElement;
 
-// --- Scene: sandy/tan de_dust-inspired arena (EPIC 3) ---
-const SKY_COLOR = 0xbfd8e8;
+// --- Scene: sandy/tan de_dust-inspired arena (EPIC 3), gradient sky (EPIC 10) ---
+// EPIC 10 Story 10.2: a warm tone matching the gradient sky dome's horizon
+// color (client/src/textures.ts buildSkyDome()) so distant fogged geometry
+// blends into the new sky instead of clashing with it — replaces the flat
+// SKY_COLOR fill/fog this used to share with a plain `scene.background` color.
+const FOG_COLOR = 0xf3d9a8;
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(SKY_COLOR);
 // Arena spans roughly 92x52 units — fog range widened from EPIC 1/2's flat
 // field so the far site is still visible across mid/tunnel sightlines.
-scene.fog = new THREE.Fog(SKY_COLOR, 40, 170);
+scene.fog = new THREE.Fog(FOG_COLOR, 40, 170);
+scene.add(buildSkyDome());
 
 const camera = new THREE.PerspectiveCamera(
   70,
@@ -34,6 +41,12 @@ const camera = new THREE.PerspectiveCamera(
   0.1,
   1000,
 );
+// EPIC 10 Story 10.1: the camera must be part of the scene graph for its
+// child viewmodel (added below, see WeaponViewmodel) to actually render —
+// renderer.render(scene, camera) only draws what's reachable from `scene`.
+// This does not change camera behavior; fpsController.ts still owns and
+// drives camera.position/rotation exactly as before.
+scene.add(camera);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -59,27 +72,58 @@ scene.add(ground);
 
 // --- Arena geometry: render every wall/crate from the shared, server-matching
 // AABB list (EPIC 3 Story 3.2) — this is the ONE layout definition, also used
-// for collision in fpsController.ts and server/src/playerRegistry.ts. ---
-const wallMat = new THREE.MeshStandardMaterial({ color: 0xb08d57 }); // sandstone
-const crateMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b }); // wood crate
-for (const box of ARENA_GEOMETRY) {
+// for collision in fpsController.ts and server/src/playerRegistry.ts.
+//
+// EPIC 10 Story 10.2: replaces the old flat sandstone/wood-crate colors with
+// two procedurally-generated CanvasTextures (wood/brick, built ONCE here at
+// scene setup — see client/src/textures.ts doc comment on why this must
+// never happen inside the render loop), alternated by index so walls/crates
+// show real variety rather than one texture applied uniformly. Purely a
+// materials change — geometry/positions (and thus collision, which reads
+// ARENA_GEOMETRY independently) are untouched. ---
+const WALL_TEXTURE_TILE_SIZE = 2; // world units per texture tile, both wood & brick
+const wallTextures = buildWallTextures();
+ARENA_GEOMETRY.forEach((box, index) => {
+  const baseTexture = index % 2 === 0 ? wallTextures.wood : wallTextures.brick;
+  // Each box gets its own texture instance (repeat differs per box size) —
+  // cheap, still generated from the same one canvas-drawn image, not a
+  // second draw call.
+  const texture = baseTexture.clone();
+  texture.needsUpdate = true;
+  const longAxis = Math.max(box.size.x, box.size.z);
+  texture.repeat.set(
+    Math.max(1, Math.round(longAxis / WALL_TEXTURE_TILE_SIZE)),
+    Math.max(1, Math.round(box.size.y / WALL_TEXTURE_TILE_SIZE)),
+  );
+
   const geometry = new THREE.BoxGeometry(box.size.x, box.size.y, box.size.z);
-  const material = box.kind === "wall" ? wallMat : crateMat;
+  const material = new THREE.MeshStandardMaterial({ map: texture });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.position.set(box.center.x, box.center.y, box.center.z);
   mesh.name = box.id;
   scene.add(mesh);
-}
+});
 
 // --- First-person controls (replaces EPIC 1's OrbitControls demo camera) ---
 const hud = new CombatHud();
+// EPIC 10 Story 10.1: the viewmodel is attached to the camera (see
+// scene.add(camera) above) and reacts to the SAME data already driving the
+// HUD — LoadoutMessage.equippedWeapon/ammo (onLoadout below) and the
+// existing onFire trigger (below) — no new server message.
+const viewmodel = new WeaponViewmodel(camera);
+// Tracks this client's own currently-equipped weapon, purely to know which
+// weapon's fire feedback (muzzle flash color/size, viewmodel recoil) to
+// play on the local onFire trigger below — always kept in sync with the
+// server's own LoadoutMessage (onLoadout), never guessed independently.
+let currentWeapon: WeaponType = "pistol";
 const fps = new FpsController(camera, renderer.domElement, {
   onFire: () => {
     // Immediate local "juice" — cosmetic only, fired before any server
     // round trip. The actual hit outcome (if any) only ever comes from the
     // server's HitEvent broadcast below (security-baseline.mdc: the client
     // never unilaterally declares a hit).
-    hud.showMuzzleFlash();
+    hud.showMuzzleFlash(currentWeapon);
+    viewmodel.triggerFire(currentWeapon);
     connection.send({ type: "fire" });
   },
 });
@@ -119,6 +163,7 @@ function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.1); // clamp so a tab-switch pause doesn't cause a huge jump
   fps.update(dt);
+  viewmodel.update(dt);
   renderer.render(scene, camera);
 }
 animate();
@@ -208,6 +253,12 @@ const connection = new GameConnection(wsUrl, {
     // server/src/index.ts sendLoadout()) — the HUD only ever renders it.
     const stats = WEAPON_STATS[message.equippedWeapon];
     hud.setWeapon(stats.displayName, stats.color, message.ammo);
+    // EPIC 10 Story 10.1: the viewmodel reacts to this SAME message — no new
+    // server message, per the spec. currentWeapon is also the source used by
+    // the onFire callback above to pick the right fire feedback.
+    currentWeapon = message.equippedWeapon;
+    viewmodel.setWeapon(message.equippedWeapon);
+    viewmodel.setEmpty(message.ammo === 0);
   },
   onPickupState: (message) => {
     pickupRenderer.sync(message.pickups);

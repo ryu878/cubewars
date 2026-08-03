@@ -6,7 +6,25 @@
 // cosmetic client-side juice; it never decides who took damage or died,
 // that always comes from server broadcasts (see main.ts wiring).
 
+import type { WeaponType } from "@cubewars/shared";
+
 const PULSE_MS = 160;
+
+/**
+ * Per-weapon muzzle-flash size/color (EPIC 10 Story 10.1 "weapon-distinct
+ * fire feedback" ask) — escalates pistol -> rifle -> grenade launcher in
+ * both size and color intensity, matching the grenade launcher's red/purple
+ * identity, so the screen-space flash alone hints which weapon fired
+ * (complementing the 3D viewmodel flash in client/src/viewmodel.ts).
+ */
+const MUZZLE_FLASH_STYLE: Record<WeaponType, { sizePx: number; background: string }> = {
+  pistol: { sizePx: 40, background: "rgba(255, 235, 170, 0.92)" },
+  rifle: { sizePx: 60, background: "rgba(255, 176, 64, 0.95)" },
+  grenade_launcher: {
+    sizePx: 100,
+    background: "radial-gradient(circle, rgba(224,140,255,0.95) 0%, rgba(140,30,220,0.85) 65%, rgba(140,30,220,0) 100%)",
+  },
+};
 
 function pulse(el: HTMLElement, timers: { handle: number | undefined }): void {
   el.classList.add("visible");
@@ -63,8 +81,20 @@ export class CombatHud {
     this.armorEl.dataset.zero = clamped <= 0 ? "true" : "false";
   }
 
-  /** Brief cosmetic pulse fired immediately on the local player's own click-to-fire, before any server confirmation — responsiveness "juice", not a claim of a landed hit. */
-  showMuzzleFlash(): void {
+  /**
+   * Brief cosmetic pulse fired immediately on the local player's own
+   * click-to-fire, before any server confirmation — responsiveness "juice",
+   * not a claim of a landed hit. Sized/colored per the fired weapon (EPIC 10
+   * Story 10.1) so pistol/rifle/grenade-launcher fire visibly differently
+   * even from this 2D screen-space element alone.
+   */
+  showMuzzleFlash(weapon: WeaponType): void {
+    const style = MUZZLE_FLASH_STYLE[weapon];
+    this.muzzleFlashEl.style.width = `${style.sizePx}px`;
+    this.muzzleFlashEl.style.height = `${style.sizePx}px`;
+    this.muzzleFlashEl.style.marginLeft = `-${style.sizePx / 2}px`;
+    this.muzzleFlashEl.style.marginTop = `-${style.sizePx / 2}px`;
+    this.muzzleFlashEl.style.background = style.background;
     pulse(this.muzzleFlashEl, this.muzzleFlashTimer);
   }
 
