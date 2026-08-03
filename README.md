@@ -63,7 +63,7 @@ ai-office/ the multi-agent delivery process (Team Lead/Programmer/Tester/Critic/
 
 ## Controls
 
-Click the canvas to lock the pointer and start playing:
+On connecting, pick a mode first: **vs Bots** (a private match against 2 AI opponents) or **Multiplayer** (the shared world — if no one else is online, you're just practicing alone). Then click the canvas to lock the pointer and start playing:
 
 - **Mouse** — look around (yaw + pitch, pitch clamped so you can't flip over)
 - **W / A / S / D** — move relative to look direction
@@ -78,6 +78,14 @@ Movement/look is predicted locally for responsiveness, but the **server is autho
 Combat is server-authoritative too: firing sends a bare "fire" event, and the server resolves the actual hitscan raycast from its own tracked position/yaw/pitch **and equipped weapon** for that player — the client never states an aim origin/direction, a weapon, or a hit, of its own. See "Current status" below for the exact model.
 
 ## Current status
+
+EPIC 9 (Bots & Match Modes) — see `docs/tasks/epic-09-bots-and-modes.md`. The server changed from one global shared world to N independent match instances:
+
+- **Mode select:** the client now shows a pre-game screen before anything else — **vs Bots** or **Multiplayer**. Picking a mode sends a `join` message; the server rejects any gameplay message (`input`/`fire`/`switch_weapon`) from a connection that hasn't joined a match yet.
+- **`public` match:** one persistent instance, created at server startup — this is exactly the shared world from EPICs 1-8, unchanged (verified line-by-line against the pre-EPIC-9 tick loop). If you're the only one in it, you're simply playing alone — that **is** "waiting for players," not a separate mode.
+- **`bots:*` matches:** created on demand when a player picks vs Bots, containing that one player plus 2 AI-controlled bots, fully isolated from every other match (no shared state, no cross-match broadcasts — independently adversarially tested), torn down cleanly when the player disconnects.
+- **Bot AI:** a simple patrol/engage state machine (`server/src/botAI.ts`) — bots wander between the arena's spawn points when no target is visible, and turn to face and fire (pistol only, normal human damage/cooldown, line-of-sight gated through the same wall-raycast as player hitscan) when one is. Bots go through the exact same server-authoritative movement/collision/combat path as a human player — they're `PlayerRecord`s whose input happens to be AI-computed instead of read from a socket. Deliberately simple: no weapon/health/armor pickups, no bunny hop, no pathfinding beyond waypoint patrol.
+- **`bots:<id>` match IDs are never client-suppliable** — derived server-side from the connection's own server-generated ID, so a client cannot join or influence another player's private match.
 
 EPIC 8 (Movement Tuning) — see `docs/tasks/epic-08-movement-tuning.md`. Two changes, both to the single shared `MOVEMENT` constant set so client and server never drift:
 
