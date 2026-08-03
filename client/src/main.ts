@@ -158,6 +158,10 @@ const connection = new GameConnection(wsUrl, {
         // the next tick.
         fps.setAlive(self.alive);
         hud.setHealth(self.health);
+        // EPIC 7: armor is the same "continuous source of truth every tick"
+        // pattern as health above — see PlayerState.armor doc comment
+        // (shared/src/index.ts).
+        hud.setArmor(self.armor);
         hud.setDead(!self.alive);
       }
     }

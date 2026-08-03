@@ -18,7 +18,8 @@ import { PICKUP_RESPAWN, PICKUP_SPAWN_POINTS, type PickupCategory, type PickupSp
 export interface PickupRuntimeState {
   id: string;
   category: PickupCategory;
-  weapon: WeaponType;
+  /** Only meaningful for "weapon"/"ammo" categories — undefined for EPIC 7's "health"/"armor" categories (see PickupSpawnPoint doc comment, shared/src/pickups.ts). */
+  weapon?: WeaponType;
   position: Vector3;
   active: boolean;
   /** Server timestamp (Date.now()-based) at which an inactive pickup should respawn; null while active. */
