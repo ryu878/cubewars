@@ -31,9 +31,17 @@ export const MOVEMENT = {
    * EPIC 2 baseline (5 -> 5 * 1.33 = 6.65), expressed as the multiplication
    * rather than the literal result so the balance intent stays visible at
    * the one shared definition site (client + server both import this same
-   * constant, never a duplicated literal — see EPIC 8 Task 1).
+   * constant, never a duplicated literal — see EPIC 8 Task 1). EPIC 11
+   * Story 11.2: user feedback that the EPIC 8 speed still felt too slow —
+   * a further 5x on top of that value (5 * 1.33 * 5 = 33.25 m/s), again
+   * expressed as the full lineage rather than the bare literal so the
+   * history stays visible (see EPIC 11 spec Section 2). This relies on
+   * the sub-stepped collision resolution added in EPIC 11 Story 11.1
+   * (shared/src/collision.ts resolveSteppedMovement()) to stay wall-safe
+   * at this speed — do not raise this further without re-checking that
+   * safety margin (scripts/regression-collision-overshoot.ts).
    */
-  maxSpeed: 5 * 1.33,
+  maxSpeed: 5 * 1.33 * 5,
   /** Initial vertical velocity applied on jump, m/s. */
   jumpSpeed: 6,
   /** Downward acceleration, m/s^2. */
