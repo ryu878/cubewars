@@ -3,7 +3,7 @@
 // resulting position (security-baseline.mdc) — see reconcile().
 
 import * as THREE from "three";
-import { BUNNY_HOP, EYE_HEIGHT, MAX_PITCH, MOVEMENT, resolveHorizontalCollisions } from "@cubewars/shared";
+import { BUNNY_HOP, EYE_HEIGHT, MAX_PITCH, MOVEMENT, resolveSteppedMovement } from "@cubewars/shared";
 
 const MOUSE_SENSITIVITY = 0.0025;
 
@@ -193,20 +193,20 @@ export class FpsController {
     const rightX = Math.cos(this.yaw);
     const rightZ = -Math.sin(this.yaw);
 
-    const nextX =
-      this.position.x +
-      (forwardX * moveForward + rightX * moveRight) * MOVEMENT.maxSpeed * this.airSpeedMultiplier * dt;
-    const nextZ =
-      this.position.z +
-      (forwardZ * moveForward + rightZ * moveRight) * MOVEMENT.maxSpeed * this.airSpeedMultiplier * dt;
+    const dx = (forwardX * moveForward + rightX * moveRight) * MOVEMENT.maxSpeed * this.airSpeedMultiplier * dt;
+    const dz = (forwardZ * moveForward + rightZ * moveRight) * MOVEMENT.maxSpeed * this.airSpeedMultiplier * dt;
 
-    // Local collision prediction (EPIC 3 Story 3.3): resolve against the
-    // same shared ARENA_GEOMETRY the server uses, so walking into a wall
-    // stops the player immediately and responsively. This is a feel/
-    // prediction layer only — reconcile() below still pulls the visual
-    // position toward whatever the server's authoritative broadcast says,
-    // exactly as EPIC 2 already does for the rest of movement.
-    const resolved = resolveHorizontalCollisions(nextX, nextZ);
+    // Local collision prediction (EPIC 3 Story 3.3, sub-stepped since EPIC 11
+    // Story 11.1): resolve against the same shared ARENA_GEOMETRY and the
+    // SAME resolveSteppedMovement() helper the server's authoritative
+    // stepPlayer() uses, so walking into a wall stops the player immediately
+    // and responsively — and, at the new higher speeds, a wall hit mid-tick
+    // is caught the same way locally as it is authoritatively (no new
+    // client/server mismatch). This is a feel/prediction layer only —
+    // reconcile() below still pulls the visual position toward whatever the
+    // server's authoritative broadcast says, exactly as EPIC 2 already does
+    // for the rest of movement.
+    const resolved = resolveSteppedMovement(this.position.x, this.position.z, dx, dz);
     this.position.x = resolved.x;
     this.position.z = resolved.z;
 

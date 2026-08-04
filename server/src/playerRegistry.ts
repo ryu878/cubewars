@@ -11,6 +11,7 @@ import {
   WEAPON_ORDER,
   WEAPON_STATS,
   resolveHorizontalCollisions,
+  resolveSteppedMovement,
   type PickupCategory,
   type PlayerScore,
   type PlayerState,
@@ -654,23 +655,38 @@ export class PlayerRegistry {
     const rightX = Math.cos(player.yaw);
     const rightZ = -Math.sin(player.yaw);
 
-    // EPIC 8 Story 8.1: MOVEMENT.maxSpeed is the new ~6.65 m/s baseline
-    // (5 * 1.33, see shared/src/index.ts). airSpeedMultiplier is 1 outside
-    // an active bunny-hop boost, so this is a no-op change to normal
-    // movement — only a boosted air-time actually sees the extra factor.
+    // EPIC 8 Story 8.1 / EPIC 11 Story 11.2: MOVEMENT.maxSpeed is the
+    // single shared base-speed constant (currently 5 * 1.33 * 2 = 13.3 m/s,
+    // see shared/src/index.ts — do not hardcode the literal here).
+    // airSpeedMultiplier is 1 outside an active bunny-hop boost, so this is
+    // a no-op change to normal movement — only a boosted air-time actually
+    // sees the extra factor (reaching ~17.3 m/s at the current base).
     const dx =
       (forwardX * moveForward + rightX * moveRight) * MOVEMENT.maxSpeed * player.airSpeedMultiplier * dt;
     const dz =
       (forwardZ * moveForward + rightZ * moveRight) * MOVEMENT.maxSpeed * player.airSpeedMultiplier * dt;
 
-    // Authoritative collision (EPIC 3 Story 3.3): resolve the proposed
-    // position against the exact same ARENA_GEOMETRY the client renders
-    // and predicts against. This is what actually matters for anti-cheat —
-    // no matter what the client's own prediction claims, the position
-    // broadcast to every player is clamped clear of every wall/crate here.
+    // Authoritative collision (EPIC 3 Story 3.3, sub-stepped since EPIC 11
+    // Story 11.1): resolve the proposed movement against the exact same
+    // ARENA_GEOMETRY the client renders and predicts against, via
+    // resolveSteppedMovement() rather than a single resolveHorizontalCollisions
+    // call — at EPIC 11's new top speed a single tick's raw displacement can
+    // exceed a wall's thickness, so the movement is resolved in several
+    // smaller sub-steps (see shared/src/collision.ts doc comment) so a wall
+    // hit mid-tick is caught rather than glossed over. This is what actually
+    // matters for anti-cheat — no matter what the client's own prediction
+    // claims, the position broadcast to every player is clamped clear of
+    // every wall/crate here. The coarse WORLD_BOUND clamp is applied to the
+    // proposed end point first (unchanged), then sub-stepped collision
+    // resolves the path from the player's current position toward it.
     const proposedX = clampBound(player.position.x + dx);
     const proposedZ = clampBound(player.position.z + dz);
-    const resolved = resolveHorizontalCollisions(proposedX, proposedZ);
+    const resolved = resolveSteppedMovement(
+      player.position.x,
+      player.position.z,
+      proposedX - player.position.x,
+      proposedZ - player.position.z,
+    );
     player.position.x = resolved.x;
     player.position.z = resolved.z;
 

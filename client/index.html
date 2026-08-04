@@ -83,16 +83,25 @@
         height: 2px;
       }
 
+      /* --- EPIC 11 Story 11.3: health/armor moved to the bottom of the
+         screen, flanking #weaponHud (health-left, armor-right), and made
+         significantly larger/bolder for at-a-glance readability during
+         combat — pure CSS relayout, no change to the setHealth()/setArmor()
+         logic that drives their textContent (client/src/combatHud.ts). Same
+         dark rounded-badge visual style as the rest of the HUD, just bigger
+         and moved. --- */
+
       #healthHud {
         position: fixed;
-        top: 12px;
-        right: 12px;
-        padding: 6px 12px;
+        bottom: 18px;
+        left: 24px;
+        padding: 10px 20px;
         background: rgba(0, 0, 0, 0.6);
         color: #fff;
         font-family: system-ui, sans-serif;
-        font-size: 14px;
-        border-radius: 6px;
+        font-size: 30px;
+        font-weight: 800;
+        border-radius: 8px;
         z-index: 10;
         pointer-events: none;
       }
@@ -104,14 +113,15 @@
 
       #armorHud {
         position: fixed;
-        top: 44px;
-        right: 12px;
-        padding: 6px 12px;
+        bottom: 18px;
+        right: 24px;
+        padding: 10px 20px;
         background: rgba(0, 0, 0, 0.6);
         color: #7fb3e0;
         font-family: system-ui, sans-serif;
-        font-size: 14px;
-        border-radius: 6px;
+        font-size: 30px;
+        font-weight: 800;
+        border-radius: 8px;
         z-index: 10;
         pointer-events: none;
       }

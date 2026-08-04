@@ -44,6 +44,24 @@ const ENGAGE_TURN_RATE_RAD_PER_SEC = 6;
 /** Max angular error (radians, ~4.6 degrees) between current yaw and the exact bearing to target before a bot considers itself "aimed enough" to fire — avoids firing while still mid-turn onto a fresh target. */
 const AIM_TOLERANCE_RAD = 0.08;
 
+/**
+ * EPIC 11 Story 11.4 "bot aim inaccuracy": uniform random offset (radians),
+ * applied independently to yaw and pitch, ONLY at the moment a bot actually
+ * fires (see the fire branch in updateOne() below) — never to the
+ * smooth turn-to-face computation (`nextYaw`) that drives ENGAGING's visual
+ * tracking, so the bot still visibly turns to face its target normally, it
+ * just doesn't always land the shot. Team-Lead-suggested starting value
+ * (~0.05 rad / ~3 degrees, EPIC 11 spec Section 6); kept as-is after a
+ * statistical check (scripts/qa-epic11-bot-miss-rate.mjs — see EPIC 11
+ * Programmer handoff for the measured numbers) showed a reasonable
+ * close-range-hits / long-range-misses curve given PLAYER_HITBOX_RADIUS
+ * (0.5, shared/src/combat.ts): at ~10 units the angular half-width of the
+ * hitbox (atan(0.5/10) ~= 0.05 rad) is about equal to this jitter, so shots
+ * around that range are genuinely 50/50, closer shots mostly land, and
+ * shots at the ~45-unit detection-range edge mostly miss.
+ */
+const AIM_JITTER_RAD = 0.05;
+
 export type BotState = "SEEKING" | "ENGAGING";
 
 interface BotRuntime {
@@ -197,6 +215,26 @@ export class BotAI {
       const aimed = Math.abs(wrapAngle(desiredYaw - nextYaw)) <= AIM_TOLERANCE_RAD;
       if (aimed && nowMs - bot.lastFireAcceptedAt >= cooldownMs) {
         bot.lastFireAcceptedAt = nowMs;
+        // EPIC 11 Story 11.4: apply this shot's random aim jitter via the
+        // SAME validated applyInput() entry point (never a direct field
+        // mutation on the PlayerRecord — see PlayerRegistry.getPlayer() doc
+        // comment's read-only convention), immediately before resolveFire()
+        // reads the shooter's now-jittered yaw/pitch to build its hitscan
+        // ray (server/src/combat.ts performHitscan(), untouched by this
+        // EPIC). This intentionally overwrites the smoothly-tracked
+        // `nextYaw`/`pitch` this one tick only, for this one shot — next
+        // tick's ENGAGING pass recomputes `nextYaw` fresh from the bot's
+        // actual position/target as always, so the jitter never accumulates
+        // or visibly disrupts the bot's normal turn-to-face tracking.
+        const jitteredYaw = nextYaw + (Math.random() * 2 - 1) * AIM_JITTER_RAD;
+        const jitteredPitch = pitch + (Math.random() * 2 - 1) * AIM_JITTER_RAD;
+        this.registry.applyInput(bot.id, {
+          moveForward: 0,
+          moveRight: 0,
+          yaw: jitteredYaw,
+          pitch: jitteredPitch,
+          jump: false,
+        });
         resolveFire(bot.id);
       }
       return;
