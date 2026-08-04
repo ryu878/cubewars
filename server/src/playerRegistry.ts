@@ -11,6 +11,7 @@ import {
   WEAPON_ORDER,
   WEAPON_STATS,
   resolveHorizontalCollisions,
+  resolveSteppedMovement,
   type PickupCategory,
   type PlayerScore,
   type PlayerState,
@@ -663,14 +664,27 @@ export class PlayerRegistry {
     const dz =
       (forwardZ * moveForward + rightZ * moveRight) * MOVEMENT.maxSpeed * player.airSpeedMultiplier * dt;
 
-    // Authoritative collision (EPIC 3 Story 3.3): resolve the proposed
-    // position against the exact same ARENA_GEOMETRY the client renders
-    // and predicts against. This is what actually matters for anti-cheat —
-    // no matter what the client's own prediction claims, the position
-    // broadcast to every player is clamped clear of every wall/crate here.
+    // Authoritative collision (EPIC 3 Story 3.3, sub-stepped since EPIC 11
+    // Story 11.1): resolve the proposed movement against the exact same
+    // ARENA_GEOMETRY the client renders and predicts against, via
+    // resolveSteppedMovement() rather than a single resolveHorizontalCollisions
+    // call — at EPIC 11's new top speed a single tick's raw displacement can
+    // exceed a wall's thickness, so the movement is resolved in several
+    // smaller sub-steps (see shared/src/collision.ts doc comment) so a wall
+    // hit mid-tick is caught rather than glossed over. This is what actually
+    // matters for anti-cheat — no matter what the client's own prediction
+    // claims, the position broadcast to every player is clamped clear of
+    // every wall/crate here. The coarse WORLD_BOUND clamp is applied to the
+    // proposed end point first (unchanged), then sub-stepped collision
+    // resolves the path from the player's current position toward it.
     const proposedX = clampBound(player.position.x + dx);
     const proposedZ = clampBound(player.position.z + dz);
-    const resolved = resolveHorizontalCollisions(proposedX, proposedZ);
+    const resolved = resolveSteppedMovement(
+      player.position.x,
+      player.position.z,
+      proposedX - player.position.x,
+      proposedZ - player.position.z,
+    );
     player.position.x = resolved.x;
     player.position.z = resolved.z;
 

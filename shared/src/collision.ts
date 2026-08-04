@@ -190,3 +190,97 @@ export function resolveHorizontalCollisions(
 
   return { x: px, z: pz };
 }
+
+/**
+ * Default sub-step distance cap for resolveSteppedMovement() below (EPIC 11
+ * Story 11.1). Matches PLAYER_COLLISION_RADIUS (0.4) — comfortably under the
+ * map's thinnest wall (1 unit, shared/src/mapData.ts), giving a real safety
+ * margin rather than cutting it close, while still keeping the sub-step
+ * count small (and therefore cheap) at every speed this game currently
+ * tunes for. See resolveSteppedMovement()'s doc comment for why a single
+ * fixed constant, rather than a per-call default tied to current MOVEMENT
+ * values, is the right shape here (this file cannot import ./index.js —
+ * circular import, same reasoning as MAX_SINGLE_CALL_RESOLUTION_DISTANCE
+ * above).
+ */
+const DEFAULT_MAX_STEP_DISTANCE = PLAYER_COLLISION_RADIUS;
+
+/**
+ * EPIC 11 Story 11.1 "substep collision safety": resolve a single tick's
+ * proposed horizontal movement (`deltaX`, `deltaZ` from `startX`, `startZ`)
+ * in several smaller sub-steps instead of one single `resolveHorizontalCollisions`
+ * call, so a fast-moving player can never cross a thin wall in one tick
+ * without collision catching it.
+ *
+ * Why this is needed: `resolveHorizontalCollisions` only ever looks at the
+ * PROPOSED END point of a move, not the path swept to get there — it was
+ * designed and tuned (EPIC 3, tightened EPIC 8 for corner-pop) around
+ * per-tick displacements that stay well under a wall's thickness. At EPIC 11's
+ * new top speed, a single tick's raw displacement can exceed a wall's 1-unit
+ * thickness (see EPIC 11 spec Section 3), so evaluating collision only at the
+ * final point risks resolving the player onto the far side of a wall it
+ * should have stopped at. Splitting the same total displacement into several
+ * smaller sub-steps, each individually small relative to wall thickness, and
+ * resolving collision after EVERY sub-step (feeding each result forward as
+ * the next sub-step's start) keeps every intermediate position honest: a
+ * sub-step that would tunnel into/through a wall gets caught and stopped by
+ * `resolveHorizontalCollisions` right there, and the remaining sub-steps for
+ * this tick simply don't get to happen (the player stays put, exactly as
+ * hitting a wall mid-stride should feel).
+ *
+ * This does not replace `resolveHorizontalCollisions` — it is a thin
+ * wrapper that calls it multiple times per tick. Both the server's
+ * authoritative `stepPlayer()` (server/src/playerRegistry.ts) and the
+ * client's local prediction (client/src/fpsController.ts) call this SAME
+ * helper (never resolveHorizontalCollisions directly for a full tick's
+ * movement) so both stay on one shared, single implementation of "how a
+ * tick's movement is resolved" — the same discipline as MOVEMENT/
+ * ARENA_GEOMETRY elsewhere in this codebase.
+ *
+ * @param maxStepDistance Upper bound on how far any single sub-step is
+ *   allowed to move the point before being resolved against collision.
+ *   Defaults to DEFAULT_MAX_STEP_DISTANCE (0.4, matches
+ *   PLAYER_COLLISION_RADIUS) — a deliberately round, comfortably-safe
+ *   margin under the map's thinnest wall (1 unit). The number of sub-steps
+ *   is `Math.ceil(totalDistance / maxStepDistance)`, minimum 1, so an
+ *   ordinary walking-speed tick (well under maxStepDistance) costs exactly
+ *   the same single `resolveHorizontalCollisions` call as before this
+ *   function existed — sub-stepping is only ever paid for when the
+ *   proposed movement is actually large enough to need it.
+ */
+export function resolveSteppedMovement(
+  startX: number,
+  startZ: number,
+  deltaX: number,
+  deltaZ: number,
+  radius: number = PLAYER_COLLISION_RADIUS,
+  boxes: readonly MapBox[] = ARENA_GEOMETRY,
+  maxStepDistance: number = DEFAULT_MAX_STEP_DISTANCE,
+): { x: number; z: number } {
+  const totalDistance = Math.hypot(deltaX, deltaZ);
+
+  // No proposed movement at all (or a degenerate/non-finite delta) — nothing
+  // to sub-step, but still resolve once so a caller passing a starting point
+  // that's already overlapping something (shouldn't normally happen, but
+  // defensive) gets pushed clear, matching resolveHorizontalCollisions'
+  // own single-call behavior.
+  if (!(totalDistance > 0)) {
+    return resolveHorizontalCollisions(startX, startZ, radius, boxes);
+  }
+
+  const stepCount = Math.max(1, Math.ceil(totalDistance / maxStepDistance));
+  const stepDx = deltaX / stepCount;
+  const stepDz = deltaZ / stepCount;
+
+  let px = startX;
+  let pz = startZ;
+  for (let i = 0; i < stepCount; i++) {
+    const proposedX = px + stepDx;
+    const proposedZ = pz + stepDz;
+    const resolved = resolveHorizontalCollisions(proposedX, proposedZ, radius, boxes);
+    px = resolved.x;
+    pz = resolved.z;
+  }
+
+  return { x: px, z: pz };
+}
