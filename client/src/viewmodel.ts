@@ -23,21 +23,19 @@ const SWAY_SPEED = 1.6;
 const SWAY_AMPLITUDE_X = 0.012;
 const SWAY_AMPLITUDE_Y = 0.01;
 
-/** Per-weapon fire recoil + muzzle-flash identity (EPIC 10 Story 10.1 "weapon-distinct fire feedback" ask) — deliberately escalating in kick/flash size from pistol -> rifle -> grenade launcher so each reads as visually distinct without checking the HUD. */
+/** Per-weapon fire recoil identity (EPIC 10 Story 10.1 "weapon-distinct fire feedback" ask) — deliberately escalating in kick/flash size from pistol -> rifle -> grenade launcher so each reads as visually distinct without checking the HUD. Flash *size* is set directly per weapon via the `makeFlash(color, radius)` calls in each `build*Visual()` below, not via a field here — this profile only covers recoil kick and how long the flash stays visible. */
 interface RecoilProfile {
   /** Local +z offset applied on fire (camera looks down -z, so positive z pulls the model back toward the camera — a "kick"). */
   kickBack: number;
   /** Local +y offset applied on fire (a slight upward jump). */
   kickUp: number;
-  /** How large the muzzle-flash mesh scales up to, and roughly how long it stays visible (ms) — bigger weapons get a longer, bigger flash. */
-  flashScale: number;
   flashDurationMs: number;
 }
 
 const RECOIL_PROFILES: Record<WeaponType, RecoilProfile> = {
-  pistol: { kickBack: 0.045, kickUp: 0.012, flashScale: 1, flashDurationMs: 80 },
-  rifle: { kickBack: 0.085, kickUp: 0.02, flashScale: 1.6, flashDurationMs: 100 },
-  grenade_launcher: { kickBack: 0.22, kickUp: 0.05, flashScale: 2.8, flashDurationMs: 160 },
+  pistol: { kickBack: 0.045, kickUp: 0.012, flashDurationMs: 80 },
+  rifle: { kickBack: 0.085, kickUp: 0.02, flashDurationMs: 100 },
+  grenade_launcher: { kickBack: 0.22, kickUp: 0.05, flashDurationMs: 160 },
 };
 
 interface WeaponVisual {
