@@ -655,10 +655,12 @@ export class PlayerRegistry {
     const rightX = Math.cos(player.yaw);
     const rightZ = -Math.sin(player.yaw);
 
-    // EPIC 8 Story 8.1: MOVEMENT.maxSpeed is the new ~6.65 m/s baseline
-    // (5 * 1.33, see shared/src/index.ts). airSpeedMultiplier is 1 outside
-    // an active bunny-hop boost, so this is a no-op change to normal
-    // movement — only a boosted air-time actually sees the extra factor.
+    // EPIC 8 Story 8.1 / EPIC 11 Story 11.2: MOVEMENT.maxSpeed is the
+    // single shared base-speed constant (currently 5 * 1.33 * 2 = 13.3 m/s,
+    // see shared/src/index.ts — do not hardcode the literal here).
+    // airSpeedMultiplier is 1 outside an active bunny-hop boost, so this is
+    // a no-op change to normal movement — only a boosted air-time actually
+    // sees the extra factor (reaching ~17.3 m/s at the current base).
     const dx =
       (forwardX * moveForward + rightX * moveRight) * MOVEMENT.maxSpeed * player.airSpeedMultiplier * dt;
     const dz =

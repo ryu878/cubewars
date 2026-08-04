@@ -46,14 +46,21 @@ const RESOLUTION_PASSES = 3;
  * rather than the game's actual current per-tick movement cap (importing
  * MOVEMENT/BUNNY_HOP from ./index.js here would create a circular import,
  * since index.ts itself re-exports this file) — comfortably above the
- * largest legitimate single-tick straight-into-a-flat-wall correction at
- * any speed this game currently tuned (boosted bunny-hop: 6.65 * 1.3 m/s *
- * 0.05s tick ~= 0.43m), so ordinary high-speed flat-wall collision is never
- * affected, while still bounding truly pathological multi-box cascades.
- * See resolveHorizontalCollisions()'s doc comment for the primary fix
- * (accurate circular corner resolution), which is what actually addresses
- * the dominant source of corner-pop overshoot; this constant is a backstop,
- * not the main mechanism.
+ * largest legitimate single-call straight-into-a-flat-wall correction this
+ * function is ever actually asked to resolve. Since EPIC 11 Story 11.1,
+ * every tick-movement caller (server stepPlayer(), client fpsController.ts)
+ * goes through resolveSteppedMovement() below, which never feeds this
+ * function a proposed displacement larger than maxStepDistance (default
+ * 0.4m, see DEFAULT_MAX_STEP_DISTANCE) regardless of the game's current top
+ * speed — so 0.6 stays a comfortable, speed-independent ceiling at 13.3/
+ * ~17.3 m/s (EPIC 11) exactly as it was at the older 6.65/8.645 m/s (EPIC
+ * 8) values; it does not need re-tuning every time MOVEMENT.maxSpeed
+ * changes. Ordinary high-speed flat-wall collision is never affected by
+ * this ceiling, while still bounding truly pathological multi-box
+ * cascades. See resolveHorizontalCollisions()'s doc comment for the
+ * primary fix (accurate circular corner resolution), which is what
+ * actually addresses the dominant source of corner-pop overshoot; this
+ * constant is a backstop, not the main mechanism.
  */
 const MAX_SINGLE_CALL_RESOLUTION_DISTANCE = 0.6;
 
