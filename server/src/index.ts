@@ -6,24 +6,39 @@ import type { Match } from "./match.js";
 
 const PORT = Number(process.env.CUBEWARS_SERVER_PORT ?? 7777);
 
-// Flood guard: reject ANY client message (input, fire, join, binary,
-// oversized, non-JSON, unrecognized-type — literally anything arriving on
-// the socket) faster than this per connection, independent of what the
-// client claims its own send rate is (global-standards.mdc "Rate-limit or
-// debounce client input to prevent flooding"). The client sends at ~30Hz by
-// design (see client handoff notes); this cap allows headroom for jitter
-// while still bounding worst case. This is a single shared per-connection
-// floor across EVERY message shape (see lastAcceptedMessageAt below): the
-// debounce check runs first, before binary/size/JSON-parse/type-dispatch,
-// and the timestamp is stamped immediately once a message clears that check
-// — BEFORE we know whether it will turn out to be binary, oversized,
-// non-JSON, unknown-type, or a valid join/input/fire. That is deliberate: a
-// connection that only ever sends garbage of any single shape must still be
-// bounded by this floor (EPIC 4 F-001; carried unchanged through EPIC 9's
-// match refactor — this debounce is connection-scoped, not match-scoped, so
-// it applies identically whether or not the connection has joined a match
+// Flood guard: bound the total number of ANY client messages (input, fire,
+// join, binary, oversized, non-JSON, unrecognized-type — literally anything
+// arriving on the socket) accepted per connection within a trailing window,
+// independent of what the client claims its own send rate is
+// (global-standards.mdc "Rate-limit or debounce client input to prevent
+// flooding"). This is a single shared per-connection rolling-window count
+// cap across EVERY message shape (see messageTimestamps below): the check
+// runs first, before binary/size/JSON-parse/type-dispatch, and a timestamp
+// is stamped immediately once a message clears that check — BEFORE we know
+// whether it will turn out to be binary, oversized, non-JSON, unknown-type,
+// or a valid join/input/fire. That is deliberate: a connection that only
+// ever sends garbage of any single shape must still be bounded by this cap
+// (EPIC 4 F-001, both Critic REVISE rounds; carried through EPIC 9's match
+// refactor — this guard is connection-scoped, not match-scoped, so it
+// applies identically whether or not the connection has joined a match
 // yet).
-const MIN_INPUT_INTERVAL_MS = 15;
+//
+// EPIC 15 (`docs/tasks/epic-15-fire-input-debounce-fix.md`): this used to be
+// a single shared "min interval since the last accepted message of ANY
+// shape" debounce (`MIN_INPUT_INTERVAL_MS = 15`). That penalized a real
+// client's independently-timed `input` (~30Hz) and `fire` (on click)
+// streams for merely interleaving — one arriving inside the other's 15ms
+// floor caused it to be dropped even though neither stream, on its own, was
+// flooding anything. Replaced with a true sliding-window message-COUNT cap:
+// at most MAX_MESSAGES_PER_WINDOW messages (of any shape) accepted per
+// connection in the trailing FLOOD_WINDOW_MS. This needs no knowledge of
+// message type (still pre-parse, per the constraint above) and no longer
+// penalizes legitimate multi-stream traffic, while remaining tighter than
+// the 185,800 msgs/sec flood EPIC 4's Critic actually reproduced against
+// this exact code path — see the EPIC 15 doc Section 2 for the full
+// derivation of these two numbers.
+const FLOOD_WINDOW_MS = 1000;
+const MAX_MESSAGES_PER_WINDOW = 100;
 
 // Reject oversized payloads outright before attempting to parse JSON.
 const MAX_MESSAGE_BYTES = 1024;
@@ -62,11 +77,16 @@ const matchManager = new MatchManager();
 // Shared across EVERY message shape a connection can send (join, input,
 // fire, binary, oversized, non-JSON, unknown-type, malformed-input —
 // literally anything the "message" handler below sees) — this is what the
-// generic MIN_INPUT_INTERVAL_MS debounce reads/writes. Connection-scoped
-// (keyed by connection id, which never changes for the lifetime of one WS
-// connection regardless of which match it later joins), same as before
-// EPIC 9.
-const lastAcceptedMessageAt = new Map<string, number>();
+// FLOOD_WINDOW_MS/MAX_MESSAGES_PER_WINDOW rolling-window count cap
+// reads/writes: each connection's array of accepted-message timestamps,
+// pruned to the trailing FLOOD_WINDOW_MS on every message (a true sliding
+// window, not a fixed/resetting bucket — see EPIC 15 doc Section 2.3 for
+// why a resetting bucket would allow a 2x burst at a bucket boundary).
+// Bounded to at most MAX_MESSAGES_PER_WINDOW (100) entries per connection at
+// any time. Connection-scoped (keyed by connection id, which never changes
+// for the lifetime of one WS connection regardless of which match it later
+// joins), same as before EPIC 9.
+const messageTimestamps = new Map<string, number[]>();
 const lastFireAcceptedAt = new Map<string, number>();
 
 /**
@@ -103,7 +123,7 @@ function createDropTracker(describe: (playerId: string, count: number, extra?: s
 const floodDropTracker = createDropTracker(
   (playerId, count) =>
     `[server] flood guard: dropped ${count} message(s) from ${playerId} ` +
-    `(exceeding ${MIN_INPUT_INTERVAL_MS}ms min interval)`,
+    `(exceeding ${MAX_MESSAGES_PER_WINDOW} messages / ${FLOOD_WINDOW_MS}ms window)`,
 );
 const fireCooldownDropTracker = createDropTracker(
   (playerId, count, extra) =>
@@ -168,17 +188,25 @@ wss.on("connection", (socket: WebSocket) => {
   socket.send(JSON.stringify(welcome));
 
   socket.on("message", (data, isBinary) => {
-    // Debounce check runs FIRST, before any binary/size/parse/type-dispatch
-    // logic, and independent of message shape (EPIC 4 F-001 round 2): a
-    // connection already inside the debounce window gets dropped here
-    // regardless of what the message would have turned out to be.
+    // Rolling-window count check runs FIRST, before any
+    // binary/size/parse/type-dispatch logic, and independent of message
+    // shape (EPIC 4 F-001 round 2, preserved by EPIC 15): a connection that
+    // has already had MAX_MESSAGES_PER_WINDOW messages accepted within the
+    // trailing FLOOD_WINDOW_MS gets this one dropped here regardless of what
+    // it would have turned out to be. True sliding window: timestamps older
+    // than the trailing window are pruned on every message, so the cap is
+    // never gamed by landing exactly on a fixed-bucket boundary (EPIC 15 doc
+    // Section 2.3).
     const now = Date.now();
-    const last = lastAcceptedMessageAt.get(playerId) ?? 0;
-    if (now - last < MIN_INPUT_INTERVAL_MS) {
+    const timestamps = messageTimestamps.get(playerId) ?? [];
+    const windowStart = now - FLOOD_WINDOW_MS;
+    while (timestamps.length > 0 && timestamps[0] < windowStart) timestamps.shift();
+    if (timestamps.length >= MAX_MESSAGES_PER_WINDOW) {
       floodDropTracker.record(playerId, now);
       return;
     }
-    lastAcceptedMessageAt.set(playerId, now);
+    timestamps.push(now);
+    messageTimestamps.set(playerId, timestamps);
 
     if (isBinary) {
       binaryDropTracker.record(playerId, now);
@@ -295,7 +323,7 @@ wss.on("connection", (socket: WebSocket) => {
       match.removeHuman(playerId);
     }
     connectionCount -= 1;
-    lastAcceptedMessageAt.delete(playerId);
+    messageTimestamps.delete(playerId);
     lastFireAcceptedAt.delete(playerId);
     floodDropTracker.clear(playerId);
     fireCooldownDropTracker.clear(playerId);
