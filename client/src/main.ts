@@ -2,6 +2,7 @@ import * as THREE from "three";
 import {
   ARENA_BOUNDS,
   ARENA_GEOMETRY,
+  PICKUP_RADIUS,
   WEAPON_STATS,
   type MatchMode,
   type PlayerInputMessage,
@@ -18,6 +19,7 @@ import { PickupRenderer } from "./pickups";
 import { ModeSelect } from "./modeSelect";
 import { WeaponViewmodel } from "./viewmodel";
 import { buildSkyDome, buildWallTextures } from "./textures";
+import { SoundManager } from "./audio/soundManager";
 
 const statusEl = document.getElementById("status") as HTMLDivElement;
 const hintEl = document.getElementById("hint") as HTMLDivElement;
@@ -106,6 +108,12 @@ ARENA_GEOMETRY.forEach((box, index) => {
 
 // --- First-person controls (replaces EPIC 1's OrbitControls demo camera) ---
 const hud = new CombatHud();
+// EPIC 14 "Sound System": one shared procedural audio subsystem for every
+// sound in the game. Constructing an AudioContext is safe without a user
+// gesture (only STARTING playback needs one) — the actual unlock() call
+// happens below, from inside the mode-select click handler (Design
+// Decision 6), the first real user gesture in this game.
+const soundManager = new SoundManager();
 // EPIC 10 Story 10.1: the viewmodel is attached to the camera (see
 // scene.add(camera) above) and reacts to the SAME data already driving the
 // HUD — LoadoutMessage.equippedWeapon/ammo (onLoadout below) and the
@@ -124,14 +132,57 @@ const fps = new FpsController(camera, renderer.domElement, {
     // never unilaterally declares a hit).
     hud.showMuzzleFlash(currentWeapon);
     viewmodel.triggerFire(currentWeapon);
+    // EPIC 14 Story 14.4: instant, zero-latency local gunshot — remote
+    // players'/bots' gunshots are played separately, from the server's
+    // FireBroadcastEvent (see onFireBroadcast below), never from this call.
+    soundManager.playGunshot(currentWeapon);
     connection.send({ type: "fire" });
   },
+  // EPIC 14 Story 14.2: fires exactly once per genuine ground-jump trigger
+  // (see fpsController.ts's onJump doc comment) — never for the bunny-hop
+  // mid-air boost, which has no sound of its own in this EPIC.
+  onJump: () => soundManager.playJumpGrunt(),
 });
 const remotePlayers = new RemotePlayers(scene);
+/**
+ * EPIC 14 "Sound System" Story 14.5: proximity gate radius for attributing
+ * a pickup-consumed transition to THIS client (see PickupRenderer's
+ * onConsumed callback below). Starting point per the spec: the server's
+ * own actual consumption radius (PICKUP_RADIUS, shared/src/pickups.ts) plus
+ * a buffer covering (a) WorldStateMessage's 20Hz broadcast interval (up to
+ * ~50ms of tick lag between the server consuming the pickup and this
+ * client's next pickup_state snapshot) and (b) how far the LOCAL player
+ * could have moved in that same window at MOVEMENT.maxSpeed (13.3 m/s ->
+ * up to ~0.67m). +1.75 was chosen (within the spec's suggested "+1.5 to
+ * +2" starting range) as a middle-ground buffer: generous enough that a
+ * player who just walked over a pickup right at PICKUP_RADIUS's edge still
+ * hears their own pickup sound even after ~50ms of continued movement
+ * away from it, while still tight enough that a pickup consumed by
+ * another player/bot on the far side of a nearby corridor (this map's
+ * pickup points are spaced >=10 units apart even at their closest, see
+ * shared/src/pickups.ts PICKUP_SPAWN_POINTS comment) essentially never
+ * falls inside this client's gate by accident.
+ */
+const PICKUP_SOUND_RADIUS = PICKUP_RADIUS + 1.75;
 // EPIC 6 Story 6.1/6.2: static pickup meshes, visibility driven purely by
 // the server's PickupStateMessage broadcasts (see onPickupState below) —
 // this renderer never decides pickup state itself.
-const pickupRenderer = new PickupRenderer(scene);
+const pickupRenderer = new PickupRenderer(scene, {
+  // EPIC 14 Story 14.5: best-effort attribution heuristic (Design Decision
+  // 3) — a consumed pickup near THIS client's own last-known predicted
+  // position (fps.getPosition()) is assumed to be this player's own
+  // pickup; one consumed elsewhere on the map stays silent on this client.
+  // Not perfectly attributed (two players could both be within the gate
+  // radius simultaneously) — accepted per the spec as a "juice" cue with
+  // no gameplay-relevant effect either way.
+  onConsumed: (point) => {
+    const position = fps.getPosition();
+    const distance = Math.hypot(position.x - point.position.x, position.z - point.position.z);
+    if (distance <= PICKUP_SOUND_RADIUS) {
+      soundManager.playPickup(point.category);
+    }
+  },
+});
 
 // EPIC 6 Story 6.2: "E" cycles the equipped weapon. Edge-triggered on
 // keydown (event.repeat guards against the OS's own key-repeat firing this
@@ -164,6 +215,11 @@ function animate() {
   const dt = Math.min(clock.getDelta(), 0.1); // clamp so a tab-switch pause doesn't cause a huge jump
   fps.update(dt);
   viewmodel.update(dt);
+  // EPIC 14 Story 14.3: drives the footstep cadence timer — fps.isRunning()
+  // already folds in "locked AND alive AND grounded AND actually moving
+  // horizontally" (see fpsController.ts), so this single call correctly
+  // gates footsteps off while airborne/stationary/dead/unlocked.
+  soundManager.update(dt, fps.isRunning());
   renderer.render(scene, camera);
 }
 animate();
@@ -193,6 +249,11 @@ const scoreboard = new Scoreboard(() => selfId);
 // the client to behave, per security-baseline.mdc).
 const modeSelect = new ModeSelect((mode: MatchMode) => {
   connection.send({ type: "join", mode });
+  // EPIC 14 "Sound System" Design Decision 6: this click is the first real
+  // user gesture in this game, before any gameplay message is sent — the
+  // natural, unavoidable point to resume the AudioContext so audio is
+  // ready before the player can take any action that would need sound.
+  soundManager.unlock();
   startInputLoop();
 });
 
@@ -233,7 +294,14 @@ const connection = new GameConnection(wsUrl, {
   },
   onHit: (message) => {
     if (message.shooterId === selfId) hud.showHitMarker();
-    if (message.targetId === selfId) hud.showDamageFlash();
+    if (message.targetId === selfId) {
+      hud.showDamageFlash();
+      // EPIC 14 Story 14.6: synchronized with the existing damage-flash
+      // visual pulse — only for a confirmed hit on THIS client, never for
+      // the hit-marker branch above (landing a hit on someone else stays
+      // independent, same discipline as the visual feedback already has).
+      soundManager.playHitTaken();
+    }
   },
   onDeath: (message) => {
     if (message.playerId === selfId) hud.setDead(true);
@@ -262,6 +330,17 @@ const connection = new GameConnection(wsUrl, {
   },
   onPickupState: (message) => {
     pickupRenderer.sync(message.pickups);
+  },
+  // EPIC 14 Story 14.4: a remote player's/bot's fire attempt (hit, miss, or
+  // dry alike — see FireBroadcastEvent doc comment, shared/src/index.ts).
+  // Only played when it's NOT this client's own shot — the local player's
+  // own gunshot is already played instantly, at zero latency, via the
+  // onFire callback above; echoing the server broadcast back to the
+  // shooter too would double-play it.
+  onFireBroadcast: (message) => {
+    if (message.shooterId !== selfId) {
+      soundManager.playGunshot(message.weapon);
+    }
   },
   onClose: () => {
     statusEl.textContent = "disconnected";

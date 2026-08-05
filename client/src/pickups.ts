@@ -30,6 +30,7 @@ import {
   HEALTH_PICKUP_COLOR,
   PICKUP_SPAWN_POINTS,
   WEAPON_STATS,
+  type PickupSpawnPoint,
   type PickupStatus,
   type WeaponType,
 } from "@cubewars/shared";
@@ -95,16 +96,40 @@ function buildWeaponPickupMesh(weaponType: WeaponType, material: THREE.Material)
   return group;
 }
 
+/**
+ * EPIC 14 "Sound System" Story 14.5: optional constructor hook, fired the
+ * instant sync() (below) observes one specific pickup's `active` flag
+ * transition `true -> false` — never on `false -> false`/`true -> true`,
+ * and never on this renderer's very first sync() call (so a client that
+ * joins mid-match doesn't fire a burst of "consumed" events for points that
+ * were already inactive before it connected). PickupRenderer stays a pure
+ * renderer here too — it only detects the transition it already receives
+ * from the server, it does NOT decide who gets to hear a sound for it; the
+ * caller (main.ts) is responsible for any proximity-based attribution.
+ */
+export interface PickupRendererOptions {
+  onConsumed?: (point: PickupSpawnPoint) => void;
+}
+
 export class PickupRenderer {
   private meshes = new Map<string, THREE.Object3D>();
+  private pointsById = new Map<string, PickupSpawnPoint>();
+  /** Last-seen `active` state per pickup id (EPIC 14 Story 14.5) — undefined until the first sync() call has observed that id at least once. */
+  private previousActive = new Map<string, boolean>();
+  /** True once sync() has been called at least once — guards the very first call from firing any onConsumed transition (see PickupRendererOptions doc comment above). */
+  private hasSyncedOnce = false;
 
-  constructor(private scene: THREE.Scene) {
+  constructor(
+    private scene: THREE.Scene,
+    private options: PickupRendererOptions = {},
+  ) {
     for (const point of PICKUP_SPAWN_POINTS) {
       const object = this.buildMesh(point.category, point.weapon);
       object.position.set(point.position.x, object.position.y, point.position.z);
       object.name = point.id;
       this.scene.add(object);
       this.meshes.set(point.id, object);
+      this.pointsById.set(point.id, point);
     }
   }
 
@@ -182,11 +207,26 @@ export class PickupRenderer {
     return mesh;
   }
 
-  /** Reconcile visibility against the server's latest pickup on/off state (PickupStateMessage). */
+  /**
+   * Reconcile visibility against the server's latest pickup on/off state
+   * (PickupStateMessage). EPIC 14 Story 14.5: also detects a per-id
+   * `active: true -> false` transition and fires `onConsumed` for it — see
+   * PickupRendererOptions doc comment above for the exact firing rule.
+   */
   sync(pickups: PickupStatus[]): void {
     for (const status of pickups) {
       const mesh = this.meshes.get(status.id);
       if (mesh) mesh.visible = status.active;
+
+      if (this.hasSyncedOnce) {
+        const previous = this.previousActive.get(status.id);
+        if (previous === true && status.active === false) {
+          const point = this.pointsById.get(status.id);
+          if (point) this.options.onConsumed?.(point);
+        }
+      }
+      this.previousActive.set(status.id, status.active);
     }
+    this.hasSyncedOnce = true;
   }
 }
