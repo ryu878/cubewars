@@ -43,8 +43,20 @@ export const MOVEMENT = {
    * safety margin (scripts/regression-collision-overshoot.ts).
    */
   maxSpeed: 5 * 1.33 * 2,
-  /** Initial vertical velocity applied on jump, m/s. */
-  jumpSpeed: 6,
+  /**
+   * Initial vertical velocity applied on jump, m/s. EPIC 12 "Jumpable
+   * Crates" Section 2: raised 25% (6 -> 6 * 1.25 = 7.5), expressed as the
+   * lineage rather than the bare literal (same style as maxSpeed above), so
+   * a player can actually reach a crate's top surface — with the previous
+   * value, ballistic apex (jumpSpeed^2 / (2*gravity) = 36/36 = 1.0m) was
+   * strictly below CRATE_HEIGHT (1.2m, shared/src/mapData.ts), making
+   * crates physically unreachable. New apex = 7.5^2 / (2*18) = 56.25/36 =
+   * 1.5625m, clearing CRATE_HEIGHT by ~0.36m (~30%) — a comfortable, not
+   * frame-perfect, margin. Still well under WALL_HEIGHT (4), so walls
+   * remain unreachable to stand on; only crates (kind: "crate") become
+   * climbable (see shared/src/collision.ts boxesBlockingAt/crateTopHeightAt).
+   */
+  jumpSpeed: 6 * 1.25,
   /** Downward acceleration, m/s^2. */
   gravity: 18,
   /** Ground plane height; player position.y never goes below this. */
