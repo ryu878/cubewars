@@ -10,6 +10,8 @@ import {
   SPAWN_POINTS,
   WEAPON_ORDER,
   WEAPON_STATS,
+  boxesBlockingAt,
+  crateTopHeightAt,
   resolveHorizontalCollisions,
   resolveSteppedMovement,
   type PickupCategory,
@@ -667,18 +669,26 @@ export class PlayerRegistry {
       (forwardZ * moveForward + rightZ * moveRight) * MOVEMENT.maxSpeed * player.airSpeedMultiplier * dt;
 
     // Authoritative collision (EPIC 3 Story 3.3, sub-stepped since EPIC 11
-    // Story 11.1): resolve the proposed movement against the exact same
-    // ARENA_GEOMETRY the client renders and predicts against, via
-    // resolveSteppedMovement() rather than a single resolveHorizontalCollisions
-    // call — at EPIC 11's new top speed a single tick's raw displacement can
-    // exceed a wall's thickness, so the movement is resolved in several
-    // smaller sub-steps (see shared/src/collision.ts doc comment) so a wall
-    // hit mid-tick is caught rather than glossed over. This is what actually
-    // matters for anti-cheat — no matter what the client's own prediction
-    // claims, the position broadcast to every player is clamped clear of
-    // every wall/crate here. The coarse WORLD_BOUND clamp is applied to the
-    // proposed end point first (unchanged), then sub-stepped collision
-    // resolves the path from the player's current position toward it.
+    // Story 11.1, height-aware since EPIC 12 Story 12.1): resolve the
+    // proposed movement against the exact same ARENA_GEOMETRY the client
+    // renders and predicts against, via resolveSteppedMovement() rather than
+    // a single resolveHorizontalCollisions call — at EPIC 11's new top speed
+    // a single tick's raw displacement can exceed a wall's thickness, so the
+    // movement is resolved in several smaller sub-steps (see
+    // shared/src/collision.ts doc comment) so a wall hit mid-tick is caught
+    // rather than glossed over. This is what actually matters for
+    // anti-cheat — no matter what the client's own prediction claims, the
+    // position broadcast to every player is clamped clear of every
+    // currently-blocking wall/crate here. The coarse WORLD_BOUND clamp is
+    // applied to the proposed end point first (unchanged), then sub-stepped
+    // collision resolves the path from the player's current position toward
+    // it, against boxesBlockingAt(feetY) — the player's feet height (Y) at
+    // the START of this tick, before this tick's own vertical integration
+    // below — so a crate the player is currently standing on/above does not
+    // block them horizontally (EPIC 12 Story 12.1), while every wall and
+    // every not-yet-mounted crate still does.
+    const feetYAtTickStart = player.position.y;
+    const blockingBoxes = boxesBlockingAt(feetYAtTickStart);
     const proposedX = clampBound(player.position.x + dx);
     const proposedZ = clampBound(player.position.z + dz);
     const resolved = resolveSteppedMovement(
@@ -686,12 +696,16 @@ export class PlayerRegistry {
       player.position.z,
       proposedX - player.position.x,
       proposedZ - player.position.z,
+      undefined,
+      blockingBoxes,
     );
     player.position.x = resolved.x;
     player.position.z = resolved.z;
 
-    // Vertical: gravity + jump, simple ground clamp (map geometry is not
-    // height-aware for collision purposes — see collision.ts doc comment).
+    // Vertical: gravity + jump, then a height-aware ground/crate-top clamp
+    // (EPIC 12 Story 12.2) — map geometry's crates are now standable
+    // surfaces (see collision.ts doc comment), not just flat-ground-height
+    // full-height obstacles.
     if (intent.jump && player.grounded) {
       player.velocityY = MOVEMENT.jumpSpeed;
       player.grounded = false;
@@ -699,8 +713,14 @@ export class PlayerRegistry {
     player.velocityY -= MOVEMENT.gravity * dt;
     player.position.y += player.velocityY * dt;
 
-    if (player.position.y <= MOVEMENT.groundY) {
-      player.position.y = MOVEMENT.groundY;
+    // Ground/crate-top support height at the player's POST-horizontal-
+    // resolution (x, z) this tick — the highest of the flat ground plane or
+    // any crate whose radius-expanded footprint is under the player right
+    // now (0 if none, i.e. the pre-EPIC-12 flat-ground-only behavior).
+    const groundHeight = Math.max(MOVEMENT.groundY, crateTopHeightAt(player.position.x, player.position.z));
+
+    if (player.position.y <= groundHeight) {
+      player.position.y = groundHeight;
       player.velocityY = 0;
       player.grounded = true;
       // EPIC 8 Story 8.2: landing is what makes a bunny hop available
@@ -709,6 +729,21 @@ export class PlayerRegistry {
       // speed multiplier.
       player.bunnyHopAvailable = true;
       player.airSpeedMultiplier = 1;
+    } else {
+      // EPIC 12 Story 12.2, the single highest-risk line in this EPIC: once
+      // groundHeight can vary spatially (0 vs CRATE_HEIGHT, not just always
+      // 0 as before this EPIC), a player standing on a crate who simply
+      // walks off its edge (no jump input at all) needs to become airborne
+      // purely from losing the support under their feet — without this
+      // branch, `grounded` would incorrectly stay true (its last-set value,
+      // from a previous tick's landing clamp) after walking off a ledge,
+      // letting the player trigger an ungrounded extra jump even though
+      // they are visibly falling. Before EPIC 12, `grounded` was only ever
+      // set true (this clamp) or false (the jump trigger above) — a single
+      // flat ground plane never needed an explicit "still falling, stay
+      // ungrounded" branch, since there was no way to be above groundHeight
+      // without having just jumped.
+      player.grounded = false;
     }
   }
 
