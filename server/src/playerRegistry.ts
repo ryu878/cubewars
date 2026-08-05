@@ -125,6 +125,15 @@ export interface PlayerRecord {
 /** Result of PlayerRegistry.applyPickup() — whether the pickup-consumption rule (EPIC 6 spec) says this pickup actually benefited the player. */
 export interface ApplyPickupResult {
   applied: boolean;
+  /**
+   * Set (to the weapon just picked up) if this pickup also auto-equipped it
+   * (EPIC 13 Story 13.2: any applied pickup — first-time unlock OR ammo
+   * refill of an already-owned weapon — of a strictly-higher-tier,
+   * now-non-empty weapon than what's currently equipped) — observability
+   * only, for the caller (server/src/match.ts tick()) to log a material
+   * game-state transition. Absent when no auto-equip happened.
+   */
+  autoSwitchedTo?: WeaponType;
 }
 
 /** This player's current weapon/ammo state, for building a LoadoutMessage (shared/src/index.ts) — sent only to the owning player's own socket, never broadcast (server/src/index.ts sendLoadout()). */
@@ -139,6 +148,14 @@ export type FireOutcome =
       hit: false;
       /** True if the miss was because the equipped weapon had 0 ammo (EPIC 6 "dry weapon" rule) — the caller logs this distinctly from a normal aim-miss. */
       dry: boolean;
+      /**
+       * Set (to the newly-equipped weapon) if this fire attempt caused an
+       * empty-ammo auto-switch (EPIC 13 Story 13.1) — observability only,
+       * for the caller (server/src/match.ts resolveFire()) to log a
+       * material game-state transition. Absent when no auto-switch
+       * happened.
+       */
+      autoSwitchedTo?: WeaponType;
     }
   | {
       hit: true;
@@ -150,6 +167,8 @@ export type FireOutcome =
       point: Vector3;
       killed: boolean;
       respawnAtMs: number | null;
+      /** See the `hit: false` variant's doc comment above — same meaning: this shot's own ammo decrement emptied the weapon and triggered an auto-switch, independent of whether the shot itself landed. */
+      autoSwitchedTo?: WeaponType;
     };
 
 export interface RespawnOutcome {
@@ -387,21 +406,41 @@ export class PlayerRegistry {
     const shooter = this.players.get(shooterId);
     if (!shooter || !shooter.alive) return { hit: false, dry: false };
 
+    // `weapon`/`stats` are captured here, before any possible auto-switch
+    // below, and this shot's own damage/hit outcome is resolved exclusively
+    // from these locals — EPIC 13 Story 13.1: auto-switching
+    // shooter.equippedWeapon later in this same call can never retroactively
+    // change what this shot itself did.
     const weapon = shooter.equippedWeapon;
     const stats = WEAPON_STATS[weapon];
+    let autoSwitchedTo: WeaponType | undefined;
     if (!stats.infiniteAmmo) {
       const currentAmmo = shooter.ammo[weapon] ?? 0;
       if (currentAmmo <= 0) {
-        return { hit: false, dry: true };
+        // Defensive branch (EPIC 13 Story 13.1): should be effectively
+        // unreachable in normal play once the post-decrement auto-switch
+        // below redirects away from a weapon the instant it empties — a
+        // weapon can only become "equipped and already empty" via a firing
+        // sequence that branch already redirects away from. Kept as a
+        // no-op-safe safety net rather than special-cased around, per the
+        // EPIC 13 spec.
+        autoSwitchedTo = this.autoSwitchDown(shooter);
+        return { hit: false, dry: true, autoSwitchedTo };
       }
       shooter.ammo[weapon] = currentAmmo - 1;
+      if (shooter.ammo[weapon] === 0) {
+        // EPIC 13 Story 13.1: this shot itself still fires and deals damage
+        // (resolved below from the `weapon`/`stats` locals captured above)
+        // — this only decides what's equipped for the player's NEXT action.
+        autoSwitchedTo = this.autoSwitchDown(shooter);
+      }
     }
 
     const result = performHitscan(shooter, this.players.values());
-    if (!result.hitPlayerId || !result.point) return { hit: false, dry: false };
+    if (!result.hitPlayerId || !result.point) return { hit: false, dry: false, autoSwitchedTo };
 
     const target = this.players.get(result.hitPlayerId);
-    if (!target || !target.alive) return { hit: false, dry: false }; // defensive: target could not exist / already dead
+    if (!target || !target.alive) return { hit: false, dry: false, autoSwitchedTo }; // defensive: target could not exist / already dead
 
     // EPIC 7 "Health & Armor Pickups" Section 2 damage-absorption order:
     // armor absorbs first. If armor fully covers this hit, only armor drops
@@ -439,7 +478,38 @@ export class PlayerRegistry {
       point: result.point,
       killed,
       respawnAtMs: target.respawnAtMs,
+      autoSwitchedTo,
     };
+  }
+
+  /**
+   * Auto-switch away from a weapon that has just run dry, to the best owned
+   * weapon that currently has ammo (or is infinite) — EPIC 13 Story 13.1.
+   * Searches WEAPON_ORDER descending in tier from directly below the current
+   * weapon's tier down to the pistol (tier 0, infinite ammo, always owned —
+   * the guaranteed floor, see EPIC 13 spec Section 2). `WEAPON_ORDER` is
+   * ascending by tier, so walking it back-to-front naturally visits
+   * candidates in descending-tier order; the first owned, non-empty (or
+   * infinite-ammo) candidate found is the "next weapon by damage/tier" the
+   * user asked for — never a jump straight to the pistol when a usable
+   * mid-tier weapon exists. Mutates `player.equippedWeapon` in place when a
+   * switch happens. Returns the weapon actually switched to, or `undefined`
+   * if nothing changed (e.g. called on a player already on the pistol, tier
+   * 0, with nothing below it to search).
+   */
+  private autoSwitchDown(player: PlayerRecord): WeaponType | undefined {
+    const currentTier = WEAPON_STATS[player.equippedWeapon].tier;
+    for (let i = WEAPON_ORDER.length - 1; i >= 0; i--) {
+      const candidate = WEAPON_ORDER[i];
+      const candidateStats = WEAPON_STATS[candidate];
+      if (candidateStats.tier >= currentTier) continue;
+      if (!player.ownedWeapons.has(candidate)) continue;
+      const hasAmmo = candidateStats.infiniteAmmo || (player.ammo[candidate] ?? 0) > 0;
+      if (!hasAmmo) continue;
+      player.equippedWeapon = candidate;
+      return candidate;
+    }
+    return undefined;
   }
 
   /** The equipped weapon's fire cooldown for `id` (EPIC 6), used by index.ts's per-connection fire-rate gate in place of the old fixed COMBAT.fireCooldownMs. Falls back to the pistol's cooldown if the player is unknown (caller should already have checked existence/aliveness before relying on this). */
@@ -463,9 +533,13 @@ export class PlayerRegistry {
    * - "weapon"/"ammo": unlock `weapon` if not already owned, then add its
    *   ammoPerPickup to current ammo capped at maxAmmo (one mechanic for
    *   both categories — see shared/src/pickups.ts PickupSpawnPoint doc
-   *   comment). Auto-equips ONLY on a first-time unlock whose tier is
-   *   higher than the currently-equipped weapon's tier ("always have the
-   *   best", EPIC 6 spec).
+   *   comment). Auto-equips on ANY applied pickup — first-time unlock OR an
+   *   ammo refill of an already-owned weapon (EPIC 13 Story 13.2,
+   *   generalizing the original EPIC 6 "first-time-unlock only" rule) —
+   *   whose tier is higher than the currently-equipped weapon's tier AND
+   *   which now has ammo > 0 (or is infinite) ("always have the best", EPIC
+   *   6 spec; closes the "ran dry, auto-switched to pistol, found ammo
+   *   again" gap EPIC 13 Story 13.1 would otherwise leave open).
    * - "health" (EPIC 7 §2): heal COMBAT.healthPickupAmount, capped at
    *   COMBAT.maxHealth; no-op (not applied) if already at max health.
    * - "armor" (EPIC 7 §2): add COMBAT.armorPickupAmount, capped at
@@ -501,11 +575,21 @@ export class PlayerRegistry {
     }
 
     player.ownedWeapons.add(weapon);
-    player.ammo[weapon] = Math.min(stats.maxAmmo, currentAmmo + stats.ammoPerPickup);
-    if (!alreadyOwned && stats.tier > WEAPON_STATS[player.equippedWeapon].tier) {
+    const newAmmo = Math.min(stats.maxAmmo, currentAmmo + stats.ammoPerPickup);
+    player.ammo[weapon] = newAmmo;
+    // EPIC 13 Story 13.2: the `!alreadyOwned` gate from EPIC 6 is dropped —
+    // any applied pickup (first unlock or refill) auto-equips `weapon` if
+    // it strictly outranks what's currently equipped and now actually has
+    // ammo. First-time unlock of a higher-tier weapon is still covered
+    // (newAmmo is always > 0 there, since ammoPerPickup > 0 for every
+    // non-pistol weapon) — this is a strict generalization, not a
+    // replacement.
+    let autoSwitchedTo: WeaponType | undefined;
+    if (stats.tier > WEAPON_STATS[player.equippedWeapon].tier && (stats.infiniteAmmo || newAmmo > 0)) {
       player.equippedWeapon = weapon;
+      autoSwitchedTo = weapon;
     }
-    return { applied: true };
+    return { applied: true, autoSwitchedTo };
   }
 
   /**
