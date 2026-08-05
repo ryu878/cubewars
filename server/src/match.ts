@@ -23,6 +23,7 @@ import {
   COMBAT,
   PICKUP_RADIUS,
   type DeathEvent,
+  type FireBroadcastEvent,
   type HitEvent,
   type KillEvent,
   type LoadoutMessage,
@@ -177,6 +178,20 @@ export class Match {
     // Ammo may have changed regardless of hit/miss/dry (EPIC 6) — resend the
     // shooter's own loadout. No-op for a bot (sendLoadout() has no socket).
     this.sendLoadout(shooterId);
+
+    // EPIC 14 "Sound System" Story 14.4: broadcast a presentational-only
+    // FireBroadcastEvent for every REAL fire attempt (hit, miss, OR dry —
+    // `outcome.weapon` is only absent on the effectively-unreachable
+    // no-shooter/dead-shooter early bail in registry.fire(), see its doc
+    // comment) so every connected client can play that shooter's
+    // weapon-specific gunshot sound, not just the local shooter's own.
+    // Deliberately broadcast BEFORE the hit/dry/miss-specific branches below
+    // so it fires uniformly regardless of outcome — a real trigger pull
+    // makes a gunshot sound whether or not it happened to land.
+    if (outcome.weapon) {
+      const fireBroadcast: FireBroadcastEvent = { type: "fire_broadcast", shooterId, weapon: outcome.weapon };
+      this.broadcast(fireBroadcast);
+    }
 
     // EPIC 13 Story 13.1: log a material game-state transition whenever this
     // fire attempt emptied the equipped weapon and auto-switched the shooter

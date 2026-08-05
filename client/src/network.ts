@@ -3,6 +3,7 @@
 import type {
   ClientMessage,
   DeathEvent,
+  FireBroadcastEvent,
   HitEvent,
   KillEvent,
   LoadoutMessage,
@@ -31,6 +32,8 @@ export interface NetworkHandlers {
   onLoadout?: (message: LoadoutMessage) => void;
   /** The full current on/off state of every world pickup (EPIC 6 Story 6.1) — always a complete replacement list, never a delta. */
   onPickupState?: (message: PickupStateMessage) => void;
+  /** Someone in this match attempted to fire (EPIC 14 "Sound System" Story 14.4) — a presentational-only, best-effort broadcast on every fire attempt (hit, miss, or dry), used purely to trigger the remote gunshot sound. Carries no aim/damage/outcome data; HitEvent above remains the sole source of truth for whether a shot actually landed. */
+  onFireBroadcast?: (message: FireBroadcastEvent) => void;
   onClose?: () => void;
   onError?: (err: Event) => void;
 }
@@ -64,6 +67,8 @@ export class GameConnection {
           handlers.onLoadout?.(message);
         } else if (message.type === "pickup_state") {
           handlers.onPickupState?.(message);
+        } else if (message.type === "fire_broadcast") {
+          handlers.onFireBroadcast?.(message);
         }
       } catch (err) {
         console.error("[client] failed to parse server message", err);

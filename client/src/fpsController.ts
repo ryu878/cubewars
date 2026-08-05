@@ -15,6 +15,17 @@ import {
 
 const MOUSE_SENSITIVITY = 0.0025;
 
+/**
+ * EPIC 14 "Sound System" Story 14.3: minimum measured horizontal speed
+ * (m/s) for isRunning() below to consider the player "actually moving" —
+ * a small epsilon rather than a bare `> 0` check, so floating-point noise
+ * from a fully-released movement key (or a single sub-pixel collision
+ * nudge) can't keep the footstep cadence system alive indefinitely.
+ * Comfortably below any real intentional-movement speed (MOVEMENT.maxSpeed
+ * is 13.3 m/s) while still well above what idle jitter could produce.
+ */
+const RUNNING_SPEED_EPSILON_MPS = 0.05;
+
 export interface InputIntent {
   moveForward: number;
   moveRight: number;
@@ -26,6 +37,16 @@ export interface InputIntent {
 export interface FpsControllerOptions {
   /** Called when the player clicks while pointer-locked and alive — i.e. a fire request (EPIC 4 Story 4.1). Not called for the click that merely engages pointer lock. */
   onFire?: () => void;
+  /**
+   * EPIC 14 "Sound System" Story 14.2: called exactly once per genuine
+   * ground-jump trigger — the branch in update() below where `Space` is
+   * held while `grounded` was true this frame. NOT called for the EPIC 8
+   * bunny-hop mid-air boost (the `spacePressed && !this.grounded &&
+   * this.bunnyHopAvailable` branch above it) — that is a separate
+   * mechanic with its own feel; the user's "jump grunt" ask maps to the
+   * ground-jump trigger specifically.
+   */
+  onJump?: () => void;
 }
 
 export class FpsController {
@@ -45,6 +66,18 @@ export class FpsController {
   private spacePressPending = false;
   /** Local-prediction mirror of the server's airSpeedMultiplier (EPIC 8 Story 8.2) — 1 outside a boosted air-time. */
   private airSpeedMultiplier = 1;
+  /**
+   * EPIC 14 "Sound System" Story 14.3: this frame's ACTUAL horizontal
+   * displacement magnitude / dt (m/s), measured AFTER collision resolution
+   * — not the raw input-intent speed — so isRunning() below correctly
+   * reads "not moving" when the player is holding a movement key but is
+   * fully blocked by a wall (collision resolves to ~0 net displacement),
+   * the same way it should read "not moving" when no key is held at all.
+   * Reset to 0 in both early-return branches of update() (not locked,
+   * dead) so a stale non-zero value from before pointer-lock was released
+   * or the player died can never leak into isRunning().
+   */
+  private horizontalSpeedMps = 0;
 
   constructor(
     private camera: THREE.PerspectiveCamera,
@@ -172,6 +205,9 @@ export class FpsController {
       // instead of showing the player's actual spawn point.
       this.camera.position.set(this.position.x, this.position.y + EYE_HEIGHT, this.position.z);
       this.camera.rotation.set(this.pitch, this.yaw, 0);
+      // EPIC 14 Story 14.3: not locked -> definitely not "running" (see
+      // horizontalSpeedMps doc comment above).
+      this.horizontalSpeedMps = 0;
       return;
     }
 
@@ -182,6 +218,8 @@ export class FpsController {
       // waiting to respawn.
       this.camera.position.set(this.position.x, this.position.y + EYE_HEIGHT, this.position.z);
       this.camera.rotation.set(this.pitch, this.yaw, 0);
+      // EPIC 14 Story 14.3: dead -> definitely not "running".
+      this.horizontalSpeedMps = 0;
       return;
     }
 
@@ -220,13 +258,25 @@ export class FpsController {
     // them horizontally here either (EPIC 12 Story 12.1).
     const feetYThisFrame = this.position.y;
     const blockingBoxes = boxesBlockingAt(feetYThisFrame);
+    const previousX = this.position.x;
+    const previousZ = this.position.z;
     const resolved = resolveSteppedMovement(this.position.x, this.position.z, dx, dz, undefined, blockingBoxes);
     this.position.x = resolved.x;
     this.position.z = resolved.z;
+    // EPIC 14 Story 14.3: measured from the POST-collision-resolution
+    // displacement (see horizontalSpeedMps doc comment above), not the raw
+    // dx/dz intent.
+    this.horizontalSpeedMps =
+      dt > 0 ? Math.hypot(this.position.x - previousX, this.position.z - previousZ) / dt : 0;
 
     if (this.keys.has("Space") && this.grounded) {
       this.velocityY = MOVEMENT.jumpSpeed;
       this.grounded = false;
+      // EPIC 14 Story 14.2: fires exactly once per genuine ground-jump
+      // trigger (this branch, mirrored 1:1 from the server's own
+      // stepPlayer() jump trigger) — never for the separate bunny-hop
+      // mid-air boost branch above.
+      this.options.onJump?.();
     }
     this.velocityY -= MOVEMENT.gravity * dt;
     this.position.y += this.velocityY * dt;
@@ -259,6 +309,41 @@ export class FpsController {
 
     this.camera.position.set(this.position.x, this.position.y + EYE_HEIGHT, this.position.z);
     this.camera.rotation.set(this.pitch, this.yaw, 0);
+  }
+
+  /**
+   * EPIC 14 "Sound System" Story 14.3/14.5: true only while this player is
+   * actively simulating ground movement — locked, alive, AND grounded.
+   * Folds in `locked`/`alive` rather than exposing the raw private
+   * `grounded` field alone, so a caller can never read a stale `true` left
+   * over from just before pointer-lock was released or the player died
+   * (both of update()'s early-return branches above leave `grounded`
+   * untouched, but this accessor's own locked/alive check still correctly
+   * reports `false` in either case).
+   */
+  isGrounded(): boolean {
+    return this.locked && this.alive && this.grounded;
+  }
+
+  /**
+   * EPIC 14 Story 14.3: true while isGrounded() AND actually displacing
+   * horizontally this frame (see horizontalSpeedMps doc comment) — the
+   * exact gate main.ts's footstep cadence system checks every render
+   * frame ("footsteps play only while grounded AND moving").
+   */
+  isRunning(): boolean {
+    return this.isGrounded() && this.horizontalSpeedMps > RUNNING_SPEED_EPSILON_MPS;
+  }
+
+  /**
+   * EPIC 14 Story 14.5 (and 14.3): this client's own current predicted
+   * position — needed for the pickup-proximity sound-attribution heuristic
+   * in main.ts (see PICKUP_SOUND_RADIUS there). Returns a fresh copy, not a
+   * live reference, so a caller can't accidentally mutate this
+   * controller's internal prediction state.
+   */
+  getPosition(): { x: number; y: number; z: number } {
+    return { x: this.position.x, y: this.position.y, z: this.position.z };
   }
 
   /** Current input intent to send to the server. This is intent only — the server computes the resulting position itself. */

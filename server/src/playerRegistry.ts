@@ -156,6 +156,17 @@ export type FireOutcome =
        * happened.
        */
       autoSwitchedTo?: WeaponType;
+      /**
+       * The weapon that was actually fired (EPIC 14 "Sound System" Story
+       * 14.4), captured from the pre-auto-switch local `weapon` below —
+       * present on every branch that represents a REAL fire attempt.
+       * Deliberately ABSENT on the very first early bail (`!shooter ||
+       * !shooter.alive`) below, since no real trigger pull happened
+       * server-side in that case — the caller (match.ts resolveFire())
+       * uses "is `weapon` present" as its own gate for whether to
+       * broadcast a FireBroadcastEvent at all.
+       */
+      weapon?: WeaponType;
     }
   | {
       hit: true;
@@ -169,6 +180,8 @@ export type FireOutcome =
       respawnAtMs: number | null;
       /** See the `hit: false` variant's doc comment above — same meaning: this shot's own ammo decrement emptied the weapon and triggered an auto-switch, independent of whether the shot itself landed. */
       autoSwitchedTo?: WeaponType;
+      /** The weapon that was actually fired — see the `hit: false` variant's doc comment above. Always present here (a landed hit is by definition a real fire attempt). */
+      weapon?: WeaponType;
     };
 
 export interface RespawnOutcome {
@@ -425,7 +438,7 @@ export class PlayerRegistry {
         // no-op-safe safety net rather than special-cased around, per the
         // EPIC 13 spec.
         autoSwitchedTo = this.autoSwitchDown(shooter);
-        return { hit: false, dry: true, autoSwitchedTo };
+        return { hit: false, dry: true, autoSwitchedTo, weapon };
       }
       shooter.ammo[weapon] = currentAmmo - 1;
       if (shooter.ammo[weapon] === 0) {
@@ -437,10 +450,10 @@ export class PlayerRegistry {
     }
 
     const result = performHitscan(shooter, this.players.values());
-    if (!result.hitPlayerId || !result.point) return { hit: false, dry: false, autoSwitchedTo };
+    if (!result.hitPlayerId || !result.point) return { hit: false, dry: false, autoSwitchedTo, weapon };
 
     const target = this.players.get(result.hitPlayerId);
-    if (!target || !target.alive) return { hit: false, dry: false, autoSwitchedTo }; // defensive: target could not exist / already dead
+    if (!target || !target.alive) return { hit: false, dry: false, autoSwitchedTo, weapon }; // defensive: target could not exist / already dead
 
     // EPIC 7 "Health & Armor Pickups" Section 2 damage-absorption order:
     // armor absorbs first. If armor fully covers this hit, only armor drops
@@ -479,6 +492,7 @@ export class PlayerRegistry {
       killed,
       respawnAtMs: target.respawnAtMs,
       autoSwitchedTo,
+      weapon,
     };
   }
 
