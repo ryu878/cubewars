@@ -178,6 +178,18 @@ export class Match {
     // shooter's own loadout. No-op for a bot (sendLoadout() has no socket).
     this.sendLoadout(shooterId);
 
+    // EPIC 13 Story 13.1: log a material game-state transition whenever this
+    // fire attempt emptied the equipped weapon and auto-switched the shooter
+    // to their next-best usable weapon — independent of whether the shot
+    // itself hit, missed, or was dry (see FireOutcome.autoSwitchedTo doc
+    // comment, playerRegistry.ts). Matches the existing `switch:`-line style
+    // used by the manual "E" cycle (server/src/index.ts).
+    if (outcome.autoSwitchedTo) {
+      console.log(
+        `[server] [${this.id}] auto-switch (empty ammo): ${shooterId} -> ${outcome.autoSwitchedTo}`,
+      );
+    }
+
     if (!outcome.hit) {
       if (outcome.dry) {
         console.log(`[server] [${this.id}] ammo depleted: ${shooterId} tried to fire with 0 ammo`);
@@ -281,7 +293,7 @@ export class Match {
       const nearby = this.pickupSpawner.findNearby(position, PICKUP_RADIUS);
       if (!nearby) continue;
 
-      const { applied } = this.registry.applyPickup(id, nearby.category, nearby.weapon);
+      const { applied, autoSwitchedTo } = this.registry.applyPickup(id, nearby.category, nearby.weapon);
       if (!applied) continue;
 
       this.pickupSpawner.consume(nearby.id, nowMs);
@@ -289,6 +301,13 @@ export class Match {
       this.sendLoadout(id);
       const weaponSuffix = nearby.weapon ? ` (${nearby.weapon})` : "";
       console.log(`[server] [${this.id}] pickup: ${id} picked up ${nearby.category} "${nearby.id}"${weaponSuffix}`);
+      // EPIC 13 Story 13.2: log the generalized auto-equip-on-pickup rule
+      // separately from the plain pickup line above, matching the
+      // `switch:`-line style used by the manual "E" cycle (server/src/index.ts)
+      // and the empty-ammo auto-switch log in resolveFire() above.
+      if (autoSwitchedTo) {
+        console.log(`[server] [${this.id}] auto-switch (pickup): ${id} -> ${autoSwitchedTo}`);
+      }
     }
 
     // Pickup respawns are time-driven, same pattern as player respawns above.

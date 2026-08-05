@@ -13,7 +13,8 @@
     "typecheck": "npm run typecheck --workspace=shared && npm run typecheck --workspace=server && npm run typecheck --workspace=client",
     "regression:collision-overshoot": "tsx scripts/regression-collision-overshoot.ts",
     "regression:bot-aim-miss-rate": "tsx scripts/regression-bot-aim-miss-rate.ts",
-    "regression:crate-mount": "tsx scripts/regression-crate-mount.ts"
+    "regression:crate-mount": "tsx scripts/regression-crate-mount.ts",
+    "regression:weapon-autoswitch": "tsx scripts/regression-weapon-autoswitch.ts"
   },
   "devDependencies": {
     "concurrently": "^9.0.1",
