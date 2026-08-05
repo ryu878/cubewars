@@ -39,12 +39,16 @@ function pulse(el: HTMLElement, timers: { handle: number | undefined }): void {
 
 export class CombatHud {
   private healthEl: HTMLElement;
+  private healthValueEl: HTMLElement;
   private armorEl: HTMLElement;
+  private armorValueEl: HTMLElement;
   private hitMarkerEl: HTMLElement;
   private damageFlashEl: HTMLElement;
   private muzzleFlashEl: HTMLElement;
   private deathOverlayEl: HTMLElement;
   private weaponEl: HTMLElement;
+  private weaponNameEl: HTMLElement;
+  private ammoValueEl: HTMLElement;
 
   private hitMarkerTimer: { handle: number | undefined } = { handle: undefined };
   private damageFlashTimer: { handle: number | undefined } = { handle: undefined };
@@ -52,18 +56,22 @@ export class CombatHud {
 
   constructor() {
     this.healthEl = document.getElementById("healthHud") as HTMLElement;
+    this.healthValueEl = document.getElementById("healthValue") as HTMLElement;
     this.armorEl = document.getElementById("armorHud") as HTMLElement;
+    this.armorValueEl = document.getElementById("armorValue") as HTMLElement;
     this.hitMarkerEl = document.getElementById("hitMarker") as HTMLElement;
     this.damageFlashEl = document.getElementById("damageFlash") as HTMLElement;
     this.muzzleFlashEl = document.getElementById("muzzleFlash") as HTMLElement;
     this.deathOverlayEl = document.getElementById("deathOverlay") as HTMLElement;
     this.weaponEl = document.getElementById("weaponHud") as HTMLElement;
+    this.weaponNameEl = document.getElementById("weaponName") as HTMLElement;
+    this.ammoValueEl = document.getElementById("ammoValue") as HTMLElement;
   }
 
-  /** Update the on-screen health readout (Story 4.3 AC: "Current health is visible on screen and updates when damaged"). Always driven by the server's own PlayerState.health — never a locally-guessed value. */
+  /** Update the on-screen health readout (Story 4.3 AC: "Current health is visible on screen and updates when damaged"). Always driven by the server's own PlayerState.health — never a locally-guessed value. EPIC 13 Story 13.4: writes only the number into the dedicated #healthValue child span (label span is static markup, index.html), not a combined "Health: N" string on the whole badge. */
   setHealth(health: number): void {
     const clamped = Math.max(0, Math.round(health));
-    this.healthEl.textContent = `Health: ${clamped}`;
+    this.healthValueEl.textContent = String(clamped);
     this.healthEl.dataset.low = clamped <= 30 ? "true" : "false";
   }
 
@@ -73,11 +81,12 @@ export class CombatHud {
    * PlayerState.armor (WorldStateMessage), never a locally-guessed value —
    * same discipline as setHealth() above. Hidden (0 armor is still shown,
    * not hidden) so the player always has a stable readout of "do I have any
-   * armor right now".
+   * armor right now". EPIC 13 Story 13.4: writes only the number into the
+   * dedicated #armorValue child span, same split as setHealth() above.
    */
   setArmor(armor: number): void {
     const clamped = Math.max(0, Math.round(armor));
-    this.armorEl.textContent = `Armor: ${clamped}`;
+    this.armorValueEl.textContent = String(clamped);
     this.armorEl.dataset.zero = clamped <= 0 ? "true" : "false";
   }
 
@@ -121,12 +130,23 @@ export class CombatHud {
    * infinite-ammo weapon (the pistol), rendered as "∞"; `ammo === 0` is
    * called out as "EMPTY" so the player knows to switch or find ammo (EPIC 6
    * "dry weapon" rule).
+   *
+   * EPIC 13 Story 13.4: writes the weapon name and ammo token into their own
+   * child spans (#weaponName / #ammoValue) instead of one combined
+   * textContent string, so the ammo number can be sized independently
+   * (index.html). `style.color` stays set on the whole #weaponHud badge
+   * (unchanged from pre-EPIC-13) rather than on the child spans — neither
+   * child span sets its own `color`, so both the weapon name AND the ammo
+   * number inherit this same weapon-identity color via normal CSS
+   * inheritance (verified in Tester's screenshot evidence, not just by
+   * inspection, per the spec's explicit ask).
    */
   setWeapon(displayName: string, colorHex: number, ammo: number | null): void {
     const colorCss = `#${colorHex.toString(16).padStart(6, "0")}`;
     this.weaponEl.style.color = colorCss;
     const ammoText = ammo === null ? "∞" : ammo > 0 ? String(ammo) : "EMPTY";
-    this.weaponEl.textContent = `${displayName} — ${ammoText}`;
+    this.weaponNameEl.textContent = displayName;
+    this.ammoValueEl.textContent = ammoText;
     this.weaponEl.dataset.empty = ammo === 0 ? "true" : "false";
   }
 }

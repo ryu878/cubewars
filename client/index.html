@@ -89,44 +89,84 @@
          combat — pure CSS relayout, no change to the setHealth()/setArmor()
          logic that drives their textContent (client/src/combatHud.ts). Same
          dark rounded-badge visual style as the rest of the HUD, just bigger
-         and moved. --- */
+         and moved.
 
-      #healthHud {
-        position: fixed;
-        bottom: 18px;
-        left: 24px;
-        padding: 10px 20px;
-        background: rgba(0, 0, 0, 0.6);
-        color: #fff;
-        font-family: system-ui, sans-serif;
-        font-size: 30px;
-        font-weight: 800;
-        border-radius: 8px;
-        z-index: 10;
-        pointer-events: none;
-      }
-      #healthHud[data-low="true"] {
-        color: #ff8a8a;
-      }
+         EPIC 13 Story 13.4: label/value split (user's ask was specifically
+         about the NUMBERS, "5x bigger, closer to center") + repositioned
+         inward from the screen edges. #healthHud/#armorHud/#weaponHud are
+         each now a flex row of a small static label span + a value span
+         driven by combatHud.ts's setHealth()/setArmor()/setWeapon(). See
+         each value span's own font-size comment below for the literal-5x
+         lineage and, where dialed back, the measured reason (1280x800
+         Playwright screenshot evidence, see qa-artifacts self-check script)
+         — no dial-back is silent, per the EPIC 13 spec's judgment-call
+         provision. --- */
 
-      /* --- EPIC 7 armor HUD: current armor, alongside health (Story 7.2 AC) --- */
-
+      #healthHud,
       #armorHud {
         position: fixed;
         bottom: 18px;
-        right: 24px;
-        padding: 10px 20px;
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        padding: 8px 22px;
         background: rgba(0, 0, 0, 0.6);
-        color: #7fb3e0;
-        font-family: system-ui, sans-serif;
-        font-size: 30px;
-        font-weight: 800;
-        border-radius: 8px;
+        border-radius: 10px;
         z-index: 10;
         pointer-events: none;
+        white-space: nowrap;
       }
-      #armorHud[data-zero="true"] {
+      /* Repositioned inward from the old left:24px/right:24px edge anchors
+         (EPIC 11) to sit visibly closer to the horizontally-centered
+         #weaponHud, per Section 3's "closer to center" ask — percentage-based
+         so the gap to #weaponHud scales with viewport width instead of a
+         fixed px offset. left:9%/right:9% of 1280px = ~115px from each edge
+         (still ~5x closer to center than the old 24px anchor). Tuned DOWN
+         from the spec's "~18-22%" starting-point suggestion: at 18-22% the
+         now-150px-tall #healthHud/#armorHud badges overlapped #weaponHud in
+         the worst-case content combination (health/armor both at their
+         3-digit max, 100/100 — COMBAT.maxHealth/maxArmor — alongside the
+         longest weapon name + a 2-digit ammo count); 9% is the value that
+         keeps a clear, visible gap between all three elements with nothing
+         clipped off either screen edge in that same worst case, verified at
+         the standard 1280x800 QA viewport
+         (qa-artifacts/epic-13-programmer-selfcheck/02-worst-case-content.png,
+         via scripts/qa-epic13-programmer-selfcheck.mjs). */
+      #healthHud {
+        left: 9%;
+      }
+      #armorHud {
+        right: 9%;
+      }
+      .hud-label {
+        font-family: system-ui, sans-serif;
+        font-size: 16px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        color: #cfcfcf;
+      }
+      #healthHud .hud-value {
+        color: #fff;
+      }
+      #healthHud[data-low="true"] .hud-value {
+        color: #ff8a8a;
+      }
+      #armorHud .hud-value {
+        color: #7fb3e0;
+      }
+      #armorHud[data-zero="true"] .hud-value {
         color: #8a8a8a;
+      }
+      .hud-value {
+        font-family: system-ui, sans-serif;
+        font-weight: 800;
+        /* User's literal ask: "5x bigger" of the pre-EPIC-13 30px health/armor
+           font-size, i.e. 30px * 5 = 150px (EPIC 13 spec Section 3). Measured
+           clean (no overlap/clipping) at 1280x800 with #healthHud/#armorHud
+           repositioned per above, so the literal 5x target is what ships —
+           no dial-back needed for health/armor. */
+        font-size: 150px; /* 30px * 5 (EPIC 13 Story 13.4 literal-5x target) */
+        line-height: 1;
       }
 
       /* --- EPIC 6 weapon HUD: equipped weapon name + ammo, color-coded per weapon --- */
@@ -136,16 +176,50 @@
         bottom: 18px;
         left: 50%;
         transform: translateX(-50%);
-        padding: 6px 14px;
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        padding: 6px 16px;
         background: rgba(0, 0, 0, 0.6);
         color: #9e9e9e;
         font-family: system-ui, sans-serif;
-        font-size: 15px;
-        font-weight: 600;
-        letter-spacing: 0.02em;
         border-radius: 6px;
         z-index: 10;
         pointer-events: none;
+        white-space: nowrap;
+      }
+      /* Weapon-name portion stays close to its pre-EPIC-13 size — the user
+         did not ask to enlarge the label, only the numbers (EPIC 13 spec
+         Section 3). */
+      #weaponName {
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+      .hud-dash {
+        font-size: 15px;
+        font-weight: 600;
+        opacity: 0.6;
+      }
+      #ammoValue {
+        font-weight: 800;
+        /* EPIC 13 Story 13.4 judgment call (spec Section 3): #weaponHud is
+           horizontally centered and flanked by the now-150px-tall
+           #healthHud/#armorHud badges, unlike health/armor which each have
+           their own uncontested corner-ish region. A literal 5x of the old
+           15px weapon-name size (75px) — or anything close to health/armor's
+           150px — visibly overlapped #healthHud/#armorHud at the standard
+           1280x800 QA viewport once the longest weapon name ("Grenade
+           Launcher") plus a multi-digit ammo count share the same centered
+           badge (measured via qa-artifacts/epic-13-programmer-selfcheck/*.png).
+           40px is the largest size that stayed clean (visible gap to both
+           neighbors, nothing clipped off either screen edge) across every
+           owned weapon's longest display name + a 2-digit ammo count —
+           dialed back from the literal 5x/150px figures on purpose, not a
+           silent downgrade. Still clearly larger/bolder than the 15px
+           weapon-name text beside it. */
+        font-size: 40px; /* dialed back from literal 5x (75px of 15px) — see comment above */
+        line-height: 1;
       }
       #weaponHud[data-empty="true"] {
         animation: weapon-empty-pulse 700ms ease-in-out infinite;
@@ -389,9 +463,15 @@
   </head>
   <body>
     <div id="status" data-state="connecting">connecting…</div>
-    <div id="healthHud" data-low="false">Health: 100</div>
-    <div id="armorHud" data-zero="true">Armor: 0</div>
-    <div id="weaponHud" data-empty="false">Pistol — ∞</div>
+    <div id="healthHud" data-low="false">
+      <span class="hud-label">HP</span><span id="healthValue" class="hud-value">100</span>
+    </div>
+    <div id="armorHud" data-zero="true">
+      <span class="hud-label">ARMOR</span><span id="armorValue" class="hud-value">0</span>
+    </div>
+    <div id="weaponHud" data-empty="false">
+      <span id="weaponName">Pistol</span><span class="hud-dash">&mdash;</span><span id="ammoValue">&infin;</span>
+    </div>
     <div id="crosshair" aria-hidden="true"></div>
     <div id="hitMarker" aria-hidden="true"></div>
     <div id="damageFlash" aria-hidden="true"></div>
