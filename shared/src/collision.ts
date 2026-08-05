@@ -8,20 +8,29 @@
 // Deliberately simple, per "prefer simple and reliable architecture"
 // (global-standards.mdc) and the EPIC 3 risk note ruling out a physics
 // engine for this map: the player is treated as a vertical
-// cylinder/point of fixed horizontal radius, and collision is resolved
-// purely on the x/z plane (Y — gravity/jump/ground — is untouched by this
-// function). That also means every box in ARENA_GEOMETRY, including
-// crates, is a *full-height* blocking obstacle: crates are cover you walk
-// around, not cover you can vault/climb onto (documented "blocking, not
-// climbable" choice for this EPIC — see EPIC 3 handoff). Both outer
-// walls and crates are taller (or, for crates, at least as tall) than the
-// ~1m max jump height a normal (un-boosted) jump reaches with this game's
-// MOVEMENT constants, so treating them uniformly doesn't create a visibly
-// "wrong" wall-vs-crate feel. EPIC 8's bunny-hop boost can push a player
-// higher than that baseline mid-air, but since this function is Y-agnostic
-// (resolves purely on x/z, at ANY height — see above), a boosted hop still
-// cannot carry a player over/through a wall or crate: the horizontal
-// footprint stays blocked regardless of how high the player currently is.
+// cylinder/point of fixed horizontal radius, and resolveHorizontalCollisions
+// itself resolves purely on the x/z plane (Y — gravity/jump/ground — is not
+// read or modified by that function).
+//
+// EPIC 12 "Jumpable Crates" update: walls (kind: "wall") are still always
+// full-height blocking obstacles — never climbable, regardless of jump
+// height. Crates (kind: "crate"), however, are now HEIGHT-AWARE: a crate
+// only blocks horizontal movement while the player's feet are below its top
+// surface (see boxesBlockingAt() below); once a player's feet rise above a
+// crate's top (raised jump apex, see MOVEMENT.jumpSpeed doc comment,
+// shared/src/index.ts), that crate stops blocking them and instead supports
+// them from below (see crateTopHeightAt() below) — crates are climbable
+// platforms, not just full-height cover. This reverses the EPIC 3-era
+// "crates are full-height blocking, not climbable" simplification, which
+// was only valid while max jump height (1.0m) was strictly below
+// CRATE_HEIGHT (1.2m); EPIC 12 raised jump height specifically so this
+// height-aware behavior would be reachable in practice.
+//
+// resolveHorizontalCollisions() itself remains Y-agnostic (it has no Y
+// parameter) — height-awareness lives one level up, in which `boxes` list a
+// caller passes in for a given tick (filtered by boxesBlockingAt() at the
+// player's current feet height), not inside this function's own box-overlap
+// math.
 
 import { ARENA_GEOMETRY, boxBounds, type MapBox } from "./mapData.js";
 
@@ -290,4 +299,101 @@ export function resolveSteppedMovement(
   }
 
   return { x: px, z: pz };
+}
+
+/**
+ * EPIC 12 "Jumpable Crates" Story 12.1: filter `boxes` (default:
+ * ARENA_GEOMETRY) down to only the boxes that block horizontal movement at a
+ * given feet height `feetY`.
+ *
+ * - Walls (`kind: "wall"`) always block, at any height — they are never
+ *   climbable, regardless of jump height (see this file's top-of-file
+ *   comment).
+ * - Crates (`kind: "crate"`) only block while the player's feet are
+ *   strictly below that crate's own top surface (`feetY < boxBounds(box).maxY`).
+ *   Once a player's feet are at or above a crate's top (standing on it, or
+ *   higher, e.g. mid-jump above it), that specific crate no longer blocks
+ *   horizontal movement — this is what lets a player drift over a crate's
+ *   footprint once airborne above it, and walk freely once standing on top.
+ *
+ * At `feetY = 0` (ground level, the common case), every crate's top
+ * (CRATE_HEIGHT = 1.2 > 0) still blocks, so the returned list is identical
+ * to `boxes` itself — no behavior change for a player who never leaves the
+ * ground, matching the pre-EPIC-12 behavior exactly.
+ *
+ * Callers (server `stepPlayer()`, client `fpsController.ts` `update()`) pass
+ * the result of this function as the `boxes` argument to
+ * `resolveSteppedMovement()`/`resolveHorizontalCollisions()` for a given
+ * tick, using the player's feet height (`position.y`) at the START of that
+ * tick (before this tick's own vertical integration) — this function itself
+ * does not read or store any per-tick state.
+ */
+export function boxesBlockingAt(feetY: number, boxes: readonly MapBox[] = ARENA_GEOMETRY): MapBox[] {
+  return boxes.filter((box) => box.kind === "wall" || feetY < boxBounds(box).maxY);
+}
+
+/**
+ * EPIC 12 "Jumpable Crates" Story 12.2: the height of the highest crate top
+ * surface standing under world point `(x, z)`, or `0` if `(x, z)` is not
+ * over any crate.
+ *
+ * Only `kind: "crate"` boxes in `boxes` (default: ARENA_GEOMETRY) are
+ * considered — walls are never standable surfaces (a player physically
+ * cannot reach wall-top height, see MOVEMENT.jumpSpeed doc comment,
+ * shared/src/index.ts), so this function does not need to (and does not)
+ * look at them.
+ *
+ * A crate "supports" `(x, z)` if that point falls within the crate's XZ
+ * footprint EXPANDED by `radius` (default: PLAYER_COLLISION_RADIUS) on every
+ * side — the same "expand the box's true bounds by the player's collision
+ * radius" pattern `resolveHorizontalCollisions` already uses for its own
+ * push-out math. This is a deliberate consistency choice, not an arbitrary
+ * generosity: it treats the player as the same collision circle whether a
+ * crate is currently blocking them sideways (boxesBlockingAt above) or
+ * supporting them from below, so a player whose center point has drifted a
+ * few centimeters past the crate's raw edge — but whose body circle still
+ * overlaps the top surface — does not feel like it falls through a phantom
+ * gap right at the edge.
+ *
+ * If more than one crate's expanded footprint contains `(x, z)` (not
+ * currently possible on the real ARENA_GEOMETRY — no two crates' radius-
+ * expanded footprints overlap — but this function does not assume that),
+ * the HIGHEST top surface among them wins.
+ *
+ * Callers combine this with MOVEMENT.groundY themselves:
+ * `const groundHeight = Math.max(MOVEMENT.groundY, crateTopHeightAt(x, z));`
+ * — this function deliberately does NOT import MOVEMENT itself, to avoid a
+ * circular import (index.ts re-exports this file — same reasoning already
+ * documented above for MAX_SINGLE_CALL_RESOLUTION_DISTANCE /
+ * DEFAULT_MAX_STEP_DISTANCE).
+ */
+export function crateTopHeightAt(
+  x: number,
+  z: number,
+  boxes: readonly MapBox[] = ARENA_GEOMETRY,
+  radius: number = PLAYER_COLLISION_RADIUS,
+): number {
+  let highest = 0;
+  for (const box of boxes) {
+    if (box.kind !== "crate") continue;
+    const bounds = boxBounds(box);
+    const minX = bounds.minX - radius;
+    const maxX = bounds.maxX + radius;
+    const minZ = bounds.minZ - radius;
+    const maxZ = bounds.maxZ + radius;
+    // Strictly-inside check, deliberately matching resolveHorizontalCollisions'
+    // own "a point exactly on the boundary is treated as clear" convention
+    // (see its doc comment above): a player resting exactly at a crate's
+    // radius-expanded SIDE boundary (blocked horizontally, per
+    // boxesBlockingAt above, but not yet past the edge) must NOT register as
+    // "supported from below" here, or it would incorrectly snap up onto the
+    // crate's top while still just standing at ground level against its
+    // side — verified against exactly this edge case by
+    // scripts/regression-crate-mount.ts case (a).
+    if (x <= minX || x >= maxX || z <= minZ || z >= maxZ) continue;
+    if (bounds.maxY > highest) {
+      highest = bounds.maxY;
+    }
+  }
+  return highest;
 }

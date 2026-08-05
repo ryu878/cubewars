@@ -3,7 +3,15 @@
 // resulting position (security-baseline.mdc) — see reconcile().
 
 import * as THREE from "three";
-import { BUNNY_HOP, EYE_HEIGHT, MAX_PITCH, MOVEMENT, resolveSteppedMovement } from "@cubewars/shared";
+import {
+  BUNNY_HOP,
+  EYE_HEIGHT,
+  MAX_PITCH,
+  MOVEMENT,
+  boxesBlockingAt,
+  crateTopHeightAt,
+  resolveSteppedMovement,
+} from "@cubewars/shared";
 
 const MOUSE_SENSITIVITY = 0.0025;
 
@@ -197,16 +205,22 @@ export class FpsController {
     const dz = (forwardZ * moveForward + rightZ * moveRight) * MOVEMENT.maxSpeed * this.airSpeedMultiplier * dt;
 
     // Local collision prediction (EPIC 3 Story 3.3, sub-stepped since EPIC 11
-    // Story 11.1): resolve against the same shared ARENA_GEOMETRY and the
-    // SAME resolveSteppedMovement() helper the server's authoritative
-    // stepPlayer() uses, so walking into a wall stops the player immediately
-    // and responsively — and, at the new higher speeds, a wall hit mid-tick
-    // is caught the same way locally as it is authoritatively (no new
-    // client/server mismatch). This is a feel/prediction layer only —
-    // reconcile() below still pulls the visual position toward whatever the
-    // server's authoritative broadcast says, exactly as EPIC 2 already does
-    // for the rest of movement.
-    const resolved = resolveSteppedMovement(this.position.x, this.position.z, dx, dz);
+    // Story 11.1, height-aware since EPIC 12 Story 12.1): resolve against
+    // the same shared ARENA_GEOMETRY and the SAME resolveSteppedMovement()
+    // helper the server's authoritative stepPlayer() uses, so walking into a
+    // wall stops the player immediately and responsively — and, at the new
+    // higher speeds, a wall hit mid-tick is caught the same way locally as
+    // it is authoritatively (no new client/server mismatch). This is a
+    // feel/prediction layer only — reconcile() below still pulls the visual
+    // position toward whatever the server's authoritative broadcast says,
+    // exactly as EPIC 2 already does for the rest of movement. Uses
+    // boxesBlockingAt(feetY) at this frame's feet height (this.position.y,
+    // before this frame's own vertical integration below) — same as the
+    // server — so a crate the player is standing on/above does not block
+    // them horizontally here either (EPIC 12 Story 12.1).
+    const feetYThisFrame = this.position.y;
+    const blockingBoxes = boxesBlockingAt(feetYThisFrame);
+    const resolved = resolveSteppedMovement(this.position.x, this.position.z, dx, dz, undefined, blockingBoxes);
     this.position.x = resolved.x;
     this.position.z = resolved.z;
 
@@ -216,8 +230,16 @@ export class FpsController {
     }
     this.velocityY -= MOVEMENT.gravity * dt;
     this.position.y += this.velocityY * dt;
-    if (this.position.y <= MOVEMENT.groundY) {
-      this.position.y = MOVEMENT.groundY;
+
+    // Height-aware ground/crate-top support (EPIC 12 Story 12.2), mirroring
+    // the server's stepPlayer() clamp exactly (same helper, same math) so
+    // client-predicted and server-authoritative crate mount/dismount stay in
+    // agreement — evaluated at this frame's POST-horizontal-resolution
+    // (x, z).
+    const groundHeight = Math.max(MOVEMENT.groundY, crateTopHeightAt(this.position.x, this.position.z));
+
+    if (this.position.y <= groundHeight) {
+      this.position.y = groundHeight;
       this.velocityY = 0;
       this.grounded = true;
       // EPIC 8 Story 8.2: landing makes the bunny hop available again and
@@ -225,6 +247,14 @@ export class FpsController {
       // server's stepPlayer() ground-clamp branch.
       this.bunnyHopAvailable = true;
       this.airSpeedMultiplier = 1;
+    } else {
+      // EPIC 12 Story 12.2: mirrors the server's required `else { grounded =
+      // false }` branch exactly — a player who walks off a mounted crate's
+      // edge locally (no jump input) must become airborne in the local
+      // prediction too, or a locally-predicted (but not yet server-
+      // confirmed) extra jump could fire before reconcile() catches up. See
+      // server/src/playerRegistry.ts stepPlayer() for the full rationale.
+      this.grounded = false;
     }
 
     this.camera.position.set(this.position.x, this.position.y + EYE_HEIGHT, this.position.z);
