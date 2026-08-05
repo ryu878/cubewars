@@ -381,7 +381,16 @@ export function crateTopHeightAt(
     const maxX = bounds.maxX + radius;
     const minZ = bounds.minZ - radius;
     const maxZ = bounds.maxZ + radius;
-    if (x < minX || x > maxX || z < minZ || z > maxZ) continue;
+    // Strictly-inside check, deliberately matching resolveHorizontalCollisions'
+    // own "a point exactly on the boundary is treated as clear" convention
+    // (see its doc comment above): a player resting exactly at a crate's
+    // radius-expanded SIDE boundary (blocked horizontally, per
+    // boxesBlockingAt above, but not yet past the edge) must NOT register as
+    // "supported from below" here, or it would incorrectly snap up onto the
+    // crate's top while still just standing at ground level against its
+    // side — verified against exactly this edge case by
+    // scripts/regression-crate-mount.ts case (a).
+    if (x <= minX || x >= maxX || z <= minZ || z >= maxZ) continue;
     if (bounds.maxY > highest) {
       highest = bounds.maxY;
     }
