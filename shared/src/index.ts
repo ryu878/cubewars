@@ -327,6 +327,26 @@ export interface PickupStateMessage {
   pickups: PickupStatus[];
 }
 
+/**
+ * Server -> all clients: someone in this match attempted to fire (EPIC 14
+ * "Sound System" Story 14.4) — broadcast on EVERY fire attempt (hit, miss,
+ * or dry), not just a landed hit, so every connected client can play that
+ * shooter's weapon-specific gunshot sound. Purely presentational: carries
+ * no aim/position/damage/outcome data and never affects hit resolution —
+ * HitEvent remains the sole source of truth for "did this shot land and
+ * what did it do". This is a minor, deliberate, accepted information
+ * reveal (which weapon a given player currently holds), in the same spirit
+ * as the already-accepted unfiltered position/health broadcast in
+ * WorldStateMessage (docs/backlog.md "Accepted design decisions") — no
+ * aim direction, exact hit outcome, or other gameplay-relevant secret is
+ * exposed.
+ */
+export interface FireBroadcastEvent {
+  type: "fire_broadcast";
+  shooterId: string;
+  weapon: WeaponType;
+}
+
 export type ServerMessage =
   | WelcomeMessage
   | WorldStateMessage
@@ -336,4 +356,5 @@ export type ServerMessage =
   | KillEvent
   | ScoreboardMessage
   | LoadoutMessage
-  | PickupStateMessage;
+  | PickupStateMessage
+  | FireBroadcastEvent;
