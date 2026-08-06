@@ -6,6 +6,7 @@ import type { Vector3 } from "./types.js";
 export type { Vector3 } from "./types.js";
 import type { WeaponType } from "./weapons.js";
 import type { PickupStatus } from "./pickups.js";
+import type { DamageKind, DamageZone } from "./combat.js";
 // EPIC 3 "The Arena": the single source of truth for map geometry, spawn
 // points, and their collision resolution — see mapData.ts / collision.ts
 // doc comments. Re-exported here so both client and server keep importing
@@ -239,6 +240,9 @@ export interface HitEvent {
   shooterId: string;
   targetId: string;
   damage: number;
+  /** EPIC 18: where/why this damage was applied; cosmetic/debug context only. */
+  hitZone?: DamageZone;
+  damageKind?: DamageKind;
   /** Target's remaining health after this hit (0 if this hit was lethal). */
   targetHealth: number;
   /** World-space point the shot connected, for client-side hit-effect placement. */

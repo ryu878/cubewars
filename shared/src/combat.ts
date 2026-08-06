@@ -45,6 +45,42 @@ export const PLAYER_HITBOX_CYLINDER_LENGTH = 1.2;
 /** Full feet-to-head height of the hitscan AABB, matching the rendered capsule's total extent (radius + cylinder + radius). */
 export const PLAYER_HITBOX_HEIGHT = PLAYER_HITBOX_CYLINDER_LENGTH + 2 * PLAYER_HITBOX_RADIUS;
 
+export type DamageZone = "head" | "body" | "legs" | "splash";
+export type DamageKind = "direct" | "splash";
+
+/**
+ * EPIC 18 locational damage: keep the existing weapon damage table as the
+ * torso/body baseline, then multiply by a simple vertical zone derived from
+ * the server-computed AABB hit point. These are server-side balance
+ * constants only; the client may display received hit context but never
+ * computes damage.
+ */
+export const DAMAGE_ZONE_MULTIPLIERS: Record<Exclude<DamageZone, "splash">, number> = {
+  head: 2,
+  body: 1,
+  legs: 0.75,
+};
+
+/**
+ * Vertical split of the existing feet-to-head player AABB. No skeletal
+ * hitboxes are introduced: this is a readable, Quake-like approximation on
+ * top of the hand-rolled ray/AABB stack this project already uses.
+ */
+export const DAMAGE_ZONE_HEIGHTS = {
+  legsMaxY: 0.8,
+  headMinY: 1.55,
+} as const;
+
+/**
+ * EPIC 18 grenade splash: a geometry impact from the grenade launcher deals
+ * partial damage to opponents near the impact point. Max splash is 60% of
+ * the weapon's base damage at distance 0, falling linearly to 0 at 5m.
+ */
+export const GRENADE_SPLASH = {
+  radius: 5,
+  maxDamageFraction: 0.6,
+} as const;
+
 /**
  * Tunable combat constants — one definition for both server enforcement and
  * any client-side display/prediction. Weapon-specific damage/fire-cooldown/

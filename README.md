@@ -79,6 +79,13 @@ Combat is server-authoritative too: firing sends a bare "fire" event, and the se
 
 ## Current status
 
+EPIC 18 (Pistol Hold Fire, Locational Damage, Grenade Splash) — see `docs/tasks/epic-18-auto-fire-locational-splash.md`. Direct user feedback (Russian): "если ты зажал левую кнопку мыши, он бы стрелял из пистолета без остановки ... урон зависел от того куда попал ... урон от гранатомета тоже уменьшается или увеличивается ... если ... попал в стену, то сколько то % урона ... все равно будет."
+
+- **Pistol hold-to-fire:** holding left mouse while pointer-locked and alive immediately fires once, then repeats while held only for the pistol. The pistol's shared/server cooldown is now 500ms, so the server still decides which attempts are accepted; rifle and grenade launcher stay click-to-fire.
+- **Server-side locational damage:** direct hits are classified from the server-computed AABB hit point as head/body/legs. Weapon base damage remains the body baseline: head = 2.0x, body = 1.0x, legs = 0.75x. Armor still absorbs first before health.
+- **Grenade wall/cover splash:** if a grenade-launcher shot hits map geometry before a player, the impact point deals splash to alive opponents within 5m using linear falloff: `round(baseDamage * 0.6 * (1 - distance / 5m))`. Direct grenade hits use locational direct-hit math, not splash math. Pistol/rifle misses never splash.
+- Verified via `npm run regression:locational-splash-damage` and `npm run qa:epic18-hold-fire`; the existing fire/input drop-rate regression was updated for the pistol's 500ms cadence.
+
 EPIC 17 (Animated Humanoid Player Avatars) — see `docs/tasks/epic-17-animated-player-avatars.md`. Direct user feedback (Russian): "нужно сделать нормальую анимацию игрокам (и ботам). У каждого должны быть ноги, руки, голова, видно что он держит ружье, пстолет или гранатомет ... нужно понимать спиной к тебе он стоит или лицом или боков, бежит он или стоит."
 
 - **Remote avatars are no longer capsules:** `client/src/remotePlayers.ts` now builds each other player/bot as a low-poly humanoid `THREE.Group`: torso, head, face markers, arms, legs, a dark back panel, and an in-hand weapon anchor. The local first-person player still does not render their own full avatar; their own held weapon remains the existing camera-attached viewmodel.

@@ -5,6 +5,8 @@
 import {
   BUNNY_HOP,
   COMBAT,
+  DAMAGE_ZONE_MULTIPLIERS,
+  GRENADE_SPLASH,
   MAX_PITCH,
   MOVEMENT,
   SPAWN_POINTS,
@@ -15,12 +17,14 @@ import {
   resolveHorizontalCollisions,
   resolveSteppedMovement,
   type PickupCategory,
+  type DamageKind,
+  type DamageZone,
   type PlayerScore,
   type PlayerState,
   type Vector3,
   type WeaponType,
 } from "@cubewars/shared";
-import { performHitscan } from "./combat.js";
+import { findGrenadeSplashCandidates, performHitscan } from "./combat.js";
 
 /** Sanity bound so a malformed/runaway input can never send a player to infinity — a coarse outer clamp, independent of (and checked before) the precise wall/crate collision resolution below. */
 const WORLD_BOUND = 200;
@@ -143,6 +147,18 @@ export interface LoadoutSnapshot {
   ownedWeapons: WeaponType[];
 }
 
+export interface DamageEvent {
+  targetId: string;
+  damage: number;
+  damageKind: DamageKind;
+  hitZone: DamageZone;
+  targetHealth: number;
+  targetArmor: number;
+  point: Vector3;
+  killed: boolean;
+  respawnAtMs: number | null;
+}
+
 export type FireOutcome =
   | {
       hit: false;
@@ -167,6 +183,7 @@ export type FireOutcome =
        * broadcast a FireBroadcastEvent at all.
        */
       weapon?: WeaponType;
+      damageEvents?: DamageEvent[];
     }
   | {
       hit: true;
@@ -182,6 +199,9 @@ export type FireOutcome =
       autoSwitchedTo?: WeaponType;
       /** The weapon that was actually fired — see the `hit: false` variant's doc comment above. Always present here (a landed hit is by definition a real fire attempt). */
       weapon?: WeaponType;
+      damageKind: DamageKind;
+      hitZone: DamageZone;
+      damageEvents: DamageEvent[];
     };
 
 export interface RespawnOutcome {
@@ -220,6 +240,16 @@ function applyBaselineLoadout(
  * literal nearest neighbor(s) of an occupied point, not an entire site.
  */
 const MIN_SPAWN_SEPARATION = 12;
+
+function computeDirectDamage(baseDamage: number, hitZone: Exclude<DamageZone, "splash">): number {
+  return Math.max(1, Math.round(baseDamage * DAMAGE_ZONE_MULTIPLIERS[hitZone]));
+}
+
+function computeGrenadeSplashDamage(baseDamage: number, distance: number): number {
+  if (distance > GRENADE_SPLASH.radius) return 0;
+  const falloff = 1 - distance / GRENADE_SPLASH.radius;
+  return Math.max(1, Math.min(baseDamage, Math.round(baseDamage * GRENADE_SPLASH.maxDamageFraction * falloff)));
+}
 
 export class PlayerRegistry {
   private players = new Map<string, PlayerRecord>();
@@ -450,49 +480,109 @@ export class PlayerRegistry {
     }
 
     const result = performHitscan(shooter, this.players.values());
-    if (!result.hitPlayerId || !result.point) return { hit: false, dry: false, autoSwitchedTo, weapon };
+    if (!result.hitPlayerId || !result.point) {
+      const damageEvents =
+        weapon === "grenade_launcher" && result.blockedByGeometry && result.point
+          ? this.applyGrenadeSplash(shooter.id, stats.damage, result.point)
+          : [];
+      if (damageEvents.length > 0) {
+        const primary = damageEvents[0];
+        return {
+          hit: true,
+          targetId: primary.targetId,
+          damage: primary.damage,
+          damageKind: primary.damageKind,
+          hitZone: primary.hitZone,
+          targetHealth: primary.targetHealth,
+          targetArmor: primary.targetArmor,
+          point: primary.point,
+          killed: primary.killed,
+          respawnAtMs: primary.respawnAtMs,
+          autoSwitchedTo,
+          weapon,
+          damageEvents,
+        };
+      }
+      return { hit: false, dry: false, autoSwitchedTo, weapon, damageEvents };
+    }
 
     const target = this.players.get(result.hitPlayerId);
     if (!target || !target.alive) return { hit: false, dry: false, autoSwitchedTo, weapon }; // defensive: target could not exist / already dead
 
-    // EPIC 7 "Health & Armor Pickups" Section 2 damage-absorption order:
-    // armor absorbs first. If armor fully covers this hit, only armor drops
-    // and health is untouched; otherwise armor is drained to 0 and exactly
-    // the remainder ("spillover") comes off health. This is computed here,
-    // server-side, from the target's own authoritative armor/health — never
-    // anything the client asserts (security-baseline.mdc), same discipline
-    // as the pre-EPIC-7 direct-to-health line this replaces. Worked example
-    // from the spec: 10 armor + a 25-damage pistol hit -> armor absorbs 10,
-    // spillover = 25 - 10 = 15 -> armor 0, health -= 15.
-    if (target.armor >= stats.damage) {
-      target.armor -= stats.damage;
-    } else {
-      const spillover = stats.damage - target.armor;
-      target.armor = 0;
-      target.health = Math.max(0, target.health - spillover);
-    }
-    let killed = false;
-    if (target.health <= 0) {
-      target.alive = false;
-      target.respawnAtMs = Date.now() + COMBAT.respawnDelayMs;
-      killed = true;
-      // EPIC 5 Story 5.2: the shooter's confirmed kill count, incremented in
-      // exactly this one place (the same spot death is resolved) so it can
-      // never drift from what actually killed a player.
-      shooter.kills += 1;
-    }
+    const hitZone = result.hitZone ?? "body";
+    const damage = computeDirectDamage(stats.damage, hitZone);
+    const damageEvent = this.applyDamage(shooter, target, damage, "direct", hitZone, result.point);
 
     return {
       hit: true,
       targetId: target.id,
-      damage: stats.damage,
-      targetHealth: target.health,
-      targetArmor: target.armor,
+      damage: damageEvent.damage,
+      damageKind: damageEvent.damageKind,
+      hitZone: damageEvent.hitZone,
+      targetHealth: damageEvent.targetHealth,
+      targetArmor: damageEvent.targetArmor,
       point: result.point,
-      killed,
-      respawnAtMs: target.respawnAtMs,
+      killed: damageEvent.killed,
+      respawnAtMs: damageEvent.respawnAtMs,
       autoSwitchedTo,
       weapon,
+      damageEvents: [damageEvent],
+    };
+  }
+
+  private applyGrenadeSplash(shooterId: string, baseDamage: number, explosionPoint: Vector3): DamageEvent[] {
+    const shooter = this.players.get(shooterId);
+    if (!shooter || !shooter.alive) return [];
+
+    const events: DamageEvent[] = [];
+    const candidates = findGrenadeSplashCandidates(explosionPoint, shooterId, this.players.values());
+    for (const candidate of candidates) {
+      const target = this.players.get(candidate.targetId);
+      if (!target || !target.alive) continue;
+      const damage = computeGrenadeSplashDamage(baseDamage, candidate.distance);
+      if (damage <= 0) continue;
+      events.push(this.applyDamage(shooter, target, damage, "splash", "splash", explosionPoint));
+    }
+    return events;
+  }
+
+  private applyDamage(
+    shooter: PlayerRecord,
+    target: PlayerRecord,
+    damage: number,
+    damageKind: DamageKind,
+    hitZone: DamageZone,
+    point: Vector3,
+  ): DamageEvent {
+    // EPIC 7 damage-absorption order remains unchanged under EPIC 18:
+    // armor absorbs first, then exact spillover comes off health. Only the
+    // incoming `damage` value now varies by hit zone or grenade splash.
+    if (target.armor >= damage) {
+      target.armor -= damage;
+    } else {
+      const spillover = damage - target.armor;
+      target.armor = 0;
+      target.health = Math.max(0, target.health - spillover);
+    }
+
+    let killed = false;
+    if (target.health <= 0 && target.alive) {
+      target.alive = false;
+      target.respawnAtMs = Date.now() + COMBAT.respawnDelayMs;
+      killed = true;
+      shooter.kills += 1;
+    }
+
+    return {
+      targetId: target.id,
+      damage,
+      damageKind,
+      hitZone,
+      targetHealth: target.health,
+      targetArmor: target.armor,
+      point: { ...point },
+      killed,
+      respawnAtMs: target.respawnAtMs,
     };
   }
 

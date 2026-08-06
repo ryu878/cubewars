@@ -8,10 +8,11 @@
 // in EPIC 10 (docs/tasks/epic-10-weapon-viewmodel-visual-polish.md Section 2,
 // superseding the original EPIC 6 damage table — see
 // docs/tasks/epic-06-weapons-ammo.md Section 2 for the superseded numbers)
-// to slow down time-to-kill per user feedback. Cooldown/ammo economy are
-// unchanged from EPIC 6. Do not rebalance without a spec update. They are
-// named constants specifically so they stay easy to tune later without
-// hunting through server/client code (EPIC 6 spec Risks).
+// to slow down time-to-kill per user feedback. EPIC 18 then changed only
+// the pistol cadence to 500ms for hold-to-fire; rifle/grenade cooldowns and
+// ammo economy remain unchanged from EPIC 6. Do not rebalance without a spec
+// update. They are named constants specifically so they stay easy to tune
+// later without hunting through server/client code (EPIC 6 spec Risks).
 
 export type WeaponType = "pistol" | "rifle" | "grenade_launcher";
 
@@ -43,7 +44,7 @@ export const WEAPON_STATS: Record<WeaponType, WeaponStats> = {
     tier: 0,
     displayName: "Pistol",
     damage: 5, // EPIC 10 rebalance: 20 hits to kill at full HP (was 25/4 hits)
-    cooldownMs: 300,
+    cooldownMs: 500,
     ammoPerPickup: 0,
     maxAmmo: 0,
     infiniteAmmo: true,

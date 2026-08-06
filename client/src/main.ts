@@ -138,6 +138,8 @@ const fps = new FpsController(camera, renderer.domElement, {
     soundManager.playGunshot(currentWeapon);
     connection.send({ type: "fire" });
   },
+  shouldAutoFire: () => currentWeapon === "pistol",
+  getAutoFireIntervalMs: () => WEAPON_STATS.pistol.cooldownMs,
   // EPIC 14 Story 14.2: fires exactly once per genuine ground-jump trigger
   // (see fpsController.ts's onJump doc comment) — never for the bunny-hop
   // mid-air boost, which has no sound of its own in this EPIC.

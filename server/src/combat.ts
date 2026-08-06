@@ -10,15 +10,20 @@ import {
   rayIntersectsAabb,
   playerHitboxBounds,
   COMBAT,
+  DAMAGE_ZONE_HEIGHTS,
   EYE_HEIGHT,
+  GRENADE_SPLASH,
   type Ray,
   type Vector3,
+  type DamageZone,
 } from "@cubewars/shared";
 import type { PlayerRecord } from "./playerRegistry.js";
 
 export interface HitscanResult {
   hitPlayerId: string | null;
   point: Vector3 | null;
+  hitZone: Exclude<DamageZone, "splash"> | null;
+  blockedByGeometry: boolean;
 }
 
 /**
@@ -37,6 +42,51 @@ export function aimDirection(yaw: number, pitch: number): Vector3 {
     y: Math.sin(pitch),
     z: -Math.cos(yaw) * cosPitch,
   };
+}
+
+function pointOnRay(ray: Ray, distance: number): Vector3 {
+  return {
+    x: ray.origin.x + ray.direction.x * distance,
+    y: ray.origin.y + ray.direction.y * distance,
+    z: ray.origin.z + ray.direction.z * distance,
+  };
+}
+
+function classifyHitZone(hitPoint: Vector3, target: PlayerRecord): Exclude<DamageZone, "splash"> {
+  const localY = hitPoint.y - target.position.y;
+  if (localY >= DAMAGE_ZONE_HEIGHTS.headMinY) return "head";
+  if (localY < DAMAGE_ZONE_HEIGHTS.legsMaxY) return "legs";
+  return "body";
+}
+
+function distancePointToPlayerAabb(point: Vector3, player: PlayerRecord): number {
+  const bounds = playerHitboxBounds(player.position);
+  const closestX = Math.max(bounds.minX, Math.min(point.x, bounds.maxX));
+  const closestY = Math.max(bounds.minY, Math.min(point.y, bounds.maxY));
+  const closestZ = Math.max(bounds.minZ, Math.min(point.z, bounds.maxZ));
+  return Math.hypot(point.x - closestX, point.y - closestY, point.z - closestZ);
+}
+
+export interface SplashCandidate {
+  targetId: string;
+  distance: number;
+}
+
+export function findGrenadeSplashCandidates(
+  explosionPoint: Vector3,
+  shooterId: string,
+  allPlayers: Iterable<PlayerRecord>,
+): SplashCandidate[] {
+  const candidates: SplashCandidate[] = [];
+  for (const candidate of allPlayers) {
+    if (candidate.id === shooterId || !candidate.alive) continue;
+    const distance = distancePointToPlayerAabb(explosionPoint, candidate);
+    if (distance <= GRENADE_SPLASH.radius) {
+      candidates.push({ targetId: candidate.id, distance });
+    }
+  }
+  candidates.sort((a, b) => a.distance - b.distance || a.targetId.localeCompare(b.targetId));
+  return candidates;
 }
 
 /**
@@ -65,6 +115,8 @@ export function performHitscan(
 
   let nearestDistance: number = COMBAT.hitscanMaxRange;
   let nearestPlayerId: string | null = null;
+  let nearestPlayer: PlayerRecord | null = null;
+  let blockedByGeometry = false;
 
   // Map geometry: blocking-only, never itself a "hit" — but it can still be
   // the nearest candidate along the ray, which is what blocks a shot.
@@ -73,6 +125,8 @@ export function performHitscan(
     if (dist !== null && dist < nearestDistance) {
       nearestDistance = dist;
       nearestPlayerId = null;
+      nearestPlayer = null;
+      blockedByGeometry = true;
     }
   }
 
@@ -83,17 +137,20 @@ export function performHitscan(
     if (dist !== null && dist < nearestDistance) {
       nearestDistance = dist;
       nearestPlayerId = candidate.id;
+      nearestPlayer = candidate;
+      blockedByGeometry = false;
     }
   }
 
+  const point = pointOnRay(ray, nearestDistance);
   if (nearestPlayerId === null) {
-    return { hitPlayerId: null, point: null };
+    return { hitPlayerId: null, point: blockedByGeometry ? point : null, hitZone: null, blockedByGeometry };
   }
 
-  const point: Vector3 = {
-    x: origin.x + direction.x * nearestDistance,
-    y: origin.y + direction.y * nearestDistance,
-    z: origin.z + direction.z * nearestDistance,
+  return {
+    hitPlayerId: nearestPlayerId,
+    point,
+    hitZone: nearestPlayer ? classifyHitZone(point, nearestPlayer) : "body",
+    blockedByGeometry: false,
   };
-  return { hitPlayerId: nearestPlayerId, point };
 }

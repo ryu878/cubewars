@@ -37,6 +37,9 @@ export interface InputIntent {
 export interface FpsControllerOptions {
   /** Called when the player clicks while pointer-locked and alive — i.e. a fire request (EPIC 4 Story 4.1). Not called for the click that merely engages pointer lock. */
   onFire?: () => void;
+  /** EPIC 18: if true while the left mouse button is held, repeat onFire at getAutoFireIntervalMs(). */
+  shouldAutoFire?: () => boolean;
+  getAutoFireIntervalMs?: () => number;
   /**
    * EPIC 14 "Sound System" Story 14.2: called exactly once per genuine
    * ground-jump trigger — the branch in update() below where `Space` is
@@ -78,6 +81,30 @@ export class FpsController {
    * or the player died can never leak into isRunning().
    */
   private horizontalSpeedMps = 0;
+  private fireHeld = false;
+  private autoFireTimer: number | undefined;
+
+  private stopAutoFire(): void {
+    this.fireHeld = false;
+    if (this.autoFireTimer !== undefined) {
+      window.clearInterval(this.autoFireTimer);
+      this.autoFireTimer = undefined;
+    }
+  }
+
+  private startAutoFire(): void {
+    this.stopAutoFire();
+    if (!(this.options.shouldAutoFire?.() ?? false)) return;
+    this.fireHeld = true;
+    const intervalMs = Math.max(1, this.options.getAutoFireIntervalMs?.() ?? 500);
+    this.autoFireTimer = window.setInterval(() => {
+      if (!this.locked || !this.alive || !this.fireHeld || !(this.options.shouldAutoFire?.() ?? false)) {
+        this.stopAutoFire();
+        return;
+      }
+      this.options.onFire?.();
+    }, intervalMs);
+  }
 
   constructor(
     private camera: THREE.PerspectiveCamera,
@@ -92,18 +119,27 @@ export class FpsController {
     // see the pre-lock branch of update() below for the rest of this fix.
     this.camera.position.set(this.position.x, this.position.y + EYE_HEIGHT, this.position.z);
 
-    domElement.addEventListener("click", () => {
+    domElement.addEventListener("mousedown", (event) => {
+      if (event.button !== 0) return;
       if (!this.locked) {
         domElement.requestPointerLock();
         return;
       }
       if (this.alive) {
         this.options.onFire?.();
+        this.startAutoFire();
       }
+    });
+    window.addEventListener("mouseup", (event) => {
+      if (event.button !== 0) return;
+      this.stopAutoFire();
     });
 
     document.addEventListener("pointerlockchange", () => {
       this.locked = document.pointerLockElement === domElement;
+      if (!this.locked) {
+        this.stopAutoFire();
+      }
     });
 
     document.addEventListener("mousemove", (event) => {
@@ -142,6 +178,7 @@ export class FpsController {
       // EPIC 8: don't let a Space press queued right before death carry
       // over into a phantom boost prediction on the next life.
       this.spacePressPending = false;
+      this.stopAutoFire();
     }
     this.alive = alive;
   }
@@ -208,6 +245,7 @@ export class FpsController {
       // EPIC 14 Story 14.3: not locked -> definitely not "running" (see
       // horizontalSpeedMps doc comment above).
       this.horizontalSpeedMps = 0;
+      this.stopAutoFire();
       return;
     }
 
@@ -220,6 +258,7 @@ export class FpsController {
       this.camera.rotation.set(this.pitch, this.yaw, 0);
       // EPIC 14 Story 14.3: dead -> definitely not "running".
       this.horizontalSpeedMps = 0;
+      this.stopAutoFire();
       return;
     }
 

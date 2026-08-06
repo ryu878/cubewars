@@ -212,31 +212,43 @@ export class Match {
       return outcome;
     }
 
-    const hitMessage: HitEvent = {
-      type: "hit",
-      shooterId,
-      targetId: outcome.targetId,
-      damage: outcome.damage,
-      targetHealth: outcome.targetHealth,
-      point: outcome.point,
-    };
-    this.broadcast(hitMessage);
-    console.log(
-      `[server] [${this.id}] hit: ${shooterId} -> ${outcome.targetId} (${outcome.damage} dmg, ${outcome.targetHealth} hp left, ${outcome.targetArmor} armor left)`,
-    );
-
-    if (outcome.killed) {
-      const deathMessage: DeathEvent = {
-        type: "death",
-        playerId: outcome.targetId,
-        killerId: shooterId,
-        respawnAtMs: outcome.respawnAtMs ?? Date.now() + COMBAT.respawnDelayMs,
+    let scoreboardChanged = false;
+    for (const event of outcome.damageEvents) {
+      const hitMessage: HitEvent = {
+        type: "hit",
+        shooterId,
+        targetId: event.targetId,
+        damage: event.damage,
+        hitZone: event.hitZone,
+        damageKind: event.damageKind,
+        targetHealth: event.targetHealth,
+        point: event.point,
       };
-      this.broadcast(deathMessage);
-      console.log(`[server] [${this.id}] death: ${outcome.targetId} killed by ${shooterId}`);
+      this.broadcast(hitMessage);
+      const context =
+        event.damageKind === "splash" ? "splash" : `${event.hitZone} ${event.damageKind}`;
+      console.log(
+        `[server] [${this.id}] hit: ${shooterId} -> ${event.targetId} ` +
+          `(${event.damage} dmg, ${context}, ${event.targetHealth} hp left, ${event.targetArmor} armor left)`,
+      );
 
-      const killMessage: KillEvent = { type: "kill", attackerId: shooterId, victimId: outcome.targetId };
-      this.broadcast(killMessage);
+      if (event.killed) {
+        const deathMessage: DeathEvent = {
+          type: "death",
+          playerId: event.targetId,
+          killerId: shooterId,
+          respawnAtMs: event.respawnAtMs ?? Date.now() + COMBAT.respawnDelayMs,
+        };
+        this.broadcast(deathMessage);
+        console.log(`[server] [${this.id}] death: ${event.targetId} killed by ${shooterId}`);
+
+        const killMessage: KillEvent = { type: "kill", attackerId: shooterId, victimId: event.targetId };
+        this.broadcast(killMessage);
+        scoreboardChanged = true;
+      }
+    }
+
+    if (scoreboardChanged) {
       this.broadcastScoreboard();
     }
 

@@ -12,11 +12,11 @@
 //   - `input` stream: an independent `setInterval` at INPUT_SEND_INTERVAL_MS
 //     = 33, matching client/src/main.ts's real INPUT_SEND_INTERVAL_MS.
 //   - `fire` stream: a SEPARATE, independently-timed clock (self-scheduling
-//     via setTimeout with a randomized 350-450ms gap each time, never a
+//     via setTimeout with a randomized 550-650ms gap each time, never a
 //     fixed period phase-locked to the input timer) — mirrors a real DOM
 //     "click" handler's total lack of synchronization with the input loop
-//     (client/src/fpsController.ts). The 350ms floor keeps the per-weapon
-//     fire cooldown (pistol = 300ms, shared/src/weapons.ts) from ever being
+//     (client/src/fpsController.ts). The 550ms floor keeps the per-weapon
+//     fire cooldown (pistol = 500ms, shared/src/weapons.ts) from ever being
 //     the limiting factor in what this script measures.
 //
 // This script is self-contained and re-runnable: it spawns its OWN fresh
@@ -52,11 +52,11 @@ const WS_URL = `ws://localhost:${SERVER_PORT}`;
 // reading that file — see the doc comment above).
 const INPUT_SEND_INTERVAL_MS = 33;
 
-// Independent fire clock: each next fire is scheduled 350-450ms after the
+// Independent fire clock: each next fire is scheduled 550-650ms after the
 // previous one, uncorrelated with the 33ms input timer's phase. Comfortably
-// above the pistol's 300ms cooldown (shared/src/weapons.ts) so the cooldown
+// above the pistol's 500ms cooldown (shared/src/weapons.ts) so the cooldown
 // gate is never what's being measured here.
-const FIRE_GAP_MIN_MS = 350;
+const FIRE_GAP_MIN_MS = 550;
 const FIRE_GAP_JITTER_MS = 100;
 
 const CASE_A_DURATION_MS = 10_000; // control: fire-only
