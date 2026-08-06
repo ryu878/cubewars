@@ -588,6 +588,16 @@ export class Match {
     if (!this.endlessWorld || !this.endlessHumanId) return;
     const human = this.registry.getPlayer(this.endlessHumanId);
     const state = this.endlessWorld.update(TICK_DT_SECONDS, human?.position ?? null);
+
+    if (state.wrapped && human) {
+      human.position.z += state.wrapShiftZ;
+      human.velocityY = 0;
+      this.botAI?.clearBots();
+      this.projectiles.clear();
+      this.endlessNextBotSeq = 1;
+      this.broadcastScoreboard();
+    }
+
     this.pickupSpawner.syncPoints(this.endlessWorld.getPickups());
 
     if (this.endlessWorld.getVersion() !== this.lastMapVersion) {

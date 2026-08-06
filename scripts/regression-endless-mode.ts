@@ -49,41 +49,53 @@ const initialVersion = world.getVersion();
 
 assert.ok(initialGeometryCount > 0, "endless world should generate starting geometry");
 assert.ok(initialPickupCount > 0, "endless world should generate starting pickups");
+assert.ok(initialGeometryCount > 1000, "endless world should prebuild a large maze segment");
 
-world.update(1, { x: 0, y: 0, z: -520 });
-assert.ok(world.getGeometry().length > initialGeometryCount, "endless world should grow ahead of progress");
-assert.ok(world.getPickups().length > initialPickupCount, "endless world should add pickups ahead of progress");
+const progressed = world.update(1, { x: 0, y: 0, z: -520 });
+assert.equal(progressed.wrapped, false, "endless world should not wrap during normal segment progress");
+assert.equal(world.getGeometry().length, initialGeometryCount, "endless world should reuse its prebuilt geometry");
+assert.equal(world.getPickups().length, initialPickupCount, "endless world should reuse its prebuilt pickup layout");
 assert.ok(world.takeBotSpawns(3, -120).length > 0, "endless world should provide bot spawns ahead of the player");
-assert.ok(world.getVersion() > initialVersion, "endless world version should change when generated content changes");
+assert.equal(world.getVersion(), initialVersion, "endless world version should stay stable during normal progress");
 assert.ok(
   world.getGeometry().some((box) => Math.abs(box.center.x) <= 8 && box.size.z > 4),
   "endless world should include center maze divider walls",
 );
-assert.ok(hasMazePath(world.getGeometry(), -900), "endless maze should keep a walkable path through generated chunks");
+assert.ok(hasMazePath(world.getGeometry(), -4900), "endless maze should keep a walkable path through the segment");
+
+const resetWorld = new EndlessWorld();
+const pickupIdsBeforeReset = resetWorld.getPickups().map((pickup) => pickup.id);
+resetWorld.reset();
+assert.notDeepEqual(resetWorld.getPickups().map((pickup) => pickup.id), pickupIdsBeforeReset, "endless reset should expose fresh pickup ids");
 
 const rollingWorld = new EndlessWorld();
-rollingWorld.update(1, { x: 0, y: 0, z: -500 });
+const beforeWrapVersion = rollingWorld.getVersion();
+rollingWorld.update(1, { x: 0, y: 0, z: -4800 });
+const pickupIdsBeforeWrap = rollingWorld.getPickups().map((pickup) => pickup.id);
+const wrappedState = rollingWorld.update(1, { x: 0, y: 0, z: -5000 });
+const pickupIdsAfterWrap = rollingWorld.getPickups().map((pickup) => pickup.id);
 const rollingVersion = rollingWorld.getVersion();
-rollingWorld.update(1, { x: 0, y: 0, z: -540 });
+assert.equal(wrappedState.wrapped, true, "endless world should wrap when the player reaches the segment end");
 assert.ok(
-  rollingWorld.getVersion() > rollingVersion,
-  "endless world version should change when chunks roll even if object count is stable",
+  rollingVersion > beforeWrapVersion,
+  "endless world version should change when the segment loops",
 );
-assert.ok(rollingWorld.getGeometry().length > 0, "rolling endless world should keep playable geometry");
+assert.notDeepEqual(pickupIdsAfterWrap, pickupIdsBeforeWrap, "wrapped segment should expose fresh pickup ids");
+assert.equal(rollingWorld.getGeometry().length, initialGeometryCount, "wrapped segment should keep the same geometry");
 
 const longRunWorld = new EndlessWorld();
-for (let z = -120; z >= -5000; z -= 40) {
+for (let z = -120; z >= -4800; z -= 40) {
   longRunWorld.update(1, { x: 0, y: 0, z });
   const geometry = longRunWorld.getGeometry();
   assert.ok(geometry.length > 0, `long endless run should keep geometry at z=${z}`);
 
   const farthestGeneratedZ = Math.min(...geometry.map((box) => box.center.z - box.size.z / 2));
   assert.ok(
-    farthestGeneratedZ <= z - 360,
-    `long endless run should keep generated map ahead at z=${z}; farthest=${farthestGeneratedZ}`,
+    farthestGeneratedZ <= -5000,
+    `long endless run should keep the full prebuilt map available at z=${z}; farthest=${farthestGeneratedZ}`,
   );
 
-  for (let sampleZ = z + 40; sampleZ >= z - 320; sampleZ -= 40) {
+  for (let sampleZ = z + 40; sampleZ >= Math.max(z - 320, -5000); sampleZ -= 40) {
     const hasRenderedSlice = geometry.some((box) => {
       const bounds = boxBounds(box);
       return sampleZ >= bounds.minZ && sampleZ <= bounds.maxZ;
@@ -136,7 +148,6 @@ const internalMatch = match as unknown as {
 internalMatch.endlessWorld.update(1, { x: 0, y: 0, z: -520 });
 internalMatch.botAI.spawnBotAt("old-bot", { x: 0, y: 0, z: -80 }, "Bot 1");
 internalMatch.endlessBotKills = 3;
-const expandedGeometryCount = internalMatch.endlessWorld.getGeometry().length;
 const human = match.registry.getPlayer("human");
 assert.ok(human, "human should exist in endless match");
 human.alive = false;
@@ -147,10 +158,7 @@ const restartedHuman = match.registry.getPlayer("human");
 
 assert.ok(restartedHuman?.alive, "endless death should immediately restart the run");
 assert.equal(match.registry.has("old-bot"), false, "endless reset should remove old bots");
-assert.ok(
-  internalMatch.endlessWorld.getGeometry().length < expandedGeometryCount,
-  "endless reset should replace the far-progress maze with the starting maze",
-);
+assert.equal(internalMatch.endlessWorld.getGeometry().length, initialGeometryCount, "endless reset should keep the prebuilt segment");
 assert.equal(internalMatch.endlessWorld.state().distanceMeters, 0, "endless reset should restart distance");
 assert.equal(internalMatch.endlessBotKills, 0, "endless reset should restart current-run bot kills");
 

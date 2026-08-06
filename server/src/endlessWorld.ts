@@ -14,8 +14,11 @@ const CRATE_Y = CRATE_HEIGHT / 2;
 
 const MAZE_HALF_WIDTH = 22;
 const CHUNK_LENGTH = 28;
-const KEEP_AHEAD_CHUNKS = 16;
-const KEEP_BEHIND_CHUNKS = 3;
+const SEGMENT_CHUNKS = 180;
+const SEGMENT_LENGTH = SEGMENT_CHUNKS * CHUNK_LENGTH;
+const WRAP_AT_Z = -SEGMENT_LENGTH + CHUNK_LENGTH * 3;
+const WRAP_TO_Z = -CHUNK_LENGTH * 2;
+const WRAP_SHIFT_Z = Math.abs(WRAP_AT_Z - WRAP_TO_Z);
 const FOG_START_Z = 16;
 const FOG_SPEED_METERS_PER_SECOND = 2.4;
 const FOG_DAMAGE_PER_SECOND = 12;
@@ -28,19 +31,24 @@ const MAZE_DOOR_HALF_WIDTH = 4;
 export interface EndlessRuntimeState {
   fogZ: number;
   distanceMeters: number;
+  wrapped: boolean;
+  wrapShiftZ: number;
 }
 
 export class EndlessWorld {
-  private generatedUntilChunk = 0;
   private boxes: MapBox[] = [];
-  private pickups: PickupSpawnPoint[] = [];
-  private botSpawns: Vector3[] = [];
+  private pickupTemplates: PickupSpawnPoint[] = [];
+  private botSpawnTemplates: Vector3[] = [];
+  private availableBotSpawns: Vector3[] = [];
   private fogZ = FOG_START_Z;
-  private furthestDistanceMeters = 0;
+  private runSeq = 0;
+  private segmentLoop = 0;
+  private segmentFurthestDistanceMeters = 0;
+  private totalDistanceMeters = 0;
   private version = 0;
 
   constructor() {
-    this.ensureGeneratedToDistance(0);
+    this.buildSegment();
   }
 
   getGeometry(): readonly MapBox[] {
@@ -48,7 +56,10 @@ export class EndlessWorld {
   }
 
   getPickups(): readonly PickupSpawnPoint[] {
-    return this.pickups;
+    return this.pickupTemplates.map((pickup) => ({
+      ...pickup,
+      id: `run_${this.runSeq}_loop_${this.segmentLoop}_${pickup.id}`,
+    }));
   }
 
   getVersion(): number {
@@ -60,26 +71,25 @@ export class EndlessWorld {
   }
 
   getWaypoints(): readonly Vector3[] {
-    const pickupPoints = this.pickups.slice(-24).map((pickup) => pickup.position);
-    return [...this.getSpawnPoints(), ...pickupPoints, ...this.botSpawns.slice(-12)];
+    const pickupPoints = this.pickupTemplates.slice(-24).map((pickup) => pickup.position);
+    return [...this.getSpawnPoints(), ...pickupPoints, ...this.availableBotSpawns.slice(-12)];
   }
 
   reset(): void {
-    this.generatedUntilChunk = 0;
-    this.boxes = [];
-    this.pickups = [];
-    this.botSpawns = [];
     this.fogZ = FOG_START_Z;
-    this.furthestDistanceMeters = 0;
+    this.runSeq += 1;
+    this.segmentLoop = 0;
+    this.segmentFurthestDistanceMeters = 0;
+    this.totalDistanceMeters = 0;
+    this.availableBotSpawns = this.botSpawnTemplates.map((point) => ({ ...point }));
     this.version += 1;
-    this.ensureGeneratedToDistance(0);
   }
 
   getBounds(): { minX: number; maxX: number; minZ: number; maxZ: number } {
     return {
       minX: -MAZE_HALF_WIDTH - 2,
       maxX: MAZE_HALF_WIDTH + 2,
-      minZ: -this.generatedUntilChunk * CHUNK_LENGTH,
+      minZ: -SEGMENT_LENGTH,
       maxZ: 20,
     };
   }
@@ -87,17 +97,34 @@ export class EndlessWorld {
   update(dtSeconds: number, playerPosition: Vector3 | null): EndlessRuntimeState {
     this.fogZ -= FOG_SPEED_METERS_PER_SECOND * dtSeconds;
     if (playerPosition) {
-      this.furthestDistanceMeters = Math.max(this.furthestDistanceMeters, Math.max(0, -playerPosition.z));
-      this.ensureGeneratedToDistance(this.furthestDistanceMeters + KEEP_AHEAD_CHUNKS * CHUNK_LENGTH);
-      this.trimBehind(playerPosition.z);
+      this.segmentFurthestDistanceMeters = Math.max(this.segmentFurthestDistanceMeters, Math.max(0, -playerPosition.z));
+      this.totalDistanceMeters = Math.max(
+        this.totalDistanceMeters,
+        this.segmentLoop * WRAP_SHIFT_Z + this.segmentFurthestDistanceMeters,
+      );
+
+      if (playerPosition.z <= WRAP_AT_Z) {
+        this.segmentLoop += 1;
+        this.segmentFurthestDistanceMeters = Math.max(0, -WRAP_TO_Z);
+        this.totalDistanceMeters = Math.max(
+          this.totalDistanceMeters,
+          this.segmentLoop * WRAP_SHIFT_Z + this.segmentFurthestDistanceMeters,
+        );
+        this.fogZ += WRAP_SHIFT_Z;
+        this.availableBotSpawns = this.botSpawnTemplates.map((point) => ({ ...point }));
+        this.version += 1;
+        return this.state(true, WRAP_SHIFT_Z);
+      }
     }
-    return this.state();
+    return this.state(false, 0);
   }
 
-  state(): EndlessRuntimeState {
+  state(wrapped = false, wrapShiftZ = 0): EndlessRuntimeState {
     return {
       fogZ: this.fogZ,
-      distanceMeters: this.furthestDistanceMeters,
+      distanceMeters: this.totalDistanceMeters,
+      wrapped,
+      wrapShiftZ,
     };
   }
 
@@ -110,32 +137,24 @@ export class EndlessWorld {
   }
 
   takeBotSpawns(maxCount: number, playerZ: number): Vector3[] {
-    const ready = this.botSpawns
+    const ready = this.availableBotSpawns
       .filter((point) => point.z < playerZ - 24)
       .sort((a, b) => b.z - a.z)
       .slice(0, maxCount);
     const used = new Set(ready.map((point) => `${point.x}:${point.z}`));
-    this.botSpawns = this.botSpawns.filter((point) => !used.has(`${point.x}:${point.z}`));
+    this.availableBotSpawns = this.availableBotSpawns.filter((point) => !used.has(`${point.x}:${point.z}`));
     return ready;
   }
 
-  private ensureGeneratedToDistance(distanceMeters: number): void {
-    const neededChunk = Math.max(KEEP_AHEAD_CHUNKS, Math.ceil(distanceMeters / CHUNK_LENGTH));
-    while (this.generatedUntilChunk < neededChunk) {
-      this.generatedUntilChunk += 1;
-      this.generateChunk(this.generatedUntilChunk);
+  private buildSegment(): void {
+    this.boxes = [];
+    this.pickupTemplates = [];
+    this.botSpawnTemplates = [];
+    for (let index = 1; index <= SEGMENT_CHUNKS; index += 1) {
+      this.generateChunk(index);
     }
-  }
-
-  private trimBehind(playerZ: number): void {
-    const trimAfterZ = playerZ + KEEP_BEHIND_CHUNKS * CHUNK_LENGTH;
-    const nextBoxes = this.boxes.filter((box) => box.center.z - box.size.z / 2 <= trimAfterZ);
-    const nextPickups = this.pickups.filter((pickup) => pickup.position.z <= trimAfterZ);
-    if (nextBoxes.length !== this.boxes.length || nextPickups.length !== this.pickups.length) {
-      this.version += 1;
-    }
-    this.boxes = nextBoxes;
-    this.pickups = nextPickups;
+    this.availableBotSpawns = this.botSpawnTemplates.map((point) => ({ ...point }));
+    this.version += 1;
   }
 
   private generateChunk(index: number): void {
@@ -204,16 +223,15 @@ export class EndlessWorld {
     if (index % 5 === 0) this.addPickup(index, "armor", undefined, { x: -LANE_CENTERS[index % 3], y: 0, z: centerZ + 9 });
 
     if (index >= 2) {
-      this.botSpawns.push({ x: LANE_CENTERS[(index + 2) % 3], y: MOVEMENT.groundY, z: southZ + 8 });
+      this.botSpawnTemplates.push({ x: LANE_CENTERS[(index + 2) % 3], y: MOVEMENT.groundY, z: southZ + 8 });
       if (index % 5 === 0) {
-        this.botSpawns.push({ x: LANE_CENTERS[index % 3], y: MOVEMENT.groundY, z: southZ + 15 });
+        this.botSpawnTemplates.push({ x: LANE_CENTERS[index % 3], y: MOVEMENT.groundY, z: southZ + 15 });
       }
     }
-    this.version += 1;
   }
 
   private addPickup(index: number, category: PickupCategory, weapon: WeaponType | undefined, position: Vector3): void {
-    this.pickups.push({
+    this.pickupTemplates.push({
       id: `endless_${index}_${category}${weapon ? `_${weapon}` : ""}`,
       category,
       weapon,
