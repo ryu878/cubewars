@@ -142,7 +142,7 @@ export class BotAI {
     const ids: string[] = [];
     for (let i = 0; i < count; i++) {
       const id = `Bot ${this.bots.size + 1}`;
-      this.registry.spawn(id);
+      this.registry.spawn(id, id, id.toLocaleLowerCase());
       this.bots.set(id, {
         id,
         state: "SEEKING",

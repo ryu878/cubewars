@@ -417,7 +417,8 @@
         display: none;
       }
       #modeSelect .mode-select-box {
-        padding: 28px 36px;
+        width: min(480px, calc(100vw - 32px));
+        padding: 24px 28px;
         background: rgba(0, 0, 0, 0.5);
         border-radius: 12px;
       }
@@ -429,6 +430,63 @@
         margin: 0 0 18px;
         color: #ccc;
         font-size: 13px;
+      }
+      #modeSelect label {
+        display: block;
+        margin: 0 0 8px;
+        color: #ddd;
+        font-size: 13px;
+        font-weight: 700;
+        text-align: left;
+      }
+      #nicknameInput {
+        box-sizing: border-box;
+        width: 100%;
+        margin: 0 0 14px;
+        padding: 11px 12px;
+        color: #fff;
+        background: rgba(255, 255, 255, 0.09);
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        border-radius: 8px;
+        font: 600 16px system-ui, sans-serif;
+        outline: none;
+      }
+      #nicknameInput:focus {
+        border-color: #7fb3e0;
+      }
+      #lobbyList {
+        display: grid;
+        gap: 8px;
+        margin: 0 0 14px;
+        max-height: 190px;
+        overflow: auto;
+      }
+      .lobby-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 8px 8px 8px 12px;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+      }
+      .lobby-name {
+        overflow: hidden;
+        color: #eee;
+        font-size: 14px;
+        font-weight: 700;
+        text-align: left;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .lobby-empty,
+      #modeSelectError {
+        min-height: 18px;
+        color: #ffaaa0;
+        font-size: 13px;
+      }
+      .lobby-empty {
+        color: #bbb;
       }
       #modeSelect .mode-select-buttons {
         display: flex;
@@ -491,9 +549,13 @@
     <div id="modeSelect">
       <div class="mode-select-box">
         <h1>cubewars</h1>
-        <p>Choose how you want to play</p>
+        <p>Choose a nickname and join a game</p>
+        <label for="nicknameInput">Nickname</label>
+        <input id="nicknameInput" type="text" maxlength="16" autocomplete="nickname" placeholder="Player" />
+        <div id="lobbyList" aria-live="polite"></div>
+        <div id="modeSelectError" aria-live="polite"></div>
         <div class="mode-select-buttons">
-          <button id="modePublicBtn" type="button" disabled>Multiplayer</button>
+          <button id="modePublicBtn" type="button" disabled>Quick Join</button>
           <button id="modeBotsBtn" type="button" disabled>vs Bots</button>
         </div>
       </div>

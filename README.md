@@ -79,6 +79,14 @@ Combat is server-authoritative too: firing sends a bare "fire" event, and the se
 
 ## Current status
 
+EPIC 20 (Lobby, Nicknames, and 4-Player Public Matches) — see `docs/tasks/epic-20-lobby-nicknames-match-capacity.md`. Direct user feedback (Russian): "максимально кол-во игроков на карте 4 ... лобби и список начатых игр ... Если нет мест - создай новую ... выбрать себе ник ... пустят в матч, только если там нету такого же."
+
+- **Lobby + match list:** the start screen now asks for a nickname and shows public games with occupancy (`Game N · players/4`). You can Quick Join or pick a specific public game from the list.
+- **4 humans per public match:** Quick Join fills the first public match with room; if every public match is full, the server creates the next one (`public-2`, `public-3`, ...). Bots matches remain private one-human matches with 2 bots.
+- **Per-match nickname uniqueness:** the server validates nicknames on join and rejects duplicate nicknames only inside the selected/assigned match. Nicknames are not stored permanently server-side; the browser only remembers the last typed nickname in `localStorage`.
+- **Readable names:** scoreboard and kill feed now show nicknames instead of short UUIDs.
+- Verified via `npm run regression:lobby-nicknames`.
+
 EPIC 19 (Visible Projectiles and Hit Particles) — see `docs/tasks/epic-19-visible-projectiles-hit-particles.md`. Direct user feedback (Russian): "выстрел из пистолета это типа лазер небольшой, тонкий ... из ружья ... видно как летит пуля ... красные капли ... когда ты попал ... выстрел из гранатомета ... летит какой-то шарик ... чтобы ... можно увернуться ... и чтоб я тоже видел их выстрелы, не только свои."
 
 - **Visible shots for everyone:** `fire_broadcast` now carries a server-computed `trace`, so the local player and observers render the same in-world shot path. Pistol shots are thin cyan laser streaks, rifle shots are fast white bullets/trails, and grenade-launcher shots are purple orb projectiles.

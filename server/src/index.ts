@@ -1,6 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
-import { BROADCAST_TICK_HZ, PROTOCOL_VERSION, type ClientMessage, type WelcomeMessage } from "@cubewars/shared";
+import {
+  BROADCAST_TICK_HZ,
+  PROTOCOL_VERSION,
+  normalizeNickname,
+  type ClientMessage,
+  type JoinAcceptedMessage,
+  type JoinRejectedMessage,
+  type LobbyStateMessage,
+  type WelcomeMessage,
+} from "@cubewars/shared";
 import { MatchManager } from "./matchManager.js";
 import type { Match } from "./match.js";
 
@@ -161,6 +170,25 @@ const alreadyJoinedDropTracker = createDropTracker(
   (playerId, count) => `[server] dropped ${count} duplicate join message(s) from ${playerId} (already joined)`,
 );
 
+const lobbySockets = new Set<WebSocket>();
+
+function lobbyStateMessage(): LobbyStateMessage {
+  return { type: "lobby_state", matches: matchManager.listPublicMatches() };
+}
+
+function sendJson(socket: WebSocket, message: WelcomeMessage | LobbyStateMessage | JoinAcceptedMessage | JoinRejectedMessage): void {
+  if (socket.readyState === socket.OPEN) {
+    socket.send(JSON.stringify(message));
+  }
+}
+
+function broadcastLobbyState(): void {
+  const message = lobbyStateMessage();
+  for (const socket of lobbySockets) {
+    sendJson(socket, message);
+  }
+}
+
 console.log(`[server] cubewars game server listening on ws://localhost:${PORT}`);
 console.log(`[server] tick rate: ${BROADCAST_TICK_HZ}Hz (per match — see server/src/match.ts)`);
 
@@ -178,6 +206,9 @@ wss.on("connection", (socket: WebSocket) => {
   // reassigned exactly once, from null to the joined Match, by the "join"
   // branch below.
   let match: Match | null = null;
+  let nickname: string = playerId;
+  let nicknameKey: string = playerId.toLocaleLowerCase();
+  lobbySockets.add(socket);
 
   const welcome: WelcomeMessage = {
     type: "welcome",
@@ -185,7 +216,8 @@ wss.on("connection", (socket: WebSocket) => {
     playerId,
     serverTimeMs: Date.now(),
   };
-  socket.send(JSON.stringify(welcome));
+  sendJson(socket, welcome);
+  sendJson(socket, lobbyStateMessage());
 
   socket.on("message", (data, isBinary) => {
     // Rolling-window count check runs FIRST, before any
@@ -242,12 +274,50 @@ wss.on("connection", (socket: WebSocket) => {
         return;
       }
 
-      match = parsed.mode === "public" ? matchManager.getPublicMatch() : matchManager.createBotsMatch(playerId);
-      match.addHuman(playerId, socket);
+      const normalized = normalizeNickname(parsed.nickname);
+      if (!normalized.ok) {
+        sendJson(socket, { type: "join_rejected", reason: "nickname_invalid" });
+        return;
+      }
+      nickname = normalized.nickname;
+      nicknameKey = normalized.key;
+
+      if (parsed.mode === "public") {
+        const requestedMatch =
+          typeof parsed.matchId === "string" && parsed.matchId.length > 0
+            ? matchManager.getPublicMatch(parsed.matchId)
+            : null;
+        const targetMatch = requestedMatch ?? (parsed.matchId ? null : matchManager.findOrCreatePublicMatch());
+        if (!targetMatch) {
+          sendJson(socket, { type: "join_rejected", reason: "match_not_found" });
+          return;
+        }
+        if (targetMatch.hasNicknameKey(nicknameKey)) {
+          sendJson(socket, { type: "join_rejected", reason: "nickname_taken" });
+          return;
+        }
+        if (!targetMatch.canAcceptHuman()) {
+          sendJson(socket, { type: "join_rejected", reason: "match_full" });
+          return;
+        }
+        match = targetMatch;
+      } else {
+        if (nicknameKey === "bot 1" || nicknameKey === "bot 2") {
+          sendJson(socket, { type: "join_rejected", reason: "nickname_taken" });
+          return;
+        }
+        match = matchManager.createBotsMatch(playerId);
+      }
+
+      lobbySockets.delete(socket);
+      match.addHuman(playerId, socket, nickname, nicknameKey);
+      const accepted: JoinAcceptedMessage = { type: "join_accepted", matchId: match.id, nickname };
+      sendJson(socket, accepted);
       console.log(
-        `[server] player joined match "${match.id}" (mode=${parsed.mode}): ${playerId} ` +
+        `[server] player joined match "${match.id}" (mode=${parsed.mode}): ${nickname} (${playerId}) ` +
           `(${match.humanCount()} human(s) in match)`,
       );
+      broadcastLobbyState();
       return;
     }
 
@@ -321,7 +391,9 @@ wss.on("connection", (socket: WebSocket) => {
     // joined any match.
     if (match) {
       match.removeHuman(playerId);
+      broadcastLobbyState();
     }
+    lobbySockets.delete(socket);
     connectionCount -= 1;
     messageTimestamps.delete(playerId);
     lastFireAcceptedAt.delete(playerId);

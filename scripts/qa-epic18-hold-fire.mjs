@@ -110,8 +110,10 @@ async function main() {
 
     await page.goto(CLIENT_URL, { waitUntil: "load" });
     await page.waitForFunction(() => document.getElementById("status")?.dataset.state === "connected", { timeout: 5000 });
+    await page.fill("#nicknameInput", "HoldTester");
     await page.waitForFunction(() => !document.getElementById("modePublicBtn")?.disabled, { timeout: 5000 });
     await page.click("#modePublicBtn");
+    await page.waitForFunction(() => document.getElementById("modeSelect")?.classList.contains("hidden"), { timeout: 5000 });
     await sleep(500);
 
     const canvasBox = await page.locator("#app canvas").boundingBox();

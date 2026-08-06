@@ -22,6 +22,7 @@ import {
   ARENA_GEOMETRY,
   BROADCAST_TICK_HZ,
   COMBAT,
+  MAX_PUBLIC_PLAYERS_PER_MATCH,
   PICKUP_RADIUS,
   boxBounds,
   playerHitboxBounds,
@@ -125,9 +126,17 @@ export class Match {
    * every WS connect, now done exactly once per connection at `join` time
    * instead.
    */
-  addHuman(connectionId: string, socket: WebSocket): void {
+  canAcceptHuman(): boolean {
+    return this.mode !== "public" || this.humanCount() < MAX_PUBLIC_PLAYERS_PER_MATCH;
+  }
+
+  hasNicknameKey(nicknameKey: string): boolean {
+    return this.registry.hasNicknameKey(nicknameKey);
+  }
+
+  addHuman(connectionId: string, socket: WebSocket, nickname: string, nicknameKey: string): void {
     this.sockets.set(connectionId, socket);
-    this.registry.spawn(connectionId);
+    this.registry.spawn(connectionId, nickname, nicknameKey);
     this.sendLoadout(connectionId);
     this.broadcastScoreboard();
     this.broadcastPickupState();
@@ -300,7 +309,13 @@ export class Match {
         this.broadcast(deathMessage);
         console.log(`[server] [${this.id}] death: ${event.targetId} killed by ${shooterId}`);
 
-        const killMessage: KillEvent = { type: "kill", attackerId: shooterId, victimId: event.targetId };
+        const killMessage: KillEvent = {
+          type: "kill",
+          attackerId: shooterId,
+          victimId: event.targetId,
+          attackerNickname: this.registry.getNickname(shooterId),
+          victimNickname: this.registry.getNickname(event.targetId),
+        };
         this.broadcast(killMessage);
         scoreboardChanged = true;
       }

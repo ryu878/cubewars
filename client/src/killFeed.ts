@@ -34,7 +34,7 @@ export class KillFeed {
   }
 
   /** Render one kill-feed line for a server-confirmed kill and schedule its own expiry. */
-  addKill(attackerId: string, victimId: string): void {
+  addKill(attackerId: string, victimId: string, attackerNickname: string, victimNickname: string): void {
     const self = this.getSelfId();
 
     const entry = document.createElement("div");
@@ -50,7 +50,7 @@ export class KillFeed {
     // rendered in the client).
     const attackerEl = document.createElement("span");
     attackerEl.className = "kill-feed-name";
-    attackerEl.textContent = attackerId === self ? "You" : shortId(attackerId);
+    attackerEl.textContent = attackerId === self ? "You" : attackerNickname;
 
     const verbEl = document.createElement("span");
     verbEl.className = "kill-feed-verb";
@@ -58,7 +58,7 @@ export class KillFeed {
 
     const victimEl = document.createElement("span");
     victimEl.className = "kill-feed-name";
-    victimEl.textContent = victimId === self ? "you" : shortId(victimId);
+    victimEl.textContent = victimId === self ? "you" : victimNickname;
 
     entry.append(attackerEl, verbEl, victimEl);
     this.containerEl.appendChild(entry);

@@ -166,7 +166,17 @@ function connect(label) {
 }
 
 function joinPublic(state) {
-  state.ws.send(JSON.stringify({ type: "join", mode: "public" }));
+  state.ws.send(JSON.stringify({ type: "join", mode: "public", nickname: `Load${state.playerId.slice(0, 6)}` }));
+}
+
+async function waitForJoinAccepted(state) {
+  for (let i = 0; i < 100; i++) {
+    if (state.messages.some((message) => message.type === "join_accepted")) return;
+    const rejection = state.messages.find((message) => message.type === "join_rejected");
+    if (rejection) throw new Error(`${state.label}: join rejected (${rejection.reason})`);
+    await sleep(30);
+  }
+  throw new Error(`${state.label}: join_accepted timed out`);
 }
 
 function countFireBroadcastEchoes(state) {
@@ -209,6 +219,7 @@ async function runControlCase() {
   console.log("\n=== Case 1: control (fire-only, no competing input stream) ===");
   const p = await connect("Control");
   joinPublic(p);
+  await waitForJoinAccepted(p);
   await sleep(300);
 
   const sent = await runFireClock(p, CASE_A_DURATION_MS);
@@ -227,6 +238,7 @@ async function runRealArchitectureCase() {
   console.log("\n=== Case 2: real-architecture simulation (33ms input timer + independent fire clock) ===");
   const p = await connect("RealArchitecture");
   joinPublic(p);
+  await waitForJoinAccepted(p);
   await sleep(300);
 
   const inputTimer = startInputTimer(p);
@@ -293,6 +305,7 @@ async function runTrueFloodCase(logLines, shape) {
   console.log(`\n=== Case 3 (${shape}): true flood — sustained tight loop, single message shape ===`);
   const p = await connect(`Flood-${shape}`);
   joinPublic(p);
+  await waitForJoinAccepted(p);
   await sleep(300);
 
   const sinceIndex = logLines.length;

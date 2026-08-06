@@ -9,7 +9,6 @@
 // stack's "no UI framework" rule.
 
 import type { PlayerScore } from "@cubewars/shared";
-import { shortId } from "./killFeed";
 
 export class Scoreboard {
   private panelEl: HTMLElement;
@@ -45,7 +44,7 @@ export class Scoreboard {
 
       const nameEl = document.createElement("span");
       nameEl.className = "scoreboard-name";
-      nameEl.textContent = player.id === self ? `${shortId(player.id)} (you)` : shortId(player.id);
+      nameEl.textContent = player.id === self ? `${player.nickname} (you)` : player.nickname;
 
       const killsEl = document.createElement("span");
       killsEl.className = "scoreboard-kills";

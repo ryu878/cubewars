@@ -20,6 +20,7 @@ export * from "./combat.js";
 // pickup-spawn infrastructure — see weapons.ts / pickups.ts doc comments.
 export * from "./weapons.js";
 export * from "./pickups.js";
+export * from "./nickname.js";
 
 export const PROTOCOL_VERSION = 1;
 
@@ -176,6 +177,15 @@ export interface SwitchWeaponEvent {
  */
 export type MatchMode = "public" | "bots";
 
+export const MAX_PUBLIC_PLAYERS_PER_MATCH = 4;
+
+export interface LobbyMatchSummary {
+  id: string;
+  displayName: string;
+  players: number;
+  maxPlayers: number;
+}
+
 /**
  * Client -> server: join a match (EPIC 9 Story 9.2). Sent exactly once per
  * connection, after `welcome` and before any gameplay message
@@ -188,6 +198,9 @@ export type MatchMode = "public" | "bots";
 export interface JoinMessage {
   type: "join";
   mode: MatchMode;
+  nickname: string;
+  /** Public match id selected from LobbyStateMessage. Omitted for quick-join/auto-create and ignored for bots. */
+  matchId?: string;
 }
 
 export type ClientMessage = PlayerInputMessage | FireEvent | SwitchWeaponEvent | JoinMessage;
@@ -195,6 +208,7 @@ export type ClientMessage = PlayerInputMessage | FireEvent | SwitchWeaponEvent |
 /** A single player's authoritative, server-computed state as broadcast to all clients. */
 export interface PlayerState {
   id: string;
+  nickname: string;
   position: Vector3;
   yaw: number;
   /** Current health, [0, COMBAT.maxHealth]. */
@@ -288,12 +302,31 @@ export interface KillEvent {
   type: "kill";
   attackerId: string;
   victimId: string;
+  attackerNickname: string;
+  victimNickname: string;
 }
 
 /** One player's server-authoritative kill count, as shown on the scoreboard (EPIC 5 Story 5.2). */
 export interface PlayerScore {
   id: string;
+  nickname: string;
   kills: number;
+}
+
+export interface LobbyStateMessage {
+  type: "lobby_state";
+  matches: LobbyMatchSummary[];
+}
+
+export interface JoinAcceptedMessage {
+  type: "join_accepted";
+  matchId: string;
+  nickname: string;
+}
+
+export interface JoinRejectedMessage {
+  type: "join_rejected";
+  reason: "nickname_invalid" | "nickname_taken" | "match_full" | "match_not_found";
 }
 
 /**
@@ -386,6 +419,9 @@ export type ServerMessage =
   | RespawnEvent
   | KillEvent
   | ScoreboardMessage
+  | LobbyStateMessage
+  | JoinAcceptedMessage
+  | JoinRejectedMessage
   | LoadoutMessage
   | PickupStateMessage
   | FireBroadcastEvent

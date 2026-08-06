@@ -7,21 +7,43 @@
 // network.ts / main.ts, per global-standards.mdc "keep game/simulation logic
 // separate from transport/rendering code").
 
-import type { MatchMode } from "@cubewars/shared";
+import { normalizeNickname, type LobbyMatchSummary, type MatchMode } from "@cubewars/shared";
+
+export interface JoinSelection {
+  mode: MatchMode;
+  nickname: string;
+  matchId?: string;
+}
+
+const NICKNAME_STORAGE_KEY = "cubewars.nickname";
 
 export class ModeSelect {
   private overlayEl: HTMLElement;
   private publicBtn: HTMLButtonElement;
   private botsBtn: HTMLButtonElement;
+  private nicknameInput: HTMLInputElement;
+  private lobbyListEl: HTMLElement;
+  private errorEl: HTMLElement;
+  private pending = false;
+  private enabled = false;
 
   /** `onSelect` fires exactly once, the first time either button is clicked. */
-  constructor(private onSelect: (mode: MatchMode) => void) {
+  constructor(private onSelect: (selection: JoinSelection) => void) {
     this.overlayEl = document.getElementById("modeSelect") as HTMLElement;
     this.publicBtn = document.getElementById("modePublicBtn") as HTMLButtonElement;
     this.botsBtn = document.getElementById("modeBotsBtn") as HTMLButtonElement;
+    this.nicknameInput = document.getElementById("nicknameInput") as HTMLInputElement;
+    this.lobbyListEl = document.getElementById("lobbyList") as HTMLElement;
+    this.errorEl = document.getElementById("modeSelectError") as HTMLElement;
+
+    this.nicknameInput.value = localStorage.getItem(NICKNAME_STORAGE_KEY) ?? "";
 
     this.publicBtn.addEventListener("click", () => this.select("public"));
     this.botsBtn.addEventListener("click", () => this.select("bots"));
+    this.nicknameInput.addEventListener("input", () => {
+      this.errorEl.textContent = "";
+      this.updateButtons();
+    });
   }
 
   /**
@@ -32,15 +54,82 @@ export class ModeSelect {
    * this screen with no error).
    */
   enable(): void {
-    this.publicBtn.disabled = false;
-    this.botsBtn.disabled = false;
+    this.enabled = true;
+    this.updateButtons();
   }
 
-  private select(mode: MatchMode): void {
-    if (this.publicBtn.disabled) return; // not enabled yet — ignore (shouldn't be reachable while disabled, defensive only)
-    this.publicBtn.disabled = true;
-    this.botsBtn.disabled = true;
+  setLobby(matches: LobbyMatchSummary[]): void {
+    this.lobbyListEl.replaceChildren();
+    if (matches.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "lobby-empty";
+      empty.textContent = "No games yet";
+      this.lobbyListEl.appendChild(empty);
+      return;
+    }
+
+    for (const match of matches) {
+      const row = document.createElement("div");
+      row.className = "lobby-row";
+
+      const label = document.createElement("span");
+      label.className = "lobby-name";
+      label.textContent = `${match.displayName} · ${match.players}/${match.maxPlayers}`;
+
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = match.players >= match.maxPlayers ? "Full" : "Join";
+      button.disabled = this.pending || !this.enabled || match.players >= match.maxPlayers;
+      button.addEventListener("click", () => this.select("public", match.id));
+
+      row.append(label, button);
+      this.lobbyListEl.appendChild(row);
+    }
+    this.updateButtons();
+  }
+
+  joinAccepted(nickname: string): void {
+    localStorage.setItem(NICKNAME_STORAGE_KEY, nickname);
+    this.pending = false;
     this.overlayEl.classList.add("hidden");
-    this.onSelect(mode);
+  }
+
+  joinRejected(reason: string): void {
+    this.pending = false;
+    this.errorEl.textContent =
+      reason === "nickname_taken"
+        ? "This nickname is already used in that game"
+        : reason === "match_full"
+          ? "That game is full"
+          : reason === "match_not_found"
+            ? "That game is gone"
+            : "Use 3-16 letters, numbers, spaces, _ or -";
+    this.updateButtons();
+  }
+
+  private select(mode: MatchMode, matchId?: string): void {
+    if (!this.enabled || this.pending) return;
+    const normalized = normalizeNickname(this.nicknameInput.value);
+    if (!normalized.ok) {
+      this.errorEl.textContent = "Use 3-16 letters, numbers, spaces, _ or -";
+      this.updateButtons();
+      return;
+    }
+    this.pending = true;
+    this.errorEl.textContent = "";
+    this.updateButtons();
+    this.onSelect({ mode, nickname: normalized.nickname, matchId });
+  }
+
+  private updateButtons(): void {
+    const valid = normalizeNickname(this.nicknameInput.value).ok;
+    const disabled = !this.enabled || this.pending || !valid;
+    this.publicBtn.disabled = disabled;
+    this.botsBtn.disabled = disabled;
+    for (const button of this.lobbyListEl.querySelectorAll("button")) {
+      if (button.textContent !== "Full") {
+        button.disabled = disabled;
+      }
+    }
   }
 }

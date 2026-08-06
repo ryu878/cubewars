@@ -4,7 +4,6 @@ import {
   ARENA_GEOMETRY,
   PICKUP_RADIUS,
   WEAPON_STATS,
-  type MatchMode,
   type PlayerInputMessage,
   type WeaponType,
   type WorldStateMessage,
@@ -253,14 +252,8 @@ const scoreboard = new Scoreboard(() => selfId);
 // the server's own independent gate (server/src/index.ts join-gating;
 // belt-and-suspenders, not a substitute for it — the server never trusts
 // the client to behave, per security-baseline.mdc).
-const modeSelect = new ModeSelect((mode: MatchMode) => {
-  connection.send({ type: "join", mode });
-  // EPIC 14 "Sound System" Design Decision 6: this click is the first real
-  // user gesture in this game, before any gameplay message is sent — the
-  // natural, unavoidable point to resume the AudioContext so audio is
-  // ready before the player can take any action that would need sound.
-  soundManager.unlock();
-  startInputLoop();
+const modeSelect = new ModeSelect((selection) => {
+  connection.send({ type: "join", ...selection });
 });
 
 const connection = new GameConnection(wsUrl, {
@@ -269,13 +262,28 @@ const connection = new GameConnection(wsUrl, {
   },
   onWelcome: (playerId) => {
     selfId = playerId;
-    statusEl.textContent = `connected — player ${playerId.slice(0, 8)}`;
+    statusEl.textContent = `connected — choose nickname`;
     statusEl.dataset.state = "connected";
     // EPIC 9 Story 9.2: only now is it safe to let the player pick a mode —
     // GameConnection.send() silently drops anything sent before the socket
     // is OPEN, and "welcome" is the server's confirmation this connection is
     // live and has an id.
     modeSelect.enable();
+  },
+  onLobbyState: (message) => {
+    modeSelect.setLobby(message.matches);
+  },
+  onJoinAccepted: (message) => {
+    modeSelect.joinAccepted(message.nickname);
+    statusEl.textContent = `joined ${message.matchId} — ${message.nickname}`;
+    // EPIC 14 "Sound System" Design Decision 6: this accepted join follows
+    // the user's mode-select click, the natural point to resume audio before
+    // gameplay input starts.
+    soundManager.unlock();
+    startInputLoop();
+  },
+  onJoinRejected: (message) => {
+    modeSelect.joinRejected(message.reason);
   },
   onWorldState: (message: WorldStateMessage) => {
     remotePlayers.sync(message.players, selfId, message.serverTimeMs);
@@ -317,7 +325,7 @@ const connection = new GameConnection(wsUrl, {
     if (message.playerId === selfId) hud.setDead(false);
   },
   onKill: (message) => {
-    killFeed.addKill(message.attackerId, message.victimId);
+    killFeed.addKill(message.attackerId, message.victimId, message.attackerNickname, message.victimNickname);
   },
   onScoreboard: (message) => {
     scoreboard.update(message.players);

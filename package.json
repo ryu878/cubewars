@@ -18,6 +18,7 @@
     "regression:playerstate-equipped-weapon": "tsx scripts/regression-playerstate-equipped-weapon.ts",
     "regression:locational-splash-damage": "tsx scripts/regression-locational-splash-damage.ts",
     "regression:grenade-projectile": "tsx scripts/regression-grenade-projectile.ts",
+    "regression:lobby-nicknames": "tsx scripts/regression-lobby-nicknames.ts",
     "regression:fire-input-drop-rate": "node scripts/regression-fire-input-drop-rate.mjs",
     "qa:epic17-avatar-selfcheck": "node scripts/qa-epic17-avatar-selfcheck.mjs",
     "qa:epic18-hold-fire": "node scripts/qa-epic18-hold-fire.mjs",

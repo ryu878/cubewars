@@ -54,6 +54,8 @@ function clampPitch(pitch: number, fallback: number): number {
 
 export interface PlayerRecord {
   id: string;
+  nickname: string;
+  nicknameKey: string;
   position: Vector3;
   velocityY: number;
   grounded: boolean;
@@ -324,9 +326,11 @@ export class PlayerRegistry {
     return { x: resolved.x, y: MOVEMENT.groundY, z: resolved.z };
   }
 
-  spawn(id: string): PlayerRecord {
+  spawn(id: string, nickname: string = id, nicknameKey: string = nickname.toLocaleLowerCase()): PlayerRecord {
     const record: PlayerRecord = {
       id,
+      nickname,
+      nicknameKey,
       position: this.pickSpawnPosition(),
       velocityY: 0,
       grounded: true,
@@ -379,6 +383,17 @@ export class PlayerRegistry {
    */
   getPlayer(id: string): PlayerRecord | undefined {
     return this.players.get(id);
+  }
+
+  hasNicknameKey(nicknameKey: string): boolean {
+    for (const player of this.players.values()) {
+      if (player.nicknameKey === nicknameKey) return true;
+    }
+    return false;
+  }
+
+  getNickname(id: string): string {
+    return this.players.get(id)?.nickname ?? id;
   }
 
   size(): number {
@@ -960,9 +975,9 @@ export class PlayerRegistry {
   getScores(): PlayerScore[] {
     const scores: PlayerScore[] = [];
     for (const player of this.players.values()) {
-      scores.push({ id: player.id, kills: player.kills });
+      scores.push({ id: player.id, nickname: player.nickname, kills: player.kills });
     }
-    scores.sort((a, b) => b.kills - a.kills || a.id.localeCompare(b.id));
+    scores.sort((a, b) => b.kills - a.kills || a.nickname.localeCompare(b.nickname) || a.id.localeCompare(b.id));
     return scores;
   }
 
@@ -971,6 +986,7 @@ export class PlayerRegistry {
     for (const player of this.players.values()) {
       states.push({
         id: player.id,
+        nickname: player.nickname,
         position: { ...player.position },
         yaw: player.yaw,
         health: player.health,
