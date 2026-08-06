@@ -79,6 +79,13 @@ Combat is server-authoritative too: firing sends a bare "fire" event, and the se
 
 ## Current status
 
+EPIC 19 (Visible Projectiles and Hit Particles) — see `docs/tasks/epic-19-visible-projectiles-hit-particles.md`. Direct user feedback (Russian): "выстрел из пистолета это типа лазер небольшой, тонкий ... из ружья ... видно как летит пуля ... красные капли ... когда ты попал ... выстрел из гранатомета ... летит какой-то шарик ... чтобы ... можно увернуться ... и чтоб я тоже видел их выстрелы, не только свои."
+
+- **Visible shots for everyone:** `fire_broadcast` now carries a server-computed `trace`, so the local player and observers render the same in-world shot path. Pistol shots are thin cyan laser streaks, rifle shots are fast white bullets/trails, and grenade-launcher shots are purple orb projectiles.
+- **Dodgeable grenade launcher:** pistol/rifle gameplay remains immediate server hitscan, but grenade launcher shots now spawn a server-tracked projectile moving at `26` world units/sec. Damage is applied only when the projectile hits a player or map geometry; long-range grenade shots can now be dodged by moving before impact.
+- **Hit particles:** confirmed `HitEvent`s spawn red cube/pixel particles at the server-reported impact point, so head/body/leg hits visually burst at the height where the shot landed. Grenade impacts also show a small explosion pulse.
+- Verified via `npm run regression:grenade-projectile` and `npm run qa:epic19-combat-effects`, plus EPIC 18 regressions for locational/splash damage and pistol hold fire.
+
 EPIC 18 (Pistol Hold Fire, Locational Damage, Grenade Splash) — see `docs/tasks/epic-18-auto-fire-locational-splash.md`. Direct user feedback (Russian): "если ты зажал левую кнопку мыши, он бы стрелял из пистолета без остановки ... урон зависел от того куда попал ... урон от гранатомета тоже уменьшается или увеличивается ... если ... попал в стену, то сколько то % урона ... все равно будет."
 
 - **Pistol hold-to-fire:** holding left mouse while pointer-locked and alive immediately fires once, then repeats while held only for the pistol. The pistol's shared/server cooldown is now 500ms, so the server still decides which attempts are accepted; rifle and grenade launcher stay click-to-fire.

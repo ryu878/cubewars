@@ -19,23 +19,32 @@
 
 import type { WebSocket } from "ws";
 import {
+  ARENA_GEOMETRY,
   BROADCAST_TICK_HZ,
   COMBAT,
   PICKUP_RADIUS,
+  boxBounds,
+  playerHitboxBounds,
+  rayIntersectsAabb,
   type DeathEvent,
   type FireBroadcastEvent,
   type HitEvent,
   type KillEvent,
   type LoadoutMessage,
   type PickupStateMessage,
+  type ProjectileImpactEvent,
+  type Ray,
   type RespawnEvent,
   type ScoreboardMessage,
   type ServerMessage,
+  type ShotTrace,
+  type Vector3,
   type WorldStateMessage,
 } from "@cubewars/shared";
-import { PlayerRegistry, type FireOutcome } from "./playerRegistry.js";
+import { PlayerRegistry, type DamageEvent, type FireOutcome } from "./playerRegistry.js";
 import { PickupSpawner } from "./pickupSpawner.js";
 import { BotAI } from "./botAI.js";
+import { classifyHitZone, pointOnRay } from "./combat.js";
 
 // Same tick rate/derivation as the pre-EPIC-9 single global loop
 // (server/src/index.ts) — every Match now runs its own independent copy of
@@ -46,6 +55,15 @@ const TICK_DT_SECONDS = TICK_MS / 1000;
 
 /** Exactly 2 bots per "bots:*" match (EPIC 9 Story 9.3 AC: "Exactly 2 bots spawn in a fresh bots:* match"). */
 const BOT_COUNT = 2;
+
+interface ActiveProjectile {
+  id: string;
+  shooterId: string;
+  trace: ShotTrace;
+  position: Vector3;
+  direction: Vector3;
+  remainingDistance: number;
+}
 
 export type MatchMode = "public" | "bots";
 
@@ -74,6 +92,8 @@ export class Match {
   private sockets = new Map<string, WebSocket>();
   private botAI: BotAI | null = null;
   private tickInterval: ReturnType<typeof setInterval> | null = null;
+  private projectiles = new Map<string, ActiveProjectile>();
+  private nextProjectileSeq = 1;
 
   constructor(private options: MatchOptions) {
     this.id = options.id;
@@ -188,8 +208,41 @@ export class Match {
     // Deliberately broadcast BEFORE the hit/dry/miss-specific branches below
     // so it fires uniformly regardless of outcome — a real trigger pull
     // makes a gunshot sound whether or not it happened to land.
+    let projectileId: string | undefined;
+    if (!outcome.hit && outcome.projectileSpawn) {
+      projectileId = `${this.id}:projectile:${this.nextProjectileSeq++}`;
+      const totalDistance = Math.hypot(
+        outcome.projectileSpawn.trace.end.x - outcome.projectileSpawn.trace.origin.x,
+        outcome.projectileSpawn.trace.end.y - outcome.projectileSpawn.trace.origin.y,
+        outcome.projectileSpawn.trace.end.z - outcome.projectileSpawn.trace.origin.z,
+      );
+      if (totalDistance > 1e-5) {
+        const projectile: ActiveProjectile = {
+          id: projectileId,
+          shooterId,
+          trace: outcome.projectileSpawn.trace,
+          position: { ...outcome.projectileSpawn.trace.origin },
+          direction: {
+            x: (outcome.projectileSpawn.trace.end.x - outcome.projectileSpawn.trace.origin.x) / totalDistance,
+            y: (outcome.projectileSpawn.trace.end.y - outcome.projectileSpawn.trace.origin.y) / totalDistance,
+            z: (outcome.projectileSpawn.trace.end.z - outcome.projectileSpawn.trace.origin.z) / totalDistance,
+          },
+          remainingDistance: totalDistance,
+        };
+        this.projectiles.set(projectile.id, projectile);
+      } else {
+        projectileId = undefined;
+      }
+    }
+
     if (outcome.weapon) {
-      const fireBroadcast: FireBroadcastEvent = { type: "fire_broadcast", shooterId, weapon: outcome.weapon };
+      const fireBroadcast: FireBroadcastEvent = {
+        type: "fire_broadcast",
+        shooterId,
+        weapon: outcome.weapon,
+        trace: outcome.shotTrace,
+        projectileId,
+      };
       this.broadcast(fireBroadcast);
     }
 
@@ -212,8 +265,13 @@ export class Match {
       return outcome;
     }
 
+    this.broadcastDamageEvents(shooterId, outcome.damageEvents);
+    return outcome;
+  }
+
+  private broadcastDamageEvents(shooterId: string, damageEvents: DamageEvent[]): void {
     let scoreboardChanged = false;
-    for (const event of outcome.damageEvents) {
+    for (const event of damageEvents) {
       const hitMessage: HitEvent = {
         type: "hit",
         shooterId,
@@ -251,8 +309,6 @@ export class Match {
     if (scoreboardChanged) {
       this.broadcastScoreboard();
     }
-
-    return outcome;
   }
 
   /** Start this match's own fixed-tick physics/respawn/pickup/broadcast loop. Call exactly once, right after construction (see MatchManager) — not idempotent. */
@@ -274,6 +330,75 @@ export class Match {
       this.tickInterval = null;
     }
     this.sockets.clear();
+    this.projectiles.clear();
+  }
+
+  private stepProjectiles(dtSeconds: number): void {
+    for (const projectile of [...this.projectiles.values()]) {
+      const stepDistance = Math.min(projectile.remainingDistance, projectile.trace.speed * dtSeconds);
+      if (stepDistance <= 0) {
+        this.projectiles.delete(projectile.id);
+        continue;
+      }
+
+      const ray: Ray = { origin: projectile.position, direction: projectile.direction };
+      let nearestDistance = stepDistance;
+      let impactKind: "geometry" | "player" | null = null;
+      let targetId: string | null = null;
+
+      for (const box of ARENA_GEOMETRY) {
+        const distance = rayIntersectsAabb(ray, boxBounds(box), nearestDistance);
+        if (distance !== null && distance < nearestDistance) {
+          nearestDistance = distance;
+          impactKind = "geometry";
+          targetId = null;
+        }
+      }
+
+      for (const candidate of this.registry.alivePlayerPositions()) {
+        if (candidate.id === projectile.shooterId) continue;
+        const distance = rayIntersectsAabb(ray, playerHitboxBounds(candidate.position), nearestDistance);
+        if (distance !== null && distance < nearestDistance) {
+          nearestDistance = distance;
+          impactKind = "player";
+          targetId = candidate.id;
+        }
+      }
+
+      const nextPosition = pointOnRay(ray, nearestDistance);
+      projectile.position = nextPosition;
+      projectile.remainingDistance -= nearestDistance;
+
+      if (impactKind) {
+        this.projectiles.delete(projectile.id);
+        const impactMessage: ProjectileImpactEvent = {
+          type: "projectile_impact",
+          projectileId: projectile.id,
+          shooterId: projectile.shooterId,
+          weapon: "grenade_launcher",
+          point: nextPosition,
+        };
+        this.broadcast(impactMessage);
+
+        const damageEvents =
+          impactKind === "player" && targetId
+            ? this.resolveProjectileDirectHit(projectile.shooterId, targetId, nextPosition)
+            : this.registry.applyGrenadeSplashImpact(projectile.shooterId, nextPosition);
+        this.broadcastDamageEvents(projectile.shooterId, damageEvents);
+        continue;
+      }
+
+      if (projectile.remainingDistance <= 0) {
+        this.projectiles.delete(projectile.id);
+      }
+    }
+  }
+
+  private resolveProjectileDirectHit(shooterId: string, targetId: string, point: Vector3): DamageEvent[] {
+    const target = this.registry.getPlayer(targetId);
+    if (!target || !target.alive) return [];
+    const hitZone = classifyHitZone(point, target);
+    return this.registry.applyGrenadeProjectileDirect(shooterId, targetId, hitZone, point);
   }
 
   private tick(): void {
@@ -285,6 +410,7 @@ export class Match {
     // — a bot is a PlayerRecord whose "input" is computed here instead of
     // read from a socket, not a special-cased exception to physics.
     this.botAI?.update(nowMs, (shooterId) => this.resolveFire(shooterId));
+    this.stepProjectiles(TICK_DT_SECONDS);
 
     this.registry.step(TICK_DT_SECONDS);
 

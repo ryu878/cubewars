@@ -82,6 +82,18 @@ export const GRENADE_SPLASH = {
 } as const;
 
 /**
+ * EPIC 19 visible shots: visual/projectile travel speeds in world units per
+ * second. Pistol/rifle damage is still immediate server hitscan; these
+ * speeds drive the client-visible tracer only. Grenade launcher uses the
+ * same speed server-side for its actual dodgeable projectile.
+ */
+export const PROJECTILE_SPEEDS = {
+  pistol: 240,
+  rifle: 145,
+  grenade_launcher: 26,
+} as const;
+
+/**
  * Tunable combat constants — one definition for both server enforcement and
  * any client-side display/prediction. Weapon-specific damage/fire-cooldown/
  * ammo (EPIC 6 "Weapons & Ammo") live in shared/src/weapons.ts's

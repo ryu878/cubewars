@@ -13,9 +13,12 @@ import {
   DAMAGE_ZONE_HEIGHTS,
   EYE_HEIGHT,
   GRENADE_SPLASH,
+  PROJECTILE_SPEEDS,
   type Ray,
   type Vector3,
   type DamageZone,
+  type ShotTrace,
+  type WeaponType,
 } from "@cubewars/shared";
 import type { PlayerRecord } from "./playerRegistry.js";
 
@@ -24,6 +27,7 @@ export interface HitscanResult {
   point: Vector3 | null;
   hitZone: Exclude<DamageZone, "splash"> | null;
   blockedByGeometry: boolean;
+  trace: ShotTrace;
 }
 
 /**
@@ -44,7 +48,7 @@ export function aimDirection(yaw: number, pitch: number): Vector3 {
   };
 }
 
-function pointOnRay(ray: Ray, distance: number): Vector3 {
+export function pointOnRay(ray: Ray, distance: number): Vector3 {
   return {
     x: ray.origin.x + ray.direction.x * distance,
     y: ray.origin.y + ray.direction.y * distance,
@@ -52,7 +56,27 @@ function pointOnRay(ray: Ray, distance: number): Vector3 {
   };
 }
 
-function classifyHitZone(hitPoint: Vector3, target: PlayerRecord): Exclude<DamageZone, "splash"> {
+export function buildAimRay(shooter: PlayerRecord): Ray {
+  return {
+    origin: {
+      x: shooter.position.x,
+      y: shooter.position.y + EYE_HEIGHT,
+      z: shooter.position.z,
+    },
+    direction: aimDirection(shooter.yaw, shooter.pitch),
+  };
+}
+
+export function buildShotTrace(shooter: PlayerRecord, weapon: WeaponType, end?: Vector3): ShotTrace {
+  const ray = buildAimRay(shooter);
+  return {
+    origin: ray.origin,
+    end: end ?? pointOnRay(ray, COMBAT.hitscanMaxRange),
+    speed: PROJECTILE_SPEEDS[weapon],
+  };
+}
+
+export function classifyHitZone(hitPoint: Vector3, target: PlayerRecord): Exclude<DamageZone, "splash"> {
   const localY = hitPoint.y - target.position.y;
   if (localY >= DAMAGE_ZONE_HEIGHTS.headMinY) return "head";
   if (localY < DAMAGE_ZONE_HEIGHTS.legsMaxY) return "legs";
@@ -105,13 +129,7 @@ export function performHitscan(
   shooter: PlayerRecord,
   allPlayers: Iterable<PlayerRecord>,
 ): HitscanResult {
-  const origin: Vector3 = {
-    x: shooter.position.x,
-    y: shooter.position.y + EYE_HEIGHT,
-    z: shooter.position.z,
-  };
-  const direction = aimDirection(shooter.yaw, shooter.pitch);
-  const ray: Ray = { origin, direction };
+  const ray = buildAimRay(shooter);
 
   let nearestDistance: number = COMBAT.hitscanMaxRange;
   let nearestPlayerId: string | null = null;
@@ -143,8 +161,15 @@ export function performHitscan(
   }
 
   const point = pointOnRay(ray, nearestDistance);
+  const trace = buildShotTrace(shooter, shooter.equippedWeapon, point);
   if (nearestPlayerId === null) {
-    return { hitPlayerId: null, point: blockedByGeometry ? point : null, hitZone: null, blockedByGeometry };
+    return {
+      hitPlayerId: null,
+      point: blockedByGeometry ? point : null,
+      hitZone: null,
+      blockedByGeometry,
+      trace,
+    };
   }
 
   return {
@@ -152,5 +177,6 @@ export function performHitscan(
     point,
     hitZone: nearestPlayer ? classifyHitZone(point, nearestPlayer) : "body",
     blockedByGeometry: false,
+    trace,
   };
 }

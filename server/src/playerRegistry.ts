@@ -21,10 +21,11 @@ import {
   type DamageZone,
   type PlayerScore,
   type PlayerState,
+  type ShotTrace,
   type Vector3,
   type WeaponType,
 } from "@cubewars/shared";
-import { findGrenadeSplashCandidates, performHitscan } from "./combat.js";
+import { buildShotTrace, findGrenadeSplashCandidates, performHitscan } from "./combat.js";
 
 /** Sanity bound so a malformed/runaway input can never send a player to infinity — a coarse outer clamp, independent of (and checked before) the precise wall/crate collision resolution below. */
 const WORLD_BOUND = 200;
@@ -184,6 +185,11 @@ export type FireOutcome =
        */
       weapon?: WeaponType;
       damageEvents?: DamageEvent[];
+      shotTrace?: ShotTrace;
+      projectileSpawn?: {
+        weapon: Extract<WeaponType, "grenade_launcher">;
+        trace: ShotTrace;
+      };
     }
   | {
       hit: true;
@@ -202,6 +208,7 @@ export type FireOutcome =
       damageKind: DamageKind;
       hitZone: DamageZone;
       damageEvents: DamageEvent[];
+      shotTrace?: ShotTrace;
     };
 
 export interface RespawnOutcome {
@@ -479,31 +486,21 @@ export class PlayerRegistry {
       }
     }
 
+    if (weapon === "grenade_launcher") {
+      const trace = buildShotTrace(shooter, weapon);
+      return {
+        hit: false,
+        dry: false,
+        autoSwitchedTo,
+        weapon,
+        shotTrace: trace,
+        projectileSpawn: { weapon: "grenade_launcher", trace },
+      };
+    }
+
     const result = performHitscan(shooter, this.players.values());
     if (!result.hitPlayerId || !result.point) {
-      const damageEvents =
-        weapon === "grenade_launcher" && result.blockedByGeometry && result.point
-          ? this.applyGrenadeSplash(shooter.id, stats.damage, result.point)
-          : [];
-      if (damageEvents.length > 0) {
-        const primary = damageEvents[0];
-        return {
-          hit: true,
-          targetId: primary.targetId,
-          damage: primary.damage,
-          damageKind: primary.damageKind,
-          hitZone: primary.hitZone,
-          targetHealth: primary.targetHealth,
-          targetArmor: primary.targetArmor,
-          point: primary.point,
-          killed: primary.killed,
-          respawnAtMs: primary.respawnAtMs,
-          autoSwitchedTo,
-          weapon,
-          damageEvents,
-        };
-      }
-      return { hit: false, dry: false, autoSwitchedTo, weapon, damageEvents };
+      return { hit: false, dry: false, autoSwitchedTo, weapon, damageEvents: [], shotTrace: result.trace };
     }
 
     const target = this.players.get(result.hitPlayerId);
@@ -527,7 +524,25 @@ export class PlayerRegistry {
       autoSwitchedTo,
       weapon,
       damageEvents: [damageEvent],
+      shotTrace: result.trace,
     };
+  }
+
+  applyGrenadeProjectileDirect(
+    shooterId: string,
+    targetId: string,
+    hitZone: Exclude<DamageZone, "splash">,
+    point: Vector3,
+  ): DamageEvent[] {
+    const shooter = this.players.get(shooterId);
+    const target = this.players.get(targetId);
+    if (!shooter || !shooter.alive || !target || !target.alive) return [];
+    const damage = computeDirectDamage(WEAPON_STATS.grenade_launcher.damage, hitZone);
+    return [this.applyDamage(shooter, target, damage, "direct", hitZone, point)];
+  }
+
+  applyGrenadeSplashImpact(shooterId: string, explosionPoint: Vector3): DamageEvent[] {
+    return this.applyGrenadeSplash(shooterId, WEAPON_STATS.grenade_launcher.damage, explosionPoint);
   }
 
   private applyGrenadeSplash(shooterId: string, baseDamage: number, explosionPoint: Vector3): DamageEvent[] {

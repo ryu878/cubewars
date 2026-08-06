@@ -249,6 +249,13 @@ export interface HitEvent {
   point: Vector3;
 }
 
+/** Server-computed visual trajectory for a fired shot/projectile. */
+export interface ShotTrace {
+  origin: Vector3;
+  end: Vector3;
+  speed: number;
+}
+
 /** Server -> all clients: a player's health reached 0. See HitEvent doc comment re: PlayerState being the continuous source of truth. */
 export interface DeathEvent {
   type: "death";
@@ -356,6 +363,19 @@ export interface FireBroadcastEvent {
   type: "fire_broadcast";
   shooterId: string;
   weapon: WeaponType;
+  /** EPIC 19: server-computed path used only for visible tracers/projectiles. */
+  trace?: ShotTrace;
+  /** Present only for server-simulated projectiles, currently grenade launcher shots. */
+  projectileId?: string;
+}
+
+/** Server -> all clients: a server-simulated projectile hit geometry or a player. */
+export interface ProjectileImpactEvent {
+  type: "projectile_impact";
+  projectileId: string;
+  shooterId: string;
+  weapon: WeaponType;
+  point: Vector3;
 }
 
 export type ServerMessage =
@@ -368,4 +388,5 @@ export type ServerMessage =
   | ScoreboardMessage
   | LoadoutMessage
   | PickupStateMessage
-  | FireBroadcastEvent;
+  | FireBroadcastEvent
+  | ProjectileImpactEvent;

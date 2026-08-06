@@ -115,7 +115,10 @@ async function main() {
     await sleep(500);
 
     const canvasBox = await page.locator("#app canvas").boundingBox();
-    await page.mouse.click(canvasBox.x + canvasBox.width / 2, canvasBox.y + canvasBox.height / 2);
+    await page.mouse.move(canvasBox.x + canvasBox.width / 2, canvasBox.y + canvasBox.height / 2);
+    await page.mouse.down();
+    await sleep(80);
+    await page.mouse.up();
     await page.waitForFunction(() => document.pointerLockElement !== null, { timeout: 5000 });
     await sleep(650);
 

@@ -8,6 +8,7 @@ import type {
   KillEvent,
   LoadoutMessage,
   PickupStateMessage,
+  ProjectileImpactEvent,
   RespawnEvent,
   ScoreboardMessage,
   ServerMessage,
@@ -34,6 +35,8 @@ export interface NetworkHandlers {
   onPickupState?: (message: PickupStateMessage) => void;
   /** Someone in this match attempted to fire (EPIC 14 "Sound System" Story 14.4) — a presentational-only, best-effort broadcast on every fire attempt (hit, miss, or dry), used purely to trigger the remote gunshot sound. Carries no aim/damage/outcome data; HitEvent above remains the sole source of truth for whether a shot actually landed. */
   onFireBroadcast?: (message: FireBroadcastEvent) => void;
+  /** A server-simulated projectile impacted something; cosmetic only. */
+  onProjectileImpact?: (message: ProjectileImpactEvent) => void;
   onClose?: () => void;
   onError?: (err: Event) => void;
 }
@@ -69,6 +72,8 @@ export class GameConnection {
           handlers.onPickupState?.(message);
         } else if (message.type === "fire_broadcast") {
           handlers.onFireBroadcast?.(message);
+        } else if (message.type === "projectile_impact") {
+          handlers.onProjectileImpact?.(message);
         }
       } catch (err) {
         console.error("[client] failed to parse server message", err);

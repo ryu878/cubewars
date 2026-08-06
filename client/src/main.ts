@@ -20,6 +20,7 @@ import { ModeSelect } from "./modeSelect";
 import { WeaponViewmodel } from "./viewmodel";
 import { buildSkyDome, buildWallTextures } from "./textures";
 import { SoundManager } from "./audio/soundManager";
+import { CombatEffects } from "./combatEffects";
 
 const statusEl = document.getElementById("status") as HTMLDivElement;
 const hintEl = document.getElementById("hint") as HTMLDivElement;
@@ -114,6 +115,7 @@ const hud = new CombatHud();
 // happens below, from inside the mode-select click handler (Design
 // Decision 6), the first real user gesture in this game.
 const soundManager = new SoundManager();
+const combatEffects = new CombatEffects(scene);
 // EPIC 10 Story 10.1: the viewmodel is attached to the camera (see
 // scene.add(camera) above) and reacts to the SAME data already driving the
 // HUD — LoadoutMessage.equippedWeapon/ammo (onLoadout below) and the
@@ -223,6 +225,7 @@ function animate() {
   // gates footsteps off while airborne/stationary/dead/unlocked.
   soundManager.update(dt, fps.isRunning());
   remotePlayers.update(dt);
+  combatEffects.update(dt);
   renderer.render(scene, camera);
 }
 animate();
@@ -297,6 +300,7 @@ const connection = new GameConnection(wsUrl, {
   },
   onHit: (message) => {
     if (message.shooterId === selfId) hud.showHitMarker();
+    combatEffects.spawnHit(message.point, message.hitZone);
     if (message.targetId === selfId) {
       hud.showDamageFlash();
       // EPIC 14 Story 14.6: synchronized with the existing damage-flash
@@ -341,9 +345,15 @@ const connection = new GameConnection(wsUrl, {
   // onFire callback above; echoing the server broadcast back to the
   // shooter too would double-play it.
   onFireBroadcast: (message) => {
+    if (message.trace) {
+      combatEffects.spawnShot(message.weapon, message.trace, message.projectileId);
+    }
     if (message.shooterId !== selfId) {
       soundManager.playGunshot(message.weapon);
     }
+  },
+  onProjectileImpact: (message) => {
+    combatEffects.impactProjectile(message.projectileId, message.point);
   },
   onClose: () => {
     statusEl.textContent = "disconnected";
