@@ -19,6 +19,11 @@ const KEEP_BEHIND_CHUNKS = 3;
 const FOG_START_Z = 16;
 const FOG_SPEED_METERS_PER_SECOND = 2.4;
 const FOG_DAMAGE_PER_SECOND = 12;
+const LANE_CENTERS = [-14, 0, 14] as const;
+const LANE_WIDTH = 14;
+const INNER_WALL_X = 7;
+const INNER_WALL_THICKNESS = 1;
+const MAZE_DOOR_HALF_WIDTH = 4;
 
 export interface EndlessRuntimeState {
   fogZ: number;
@@ -154,13 +159,33 @@ export class EndlessWorld {
       },
     );
 
-    const laneCenters = [-14, 0, 14];
-    for (const side of [-1, 1]) {
+    const routeLane = index % LANE_CENTERS.length;
+    const doorZ = centerZ - 4;
+    for (const dividerX of [-INNER_WALL_X, INNER_WALL_X]) {
+      const segmentLength = (CHUNK_LENGTH - MAZE_DOOR_HALF_WIDTH * 2) / 2;
+      this.boxes.push(
+        {
+          id: `${prefix}_divider_${dividerX}_north`,
+          kind: "wall",
+          center: { x: dividerX, y: WALL_Y, z: northZ - segmentLength / 2 },
+          size: { x: INNER_WALL_THICKNESS, y: WALL_HEIGHT, z: segmentLength },
+        },
+        {
+          id: `${prefix}_divider_${dividerX}_south`,
+          kind: "wall",
+          center: { x: dividerX, y: WALL_Y, z: southZ + segmentLength / 2 },
+          size: { x: INNER_WALL_THICKNESS, y: WALL_HEIGHT, z: segmentLength },
+        },
+      );
+    }
+
+    for (let laneIndex = 0; laneIndex < LANE_CENTERS.length; laneIndex += 1) {
+      if (laneIndex === routeLane) continue;
       this.boxes.push({
-        id: `${prefix}_side_stub_${side}`,
+        id: `${prefix}_cross_lane_${laneIndex}`,
         kind: "wall",
-        center: { x: side * 11, y: WALL_Y, z: centerZ - 2 },
-        size: { x: 5, y: WALL_HEIGHT, z: 1 },
+        center: { x: LANE_CENTERS[laneIndex], y: WALL_Y, z: doorZ },
+        size: { x: LANE_WIDTH - 1, y: WALL_HEIGHT, z: 1 },
       });
     }
 
@@ -172,16 +197,16 @@ export class EndlessWorld {
       size: { x: 2, y: CRATE_HEIGHT, z: 2 },
     });
 
-    this.addPickup(index, "health", undefined, { x: laneCenters[index % 3], y: 0, z: centerZ + 4 });
-    if (index % 2 === 0) this.addPickup(index, "ammo", "rifle", { x: laneCenters[(index + 1) % 3], y: 0, z: centerZ - 5 });
-    if (index % 4 === 0) this.addPickup(index, "weapon", "rifle", { x: laneCenters[(index + 2) % 3], y: 0, z: centerZ - 1 });
+    this.addPickup(index, "health", undefined, { x: LANE_CENTERS[index % 3], y: 0, z: centerZ + 4 });
+    if (index % 2 === 0) this.addPickup(index, "ammo", "rifle", { x: LANE_CENTERS[(index + 1) % 3], y: 0, z: centerZ - 5 });
+    if (index % 4 === 0) this.addPickup(index, "weapon", "rifle", { x: LANE_CENTERS[(index + 2) % 3], y: 0, z: centerZ - 1 });
     if (index % 6 === 0) this.addPickup(index, "weapon", "grenade_launcher", { x: 0, y: 0, z: centerZ - 9 });
-    if (index % 5 === 0) this.addPickup(index, "armor", undefined, { x: -laneCenters[index % 3], y: 0, z: centerZ + 9 });
+    if (index % 5 === 0) this.addPickup(index, "armor", undefined, { x: -LANE_CENTERS[index % 3], y: 0, z: centerZ + 9 });
 
     if (index >= 2) {
-      this.botSpawns.push({ x: laneCenters[(index + 2) % 3], y: MOVEMENT.groundY, z: southZ + 8 });
+      this.botSpawns.push({ x: LANE_CENTERS[(index + 2) % 3], y: MOVEMENT.groundY, z: southZ + 8 });
       if (index % 5 === 0) {
-        this.botSpawns.push({ x: laneCenters[index % 3], y: MOVEMENT.groundY, z: southZ + 15 });
+        this.botSpawns.push({ x: LANE_CENTERS[index % 3], y: MOVEMENT.groundY, z: southZ + 15 });
       }
     }
     this.version += 1;

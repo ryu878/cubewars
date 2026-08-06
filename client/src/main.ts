@@ -37,9 +37,9 @@ const endlessFogEl = document.getElementById("endlessFog") as HTMLSpanElement;
 // SKY_COLOR fill/fog this used to share with a plain `scene.background` color.
 const FOG_COLOR = 0xf3d9a8;
 const scene = new THREE.Scene();
-// Arena spans roughly 92x52 units — fog range widened from EPIC 1/2's flat
-// field so the far site is still visible across mid/tunnel sightlines.
-scene.fog = new THREE.Fog(FOG_COLOR, 40, 170);
+// Keep the atmospheric haze, but let endless-mode chunks stay visibly present
+// far ahead; the dangerous rear fog wall is rendered separately.
+scene.fog = new THREE.Fog(FOG_COLOR, 120, 700);
 scene.add(buildSkyDome());
 
 const camera = new THREE.PerspectiveCamera(

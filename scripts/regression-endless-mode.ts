@@ -1,8 +1,46 @@
 import assert from "node:assert/strict";
-import { LEADERBOARD_LIMIT, boxBounds } from "@cubewars/shared";
+import { LEADERBOARD_LIMIT, boxBounds, type MapBox } from "@cubewars/shared";
 import { EndlessWorld } from "../server/src/endlessWorld.js";
 import { Match } from "../server/src/match.js";
 import { MatchManager, PUBLIC_MATCH_ID } from "../server/src/matchManager.js";
+
+function pointBlocked(geometry: readonly MapBox[], x: number, z: number): boolean {
+  return geometry.some((box) => {
+    const bounds = boxBounds(box);
+    return x > bounds.minX - 0.45 && x < bounds.maxX + 0.45 && z > bounds.minZ - 0.45 && z < bounds.maxZ + 0.45;
+  });
+}
+
+function hasMazePath(geometry: readonly MapBox[], targetZ: number): boolean {
+  const xs = Array.from({ length: 41 }, (_, index) => -20 + index);
+  const zs = Array.from({ length: Math.abs(targetZ) + 1 }, (_, index) => -index);
+  const start = { x: 0, z: 0 };
+  const queue = [start];
+  const visited = new Set([`${start.x}:${start.z}`]);
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) break;
+    if (current.z <= targetZ) return true;
+
+    const neighbors = [
+      { x: current.x + 1, z: current.z },
+      { x: current.x - 1, z: current.z },
+      { x: current.x, z: current.z + 1 },
+      { x: current.x, z: current.z - 1 },
+    ];
+
+    for (const next of neighbors) {
+      if (!xs.includes(next.x) || !zs.includes(next.z)) continue;
+      const key = `${next.x}:${next.z}`;
+      if (visited.has(key) || pointBlocked(geometry, next.x, next.z)) continue;
+      visited.add(key);
+      queue.push(next);
+    }
+  }
+
+  return false;
+}
 
 const world = new EndlessWorld();
 const initialGeometryCount = world.getGeometry().length;
@@ -17,13 +55,11 @@ assert.ok(world.getGeometry().length > initialGeometryCount, "endless world shou
 assert.ok(world.getPickups().length > initialPickupCount, "endless world should add pickups ahead of progress");
 assert.ok(world.takeBotSpawns(3, -120).length > 0, "endless world should provide bot spawns ahead of the player");
 assert.ok(world.getVersion() > initialVersion, "endless world version should change when generated content changes");
-for (let z = -2; z >= -900; z -= 2) {
-  const blocked = world.getGeometry().some((box) => {
-    const bounds = boxBounds(box);
-    return 0 > bounds.minX - 0.45 && 0 < bounds.maxX + 0.45 && z > bounds.minZ - 0.45 && z < bounds.maxZ + 0.45;
-  });
-  assert.equal(blocked, false, `endless center path should remain open at z=${z}`);
-}
+assert.ok(
+  world.getGeometry().some((box) => Math.abs(box.center.x) <= 8 && box.size.z > 4),
+  "endless world should include center maze divider walls",
+);
+assert.ok(hasMazePath(world.getGeometry(), -900), "endless maze should keep a walkable path through generated chunks");
 
 const rollingWorld = new EndlessWorld();
 rollingWorld.update(1, { x: 0, y: 0, z: -500 });
