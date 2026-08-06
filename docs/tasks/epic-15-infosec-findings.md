@@ -1,0 +1,56 @@
+# Infosec findings — Isya → Team Lead / record
+
+## Meta
+
+| Field | Value |
+|-------|-------|
+| Date | 2026-08-06 |
+| Scope (branch/PR/service/EPIC) | EPIC 15 — Fire/Input Debounce Cross-Type Interference Fix, `feature/fix-fire-input-debounce` @ `13825ba`, `git diff 8cbe78e..HEAD` |
+| Trigger | Team Lead assignment (mandatory pass per `docs/tasks/epic-15-fire-input-debounce-fix.md` Section 9, given this code path's EPIC-4 history: two Critic REVISE rounds + one Infosec release blocker) |
+
+## Short summary
+
+- Overall assessment: **low concern**. The diff is exactly what the spec, Tester, and Critic describe: a like-for-like replacement of the flood guard's accept/reject rule (single shared min-interval timestamp -> rolling-window message-count cap), at the identical pre-parse position, with identical uniform coverage across every message shape, identical aggregate/throttled logging pattern, and every previously-fixed/out-of-scope element (`maxPayload`, `lastFireAcceptedAt`/per-weapon cooldown gate) byte-for-byte untouched. I independently re-read the full diff and the full resulting `server/src/index.ts` handler (not just Critic's trace), independently re-ran the committed regression script, and independently built and ran a materially more extreme ad-hoc flood test than anything run so far in this EPIC's pipeline. All of it corroborates Tester/Critic's conclusions with no new defect found.
+- Release blockers (yes/no): **No.**
+
+## Findings
+
+| Severity | Area | Description | Recommendation |
+|----------|------|-------------|----------------|
+| info (verified clean) | Sliding-window correctness (`server/src/index.ts:190-209`) | Independently traced the window logic: `while (timestamps.length > 0 && timestamps[0] < windowStart) timestamps.shift();` then `if (timestamps.length >= MAX_MESSAGES_PER_WINDOW) { drop } else { push }`. This is a genuine continuous sliding window (pruned on every message, not a periodic/fixed bucket), so there is no boundary double-burst gap. The array is provably bounded to at most `MAX_MESSAGES_PER_WINDOW` (100) entries per connection at any time, because the length check runs *before* the push. Each timestamp is shifted out at most once over its lifetime, so the prune loop is amortized O(1) per message (accepted or rejected) even under sustained extreme flood — not a fresh CPU-cost vector. `messageTimestamps.delete(playerId)` on `close` prevents leak. No action needed. |
+| info (verified clean) | Pre-parse placement / uniform shape coverage (`server/src/index.ts:190-315`) | Re-read the full `socket.on("message", ...)` body start to finish, independent of Critic's line citations: the window check is unconditionally the first statement in the handler, runs before `isBinary`, before the `MAX_MESSAGE_BYTES` size check, before `JSON.parse`, and before all `parsed.type` dispatch branches (`join`/`input`/`fire`/`switch_weapon`/unknown-type fallthrough). This closes both EPIC-4 Critic REVISE-round gaps: a fire-only stream and a binary/oversized/non-JSON/unknown-type-only stream are both still uniformly counted and bounded, exactly as the spec's Section 2.1 requires. No action needed. |
+| info (verified clean) | `maxPayload`/`MAX_MESSAGE_BYTES` (Infosec F1, EPIC 4) | `git diff 8cbe78e..HEAD -- server/src/index.ts \| grep maxPayload\|MAX_MESSAGE_BYTES` shows no change to either the constant (`server/src/index.ts:44`, still `1024`) or the `WebSocketServer` options (`server/src/index.ts:67`, `maxPayload: MAX_MESSAGE_BYTES` still present). Independently re-ran `npm run regression:fire-input-drop-rate` — Tester/Critic's own oversized-payload observation (socket closed by `ws` itself, code 1009, before app code runs) is consistent with this. No action needed. |
+| info (verified clean) | No new trust-boundary / attack surface | Full diff read: the only new state introduced is server-local `Date.now()` timestamps in `messageTimestamps: Map<string, number[]>` — never a client-supplied value. No new message type, no new field read from `parsed`, no new dependency (`package.json` diff is a single new npm script alias), no client file touched (`client/src/main.ts`, `client/src/fpsController.ts` absent from the diff, confirmed via `git diff --stat`). This is genuinely a pure transport-layer accept/reject-timing change, as claimed. No action needed. |
+| info (verified clean, addresses Critic's flagged item 1) | EPIC-4 F3 (O(n²) aggregate hitscan scaling) vs. the 66.7/sec -> 100/sec ceiling change | Traced this explicitly rather than asserting it: the rate at which `performHitscan()` (O(n) per fire, `server/src/combat.ts:54`) is actually invoked per connection is governed by a *separate, unchanged* gate — `lastFireAcceptedAt` / `WEAPON_STATS[...].cooldownMs` (`server/src/index.ts:278-297`, confirmed byte-for-byte identical to `8cbe78e`), with `cooldownMs` values of 300ms (pistol), 250ms, and 1500ms per `shared/src/weapons.ts:46,57,68` — i.e. at most ~4 fire-driven hitscan calls/sec per connection at the fastest weapon, regardless of what the transport-layer flood guard allows through. This cooldown ceiling was already far below both the *old* 66.7/sec transport cap and the *new* 100/sec transport cap before this EPIC, and this diff does not touch it. The extra transport-layer headroom (66.7 -> 100/sec) is consumed by cheap message types (`input` validation, which is O(1) per `playerRegistry.applyInput()` — confirmed no player-iteration loop; unknown-type/garbage rejection paths) — none of which reach the O(n) hitscan loop. **Conclusion: the ceiling change has no effect on F3's O(n²) aggregate-scaling exposure.** F3 remains exactly the same order-of-magnitude accepted residual risk it was in EPIC 4, unaffected by this diff. No action required to unblock this EPIC. |
+| info (verified clean, addresses Critic's flagged item 2) | Behavior at genuinely extreme flood rates (beyond what Tester/Critic/the committed script exercised, ~2,000 msgs/sec) | Independently re-ran the committed `npm run regression:fire-input-drop-rate` (all 6 assertions PASS, numbers consistent with Tester's/Critic's own runs). Additionally built and ran a standalone ad-hoc flood harness (not committed — deleted after use) that pushed a single connection to a sustained client-observed send rate of **~326,000-444,000 msgs/sec** for several seconds (same order of magnitude as, and in one run higher than, the 185,800 msgs/sec Critic reproduced against the pre-EPIC-15 code in EPIC 4's review), while a second, independently-timed, well-behaved connection (joined a match, sending legitimate `input` at the real client's 33ms cadence) ran concurrently. Result: only **2** aggregate flood-guard log lines were produced for the flood connection despite ~1.88 million rejected messages in one run (O(1), not O(message count) — confirms the untouched `createDropTracker`/`FLOOD_LOG_INTERVAL_MS` aggregate-logging pattern, the EPIC-4-era mitigation for the synchronous-`console.warn`-under-flood/event-loop-stall risk, remains fully effective at this much higher volume too); the concurrent well-behaved connection was never stalled for seconds — observed max inter-send gap was ~52ms against a 33ms target (minor scheduling jitter consistent with one Node process running two WS clients plus the server subprocess locally, not evidence of a multi-second tick-stall). This corroborates Tester's/Critic's conclusion at a rate they did not themselves reach. No action required. |
+| low / info | K/M derivation is a hardcoded, doc-commented assumption tying the transport cap's safety margin to the fire-cooldown gate's independent throttling of hitscan cost | Not a defect today (see F3 finding above) — flagged only so a *future* change doesn't silently break the reasoning: if `MAX_MESSAGES_PER_WINDOW`/`FLOOD_WINDOW_MS` is raised further, or if the per-weapon cooldown gate is ever removed/weakened in a later EPIC, the "transport cap increase doesn't matter because hitscan rate is separately gated" argument in this report would need to be re-derived, not assumed to still hold. | No action required now. Worth a one-line comment cross-reference (optional, non-blocking) the next time either constant changes, so a future reviewer doesn't have to re-derive this from scratch. Route any such follow-up through Team Lead, not directly to Programmer. |
+
+Severity: `critical` / `high` / `medium` / `low` / `info`.
+
+## Residual risks
+
+- **EPIC-4 F2** (no heartbeat / connection-leak on unclean disconnect) — still open, entirely untouched by this diff, unrelated to the flood-guard mechanism. Accepted as pre-existing residual risk, not this EPIC's job.
+- **EPIC-4 F3** (O(n²) aggregate hitscan-processing cost in concurrently-firing connections, no max-connections cap) — still open, and explicitly re-confirmed in this review (see findings table) to be **unaffected in practice** by the 66.7/sec -> 100/sec transport-ceiling change, because actual hitscan-call rate is gated by the separate, unchanged per-weapon cooldown (~4/sec max per connection), not by the transport-layer message-count cap. Remains accepted as residual risk at the same order of magnitude as EPIC 4, "not urgent for current scope."
+- **EPIC-4 F4** (health broadcast to all connections = persistent "health ESP" for a modified client reading the WS feed) — still open, untouched, out of scope for this EPIC, previously accepted as a plausible arcade-FFA design trade-off.
+- No new residual risk introduced by EPIC 15 itself.
+
+## Code / infrastructure changes
+
+- Required: no.
+- If a future change is warranted (e.g. the optional comment cross-reference noted above, or eventually addressing F2/F3/F4) — **only through Team Lead** → Programmer → Tester → Critic → (Judge). Not assigned by Infosec directly.
+
+## Links
+
+- Files reviewed:
+  - `/home/dmitry/Documents/Projects/Python/cubewars/server/src/index.ts` (full file read; diff at lines 9-41, 60-90, 123-127, 190-209, 326)
+  - `/home/dmitry/Documents/Projects/Python/cubewars/server/src/combat.ts` (`performHitscan`, lines 54-90+)
+  - `/home/dmitry/Documents/Projects/Python/cubewars/server/src/playerRegistry.ts` (`applyInput`, `getFireCooldownMs`, `fire`)
+  - `/home/dmitry/Documents/Projects/Python/cubewars/shared/src/weapons.ts` (`WEAPON_STATS[...].cooldownMs`)
+  - `/home/dmitry/Documents/Projects/Python/cubewars/scripts/regression-fire-input-drop-rate.mjs` (re-run independently)
+  - `/home/dmitry/Documents/Projects/Python/cubewars/README.md`, `/home/dmitry/Documents/Projects/Python/cubewars/package.json` (diff only)
+  - `/home/dmitry/Documents/Projects/Python/cubewars/docs/tasks/epic-15-fire-input-debounce-fix.md`
+  - `/home/dmitry/Documents/Projects/Python/cubewars/docs/tasks/epic-15-tester-report.md`
+  - `/home/dmitry/Documents/Projects/Python/cubewars/docs/tasks/epic-15-critic-review.md`
+  - `/home/dmitry/Documents/Projects/Python/cubewars/docs/tasks/epic-04-critic-review.md`
+  - `/home/dmitry/Documents/Projects/Python/cubewars/docs/tasks/epic-04-infosec-findings.md`
+- Ad-hoc verification: a standalone extreme-flood harness was written and run locally to independently re-confirm bounded throughput / O(1) logging at ~326k-444k msgs/sec on a single connection; it was not committed and was deleted after use (not part of the reviewed diff).
