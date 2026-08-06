@@ -106,14 +106,21 @@ fogWall.position.y = 2.5;
 fogWall.visible = false;
 scene.add(fogWall);
 
+function disposeMeshMaterial(material: THREE.Material): void {
+  if ("map" in material && material.map instanceof THREE.Texture) {
+    material.map.dispose();
+  }
+  material.dispose();
+}
+
 function renderMapGeometry(boxes: readonly MapBox[]): void {
   for (const child of mapGeometryGroup.children) {
     if (child instanceof THREE.Mesh) {
       child.geometry.dispose();
       if (Array.isArray(child.material)) {
-        for (const material of child.material) material.dispose();
+        for (const material of child.material) disposeMeshMaterial(material);
       } else {
-        child.material.dispose();
+        disposeMeshMaterial(child.material);
       }
     }
   }

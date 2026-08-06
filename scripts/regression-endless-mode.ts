@@ -35,6 +35,27 @@ assert.ok(
 );
 assert.ok(rollingWorld.getGeometry().length > 0, "rolling endless world should keep playable geometry");
 
+const longRunWorld = new EndlessWorld();
+for (let z = -120; z >= -5000; z -= 40) {
+  longRunWorld.update(1, { x: 0, y: 0, z });
+  const geometry = longRunWorld.getGeometry();
+  assert.ok(geometry.length > 0, `long endless run should keep geometry at z=${z}`);
+
+  const farthestGeneratedZ = Math.min(...geometry.map((box) => box.center.z - box.size.z / 2));
+  assert.ok(
+    farthestGeneratedZ <= z - 360,
+    `long endless run should keep generated map ahead at z=${z}; farthest=${farthestGeneratedZ}`,
+  );
+
+  for (let sampleZ = z + 40; sampleZ >= z - 320; sampleZ -= 40) {
+    const hasRenderedSlice = geometry.some((box) => {
+      const bounds = boxBounds(box);
+      return sampleZ >= bounds.minZ && sampleZ <= bounds.maxZ;
+    });
+    assert.ok(hasRenderedSlice, `long endless run should not leave an empty geometry slice at z=${sampleZ}`);
+  }
+}
+
 const manager = new MatchManager();
 manager.recordEndlessProgress("Runner", 5, 0.42);
 manager.recordEndlessProgress("Runner", 2, 0.12);
