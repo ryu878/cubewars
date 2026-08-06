@@ -870,6 +870,7 @@ export class PlayerRegistry {
         yaw: player.yaw,
         health: player.health,
         armor: player.armor,
+        equippedWeapon: player.equippedWeapon,
         alive: player.alive,
       });
     }

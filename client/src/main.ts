@@ -220,6 +220,7 @@ function animate() {
   // horizontally" (see fpsController.ts), so this single call correctly
   // gates footsteps off while airborne/stationary/dead/unlocked.
   soundManager.update(dt, fps.isRunning());
+  remotePlayers.update(dt);
   renderer.render(scene, camera);
 }
 animate();
@@ -272,7 +273,7 @@ const connection = new GameConnection(wsUrl, {
     modeSelect.enable();
   },
   onWorldState: (message: WorldStateMessage) => {
-    remotePlayers.sync(message.players, selfId);
+    remotePlayers.sync(message.players, selfId, message.serverTimeMs);
     if (selfId) {
       const self = message.players.find((p) => p.id === selfId);
       if (self) {

@@ -207,6 +207,13 @@ export interface PlayerState {
    * missed an intermediate update.
    */
   armor: number;
+  /**
+   * Currently equipped weapon, selected and enforced server-side. Broadcast
+   * to everyone from EPIC 17 onward so remote avatars can visibly hold the
+   * right weapon; this is an intentional cosmetic information reveal, not a
+   * client-controlled gameplay input.
+   */
+  equippedWeapon: WeaponType;
   /** False while dead and waiting to respawn — server stops applying movement/combat for this player while false. */
   alive: boolean;
 }

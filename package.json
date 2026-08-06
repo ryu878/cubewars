@@ -15,7 +15,9 @@
     "regression:bot-aim-miss-rate": "tsx scripts/regression-bot-aim-miss-rate.ts",
     "regression:crate-mount": "tsx scripts/regression-crate-mount.ts",
     "regression:weapon-autoswitch": "tsx scripts/regression-weapon-autoswitch.ts",
-    "regression:fire-input-drop-rate": "node scripts/regression-fire-input-drop-rate.mjs"
+    "regression:playerstate-equipped-weapon": "tsx scripts/regression-playerstate-equipped-weapon.ts",
+    "regression:fire-input-drop-rate": "node scripts/regression-fire-input-drop-rate.mjs",
+    "qa:epic17-avatar-selfcheck": "node scripts/qa-epic17-avatar-selfcheck.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.0.1",
