@@ -7,6 +7,7 @@ import { MatchManager, PUBLIC_MATCH_ID } from "../server/src/matchManager.js";
 const world = new EndlessWorld();
 const initialGeometryCount = world.getGeometry().length;
 const initialPickupCount = world.getPickups().length;
+const initialVersion = world.getVersion();
 
 assert.ok(initialGeometryCount > 0, "endless world should generate starting geometry");
 assert.ok(initialPickupCount > 0, "endless world should generate starting pickups");
@@ -15,6 +16,17 @@ world.update(1, { x: 0, y: 0, z: -520 });
 assert.ok(world.getGeometry().length > initialGeometryCount, "endless world should grow ahead of progress");
 assert.ok(world.getPickups().length > initialPickupCount, "endless world should add pickups ahead of progress");
 assert.ok(world.takeBotSpawns(3, -120).length > 0, "endless world should provide bot spawns ahead of the player");
+assert.ok(world.getVersion() > initialVersion, "endless world version should change when generated content changes");
+
+const rollingWorld = new EndlessWorld();
+rollingWorld.update(1, { x: 0, y: 0, z: -500 });
+const rollingVersion = rollingWorld.getVersion();
+rollingWorld.update(1, { x: 0, y: 0, z: -540 });
+assert.ok(
+  rollingWorld.getVersion() > rollingVersion,
+  "endless world version should change when chunks roll even if object count is stable",
+);
+assert.ok(rollingWorld.getGeometry().length > 0, "rolling endless world should keep playable geometry");
 
 const manager = new MatchManager();
 manager.recordEndlessProgress("Runner", 5, 0.42);

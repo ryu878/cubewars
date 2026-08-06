@@ -32,6 +32,7 @@ export class EndlessWorld {
   private botSpawns: Vector3[] = [];
   private fogZ = FOG_START_Z;
   private furthestDistanceMeters = 0;
+  private version = 0;
 
   constructor() {
     this.ensureGeneratedToDistance(0);
@@ -43,6 +44,10 @@ export class EndlessWorld {
 
   getPickups(): readonly PickupSpawnPoint[] {
     return this.pickups;
+  }
+
+  getVersion(): number {
+    return this.version;
   }
 
   getSpawnPoints(): readonly Vector3[] {
@@ -61,6 +66,7 @@ export class EndlessWorld {
     this.botSpawns = [];
     this.fogZ = FOG_START_Z;
     this.furthestDistanceMeters = 0;
+    this.version += 1;
     this.ensureGeneratedToDistance(0);
   }
 
@@ -118,8 +124,13 @@ export class EndlessWorld {
 
   private trimBehind(playerZ: number): void {
     const trimAfterZ = playerZ + KEEP_BEHIND_CHUNKS * CHUNK_LENGTH;
-    this.boxes = this.boxes.filter((box) => box.center.z - box.size.z / 2 <= trimAfterZ);
-    this.pickups = this.pickups.filter((pickup) => pickup.position.z <= trimAfterZ);
+    const nextBoxes = this.boxes.filter((box) => box.center.z - box.size.z / 2 <= trimAfterZ);
+    const nextPickups = this.pickups.filter((pickup) => pickup.position.z <= trimAfterZ);
+    if (nextBoxes.length !== this.boxes.length || nextPickups.length !== this.pickups.length) {
+      this.version += 1;
+    }
+    this.boxes = nextBoxes;
+    this.pickups = nextPickups;
   }
 
   private generateChunk(index: number): void {
@@ -175,6 +186,7 @@ export class EndlessWorld {
         this.botSpawns.push({ x: laneCenters[index % 3], y: MOVEMENT.groundY, z: southZ + 15 });
       }
     }
+    this.version += 1;
   }
 
   private addPickup(index: number, category: PickupCategory, weapon: WeaponType | undefined, position: Vector3): void {

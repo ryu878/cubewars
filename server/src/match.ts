@@ -109,7 +109,7 @@ export class Match {
   private endlessHumanId: string | null = null;
   private endlessBotKills = 0;
   private endlessNextBotSeq = 1;
-  private lastMapGeometryCount = 0;
+  private lastMapVersion = -1;
   private lastEndlessProgressAtMs = 0;
 
   constructor(private options: MatchOptions) {
@@ -231,7 +231,7 @@ export class Match {
     const bounds = this.endlessWorld?.getBounds() ?? ARENA_BOUNDS;
     const message: MapStateMessage = { type: "map_state", geometry: [...this.currentGeometry()], bounds };
     this.broadcast(message);
-    this.lastMapGeometryCount = message.geometry.length;
+    this.lastMapVersion = this.endlessWorld?.getVersion() ?? 0;
   }
 
   sendEndlessState(): void {
@@ -586,7 +586,7 @@ export class Match {
     const state = this.endlessWorld.update(TICK_DT_SECONDS, human?.position ?? null);
     this.pickupSpawner.syncPoints(this.endlessWorld.getPickups());
 
-    if (this.currentGeometry().length !== this.lastMapGeometryCount) {
+    if (this.endlessWorld.getVersion() !== this.lastMapVersion) {
       this.sendMapState();
       this.broadcastPickupState();
     }
@@ -652,7 +652,7 @@ export class Match {
     this.projectiles.clear();
     this.endlessBotKills = 0;
     this.endlessNextBotSeq = 1;
-    this.lastMapGeometryCount = 0;
+    this.lastMapVersion = -1;
     this.sendMapState();
     this.broadcastPickupState();
     this.sendEndlessState();
