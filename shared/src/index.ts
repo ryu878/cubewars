@@ -178,6 +178,7 @@ export interface SwitchWeaponEvent {
 export type MatchMode = "public" | "bots";
 
 export const MAX_PUBLIC_PLAYERS_PER_MATCH = 4;
+export const LEADERBOARD_LIMIT = 20;
 
 export interface LobbyMatchSummary {
   id: string;
@@ -313,6 +314,12 @@ export interface PlayerScore {
   kills: number;
 }
 
+export interface LeaderboardEntry {
+  nickname: string;
+  kills: number;
+  deaths: number;
+}
+
 export interface LobbyStateMessage {
   type: "lobby_state";
   matches: LobbyMatchSummary[];
@@ -327,6 +334,11 @@ export interface JoinAcceptedMessage {
 export interface JoinRejectedMessage {
   type: "join_rejected";
   reason: "nickname_invalid" | "nickname_taken" | "match_full" | "match_not_found";
+}
+
+export interface LeaderboardMessage {
+  type: "leaderboard";
+  entries: LeaderboardEntry[];
 }
 
 /**
@@ -419,6 +431,7 @@ export type ServerMessage =
   | RespawnEvent
   | KillEvent
   | ScoreboardMessage
+  | LeaderboardMessage
   | LobbyStateMessage
   | JoinAcceptedMessage
   | JoinRejectedMessage

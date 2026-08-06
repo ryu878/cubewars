@@ -31,6 +31,8 @@ import {
   type FireBroadcastEvent,
   type HitEvent,
   type KillEvent,
+  type LeaderboardEntry,
+  type LeaderboardMessage,
   type LoadoutMessage,
   type PickupStateMessage,
   type ProjectileImpactEvent,
@@ -81,6 +83,7 @@ export interface MatchOptions {
    * matchManager.ts).
    */
   onEmpty?: (matchId: string) => void;
+  onKillRecorded?: (attackerNickname: string, victimNickname: string) => void;
 }
 
 export class Match {
@@ -317,6 +320,7 @@ export class Match {
           victimNickname: this.registry.getNickname(event.targetId),
         };
         this.broadcast(killMessage);
+        this.options.onKillRecorded?.(killMessage.attackerNickname, killMessage.victimNickname);
         scoreboardChanged = true;
       }
     }
@@ -324,6 +328,11 @@ export class Match {
     if (scoreboardChanged) {
       this.broadcastScoreboard();
     }
+  }
+
+  broadcastLeaderboard(entries: LeaderboardEntry[]): void {
+    const message: LeaderboardMessage = { type: "leaderboard", entries };
+    this.broadcast(message);
   }
 
   /** Start this match's own fixed-tick physics/respawn/pickup/broadcast loop. Call exactly once, right after construction (see MatchManager) — not idempotent. */

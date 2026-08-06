@@ -79,6 +79,13 @@ Combat is server-authoritative too: firing sends a bare "fire" event, and the se
 
 ## Current status
 
+EPIC 21 (Nickname Leaderboard) — see `docs/tasks/epic-21-nickname-leaderboard.md`. Direct user feedback (Russian): "сделай еще лидербоард, где будет написано сколько раз ник выиграл, сколько смертей. И сортировку чтобы сверху были топы. Ну и пусть будет всего 20 в списке."
+
+- **Top-20 nickname leaderboard:** the start screen now shows a leaderboard with rank, nickname, kills, and deaths. The game does not have round wins yet, so the "wins/top" metric is currently kills.
+- **Server-side accounting:** every server-confirmed kill increments the attacker's kills and the victim's deaths in an in-memory table keyed by normalized nickname. The leaderboard resets on server restart; no database/account system was added.
+- **Sorting:** entries sort by kills descending, then deaths ascending, then nickname, and only the top 20 are broadcast/rendered.
+- Verified via `npm run regression:leaderboard`.
+
 EPIC 20 (Lobby, Nicknames, and 4-Player Public Matches) — see `docs/tasks/epic-20-lobby-nicknames-match-capacity.md`. Direct user feedback (Russian): "максимально кол-во игроков на карте 4 ... лобби и список начатых игр ... Если нет мест - создай новую ... выбрать себе ник ... пустят в матч, только если там нету такого же."
 
 - **Lobby + match list:** the start screen now asks for a nickname and shows public games with occupancy (`Game N · players/4`). You can Quick Join or pick a specific public game from the list.

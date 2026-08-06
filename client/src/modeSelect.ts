@@ -7,7 +7,7 @@
 // network.ts / main.ts, per global-standards.mdc "keep game/simulation logic
 // separate from transport/rendering code").
 
-import { normalizeNickname, type LobbyMatchSummary, type MatchMode } from "@cubewars/shared";
+import { normalizeNickname, type LeaderboardEntry, type LobbyMatchSummary, type MatchMode } from "@cubewars/shared";
 
 export interface JoinSelection {
   mode: MatchMode;
@@ -23,6 +23,7 @@ export class ModeSelect {
   private botsBtn: HTMLButtonElement;
   private nicknameInput: HTMLInputElement;
   private lobbyListEl: HTMLElement;
+  private leaderboardListEl: HTMLElement;
   private errorEl: HTMLElement;
   private pending = false;
   private enabled = false;
@@ -34,6 +35,7 @@ export class ModeSelect {
     this.botsBtn = document.getElementById("modeBotsBtn") as HTMLButtonElement;
     this.nicknameInput = document.getElementById("nicknameInput") as HTMLInputElement;
     this.lobbyListEl = document.getElementById("lobbyList") as HTMLElement;
+    this.leaderboardListEl = document.getElementById("leaderboardList") as HTMLElement;
     this.errorEl = document.getElementById("modeSelectError") as HTMLElement;
 
     this.nicknameInput.value = localStorage.getItem(NICKNAME_STORAGE_KEY) ?? "";
@@ -105,6 +107,37 @@ export class ModeSelect {
             ? "That game is gone"
             : "Use 3-16 letters, numbers, spaces, _ or -";
     this.updateButtons();
+  }
+
+  setLeaderboard(entries: LeaderboardEntry[]): void {
+    this.leaderboardListEl.replaceChildren();
+    if (entries.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "leaderboard-empty";
+      empty.textContent = "No scores yet";
+      this.leaderboardListEl.appendChild(empty);
+      return;
+    }
+
+    for (const [index, entry] of entries.entries()) {
+      const row = document.createElement("div");
+      row.className = "leaderboard-row";
+
+      const rankEl = document.createElement("span");
+      rankEl.className = "leaderboard-rank";
+      rankEl.textContent = String(index + 1);
+
+      const nameEl = document.createElement("span");
+      nameEl.className = "leaderboard-name";
+      nameEl.textContent = entry.nickname;
+
+      const statsEl = document.createElement("span");
+      statsEl.className = "leaderboard-stats";
+      statsEl.textContent = `${entry.kills} K / ${entry.deaths} D`;
+
+      row.append(rankEl, nameEl, statsEl);
+      this.leaderboardListEl.appendChild(row);
+    }
   }
 
   private select(mode: MatchMode, matchId?: string): void {

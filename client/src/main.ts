@@ -273,6 +273,9 @@ const connection = new GameConnection(wsUrl, {
   onLobbyState: (message) => {
     modeSelect.setLobby(message.matches);
   },
+  onLeaderboard: (message) => {
+    modeSelect.setLeaderboard(message.entries);
+  },
   onJoinAccepted: (message) => {
     modeSelect.joinAccepted(message.nickname);
     statusEl.textContent = `joined ${message.matchId} — ${message.nickname}`;

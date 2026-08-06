@@ -7,6 +7,7 @@ import {
   type ClientMessage,
   type JoinAcceptedMessage,
   type JoinRejectedMessage,
+  type LeaderboardMessage,
   type LobbyStateMessage,
   type WelcomeMessage,
 } from "@cubewars/shared";
@@ -81,7 +82,9 @@ const wss = new WebSocketServer({ port: PORT, maxPayload: MAX_MESSAGE_BYTES });
 // transport (WS connections, per-connection flood/rate-limit guards,
 // message parsing/dispatch, join routing) — never game/simulation logic
 // itself (global-standards.mdc: keep game logic separate from transport).
-const matchManager = new MatchManager();
+const matchManager = new MatchManager({
+  onLeaderboardChanged: () => broadcastLobbyLeaderboard(),
+});
 
 // Shared across EVERY message shape a connection can send (join, input,
 // fire, binary, oversized, non-JSON, unknown-type, malformed-input —
@@ -176,7 +179,14 @@ function lobbyStateMessage(): LobbyStateMessage {
   return { type: "lobby_state", matches: matchManager.listPublicMatches() };
 }
 
-function sendJson(socket: WebSocket, message: WelcomeMessage | LobbyStateMessage | JoinAcceptedMessage | JoinRejectedMessage): void {
+function leaderboardMessage(): LeaderboardMessage {
+  return { type: "leaderboard", entries: matchManager.listLeaderboard() };
+}
+
+function sendJson(
+  socket: WebSocket,
+  message: WelcomeMessage | LobbyStateMessage | LeaderboardMessage | JoinAcceptedMessage | JoinRejectedMessage,
+): void {
   if (socket.readyState === socket.OPEN) {
     socket.send(JSON.stringify(message));
   }
@@ -184,6 +194,13 @@ function sendJson(socket: WebSocket, message: WelcomeMessage | LobbyStateMessage
 
 function broadcastLobbyState(): void {
   const message = lobbyStateMessage();
+  for (const socket of lobbySockets) {
+    sendJson(socket, message);
+  }
+}
+
+function broadcastLobbyLeaderboard(): void {
+  const message = leaderboardMessage();
   for (const socket of lobbySockets) {
     sendJson(socket, message);
   }
@@ -218,6 +235,7 @@ wss.on("connection", (socket: WebSocket) => {
   };
   sendJson(socket, welcome);
   sendJson(socket, lobbyStateMessage());
+  sendJson(socket, leaderboardMessage());
 
   socket.on("message", (data, isBinary) => {
     // Rolling-window count check runs FIRST, before any
@@ -313,11 +331,13 @@ wss.on("connection", (socket: WebSocket) => {
       match.addHuman(playerId, socket, nickname, nicknameKey);
       const accepted: JoinAcceptedMessage = { type: "join_accepted", matchId: match.id, nickname };
       sendJson(socket, accepted);
+      sendJson(socket, leaderboardMessage());
       console.log(
         `[server] player joined match "${match.id}" (mode=${parsed.mode}): ${nickname} (${playerId}) ` +
           `(${match.humanCount()} human(s) in match)`,
       );
       broadcastLobbyState();
+      broadcastLobbyLeaderboard();
       return;
     }
 
@@ -392,6 +412,7 @@ wss.on("connection", (socket: WebSocket) => {
     if (match) {
       match.removeHuman(playerId);
       broadcastLobbyState();
+      broadcastLobbyLeaderboard();
     }
     lobbySockets.delete(socket);
     connectionCount -= 1;

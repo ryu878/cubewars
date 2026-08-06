@@ -454,12 +454,18 @@
       #nicknameInput:focus {
         border-color: #7fb3e0;
       }
-      #lobbyList {
+      #lobbyList,
+      #leaderboardList {
         display: grid;
         gap: 8px;
         margin: 0 0 14px;
-        max-height: 190px;
         overflow: auto;
+      }
+      #lobbyList {
+        max-height: 150px;
+      }
+      #leaderboardList {
+        max-height: 210px;
       }
       .lobby-row {
         display: flex;
@@ -480,13 +486,50 @@
         white-space: nowrap;
       }
       .lobby-empty,
+      .leaderboard-empty,
       #modeSelectError {
         min-height: 18px;
         color: #ffaaa0;
         font-size: 13px;
       }
-      .lobby-empty {
+      .lobby-empty,
+      .leaderboard-empty {
         color: #bbb;
+      }
+      .mode-section-title {
+        margin: 12px 0 8px;
+        color: #d7e8ff;
+        font-size: 13px;
+        font-weight: 800;
+        text-align: left;
+        text-transform: uppercase;
+      }
+      .leaderboard-row {
+        display: grid;
+        grid-template-columns: 28px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        padding: 7px 10px;
+        background: rgba(255, 255, 255, 0.07);
+        border-radius: 8px;
+        color: #eee;
+        font-size: 13px;
+      }
+      .leaderboard-rank {
+        color: #9fc8ff;
+        font-weight: 900;
+      }
+      .leaderboard-name {
+        overflow: hidden;
+        font-weight: 750;
+        text-align: left;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .leaderboard-stats {
+        color: #ddd;
+        font-variant-numeric: tabular-nums;
+        font-weight: 800;
       }
       #modeSelect .mode-select-buttons {
         display: flex;
@@ -552,7 +595,10 @@
         <p>Choose a nickname and join a game</p>
         <label for="nicknameInput">Nickname</label>
         <input id="nicknameInput" type="text" maxlength="16" autocomplete="nickname" placeholder="Player" />
+        <div class="mode-section-title">Games</div>
         <div id="lobbyList" aria-live="polite"></div>
+        <div class="mode-section-title">Leaderboard</div>
+        <div id="leaderboardList" aria-live="polite"></div>
         <div id="modeSelectError" aria-live="polite"></div>
         <div class="mode-select-buttons">
           <button id="modePublicBtn" type="button" disabled>Quick Join</button>

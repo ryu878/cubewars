@@ -1,27 +1,34 @@
 // Match manager (EPIC 9 "Bots & Match Modes" Architecture Section 2):
 // Map<matchId, Match>, replacing the single global PlayerRegistry/
-// PickupSpawner/tick-interval that existed pre-EPIC-9. Owns the one
-// persistent "public" match (created here at construction time, fixed id)
-// and creates/destroys private "bots:<connectionId>" matches on demand,
-// driven entirely by server/src/index.ts's connection/message handling
-// (this module has no `ws`/transport dependency of its own).
+// PickupSpawner/tick-interval that existed pre-EPIC-9. Owns the public
+// match pool (one is created at startup, new ones are added when the active
+// games fill up) and creates/destroys private "bots:<connectionId>" matches
+// on demand, driven entirely by server/src/index.ts's connection/message
+// handling (this module has no `ws`/transport dependency of its own).
 
-import { MAX_PUBLIC_PLAYERS_PER_MATCH, type LobbyMatchSummary } from "@cubewars/shared";
+import {
+  LEADERBOARD_LIMIT,
+  MAX_PUBLIC_PLAYERS_PER_MATCH,
+  normalizeNickname,
+  type LeaderboardEntry,
+  type LobbyMatchSummary,
+} from "@cubewars/shared";
 import { Match } from "./match.js";
 
-/** Fixed id for the single persistent public match (EPIC 9 spec Section 2). */
+/** Fixed id for the first persistent public match (EPIC 9 spec Section 2). */
 export const PUBLIC_MATCH_ID = "public";
+
+export interface MatchManagerOptions {
+  onLeaderboardChanged?: (entries: LeaderboardEntry[]) => void;
+}
 
 export class MatchManager {
   private matches = new Map<string, Match>();
   private nextPublicMatchNumber = 1;
+  private leaderboard = new Map<string, LeaderboardEntry>();
 
-  constructor() {
-    // Created at startup, always exists, whether 0, 1, or many players are
-    // in it — this IS today's pre-EPIC-9 single shared world, unchanged
-    // (EPIC 9 spec Section 2: "If you're the only one in it, you're just
-    // walking around alone ... this is the 'waiting for players' mode, not
-    // a separate thing to build").
+  constructor(private options: MatchManagerOptions = {}) {
+    // Created at startup and kept available as the first public game.
     this.createPublicMatch();
   }
 
@@ -47,6 +54,21 @@ export class MatchManager {
     }));
   }
 
+  listLeaderboard(): LeaderboardEntry[] {
+    return [...this.leaderboard.values()]
+      .sort((a, b) => b.kills - a.kills || a.deaths - b.deaths || a.nickname.localeCompare(b.nickname))
+      .slice(0, LEADERBOARD_LIMIT)
+      .map((entry) => ({ ...entry }));
+  }
+
+  recordKill(attackerNickname: string, victimNickname: string): void {
+    const attacker = this.getOrCreateLeaderboardEntry(attackerNickname);
+    attacker.kills += 1;
+    const victim = this.getOrCreateLeaderboardEntry(victimNickname);
+    victim.deaths += 1;
+    this.broadcastLeaderboard();
+  }
+
   /**
    * Create a fresh private "bots:<connectionId>" match containing exactly
    * this one (about-to-join) human + 2 bots (EPIC 9 spec Section 2). The
@@ -60,6 +82,7 @@ export class MatchManager {
       id,
       mode: "bots",
       onEmpty: (matchId) => this.destroy(matchId),
+      onKillRecorded: (attackerNickname, victimNickname) => this.recordKill(attackerNickname, victimNickname),
     });
     match.start();
     this.matches.set(id, match);
@@ -98,10 +121,35 @@ export class MatchManager {
   private createPublicMatch(): Match {
     const id = this.nextPublicMatchNumber === 1 ? PUBLIC_MATCH_ID : `public-${this.nextPublicMatchNumber}`;
     this.nextPublicMatchNumber += 1;
-    const match = new Match({ id, mode: "public" });
+    const match = new Match({
+      id,
+      mode: "public",
+      onKillRecorded: (attackerNickname, victimNickname) => this.recordKill(attackerNickname, victimNickname),
+    });
     match.start();
     this.matches.set(id, match);
     console.log(`[server] public match available: ${id} (${MAX_PUBLIC_PLAYERS_PER_MATCH} max players)`);
     return match;
+  }
+
+  private getOrCreateLeaderboardEntry(nickname: string): LeaderboardEntry {
+    const normalized = normalizeNickname(nickname);
+    const key = normalized.ok ? normalized.key : nickname.toLocaleLowerCase();
+    let entry = this.leaderboard.get(key);
+    if (!entry) {
+      entry = { nickname: normalized.ok ? normalized.nickname : nickname, kills: 0, deaths: 0 };
+      this.leaderboard.set(key, entry);
+    } else if (normalized.ok) {
+      entry.nickname = normalized.nickname;
+    }
+    return entry;
+  }
+
+  private broadcastLeaderboard(): void {
+    const entries = this.listLeaderboard();
+    for (const match of this.matches.values()) {
+      match.broadcastLeaderboard(entries);
+    }
+    this.options.onLeaderboardChanged?.(entries);
   }
 }

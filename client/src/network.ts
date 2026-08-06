@@ -8,6 +8,7 @@ import type {
   JoinAcceptedMessage,
   JoinRejectedMessage,
   KillEvent,
+  LeaderboardMessage,
   LoadoutMessage,
   LobbyStateMessage,
   PickupStateMessage,
@@ -25,6 +26,7 @@ export interface NetworkHandlers {
   onLobbyState?: (message: LobbyStateMessage) => void;
   onJoinAccepted?: (message: JoinAcceptedMessage) => void;
   onJoinRejected?: (message: JoinRejectedMessage) => void;
+  onLeaderboard?: (message: LeaderboardMessage) => void;
   /** A fire event resolved to a confirmed hit somewhere (EPIC 4 Story 4.1) — cosmetic feedback trigger only, not the source of truth for health (see WorldStateMessage.players[].health for that). */
   onHit?: (message: HitEvent) => void;
   /** A player's health reached 0 (EPIC 4 Story 4.2) — cosmetic feedback trigger only. */
@@ -68,6 +70,8 @@ export class GameConnection {
           handlers.onJoinAccepted?.(message);
         } else if (message.type === "join_rejected") {
           handlers.onJoinRejected?.(message);
+        } else if (message.type === "leaderboard") {
+          handlers.onLeaderboard?.(message);
         } else if (message.type === "hit") {
           handlers.onHit?.(message);
         } else if (message.type === "death") {
