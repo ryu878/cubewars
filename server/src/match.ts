@@ -20,10 +20,13 @@
 import type { WebSocket } from "ws";
 import {
   ARENA_GEOMETRY,
+  ARENA_BOUNDS,
   BROADCAST_TICK_HZ,
   COMBAT,
   MAX_PUBLIC_PLAYERS_PER_MATCH,
   PICKUP_RADIUS,
+  SPAWN_POINTS,
+  type EndlessStateMessage,
   boxBounds,
   playerHitboxBounds,
   rayIntersectsAabb,
@@ -34,6 +37,8 @@ import {
   type LeaderboardEntry,
   type LeaderboardMessage,
   type LoadoutMessage,
+  type MapBox,
+  type MapStateMessage,
   type PickupStateMessage,
   type ProjectileImpactEvent,
   type Ray,
@@ -47,6 +52,7 @@ import {
 import { PlayerRegistry, type DamageEvent, type FireOutcome } from "./playerRegistry.js";
 import { PickupSpawner } from "./pickupSpawner.js";
 import { BotAI } from "./botAI.js";
+import { EndlessWorld } from "./endlessWorld.js";
 import { classifyHitZone, pointOnRay } from "./combat.js";
 
 // Same tick rate/derivation as the pre-EPIC-9 single global loop
@@ -68,7 +74,7 @@ interface ActiveProjectile {
   remainingDistance: number;
 }
 
-export type MatchMode = "public" | "bots";
+export type MatchMode = "public" | "bots" | "endless";
 
 export interface MatchOptions {
   id: string;
@@ -84,12 +90,13 @@ export interface MatchOptions {
    */
   onEmpty?: (matchId: string) => void;
   onKillRecorded?: (attackerNickname: string, victimNickname: string) => void;
+  onEndlessProgress?: (nickname: string, botKills: number, distanceKm: number) => void;
 }
 
 export class Match {
   readonly id: string;
   readonly mode: MatchMode;
-  readonly registry = new PlayerRegistry();
+  readonly registry: PlayerRegistry;
   readonly pickupSpawner: PickupSpawner;
 
   /** Connected HUMAN sockets in THIS match only, keyed by connection id — bots are never in here (they have no socket). This is what makes broadcast() below never leak this match's state to any other match's connections. */
@@ -98,20 +105,43 @@ export class Match {
   private tickInterval: ReturnType<typeof setInterval> | null = null;
   private projectiles = new Map<string, ActiveProjectile>();
   private nextProjectileSeq = 1;
+  private endlessWorld: EndlessWorld | null = null;
+  private endlessHumanId: string | null = null;
+  private endlessBotKills = 0;
+  private endlessNextBotSeq = 1;
+  private lastMapGeometryCount = 0;
+  private lastEndlessProgressAtMs = 0;
 
   constructor(private options: MatchOptions) {
     this.id = options.id;
     this.mode = options.mode;
+    if (this.mode === "endless") {
+      this.endlessWorld = new EndlessWorld();
+    }
+    this.registry = new PlayerRegistry({
+      getGeometry: () => this.currentGeometry(),
+      getSpawnPoints: () => this.endlessWorld?.getSpawnPoints() ?? SPAWN_POINTS,
+      worldBound: this.mode === "endless" ? 10000 : undefined,
+    });
     // EPIC 6 Story 6.1 "Design note for EPIC 9 compatibility": player-count
     // source reads THIS match's own live alive-player list (bots included,
     // same as any other alive player for this formula), never a snapshot or
     // another match's count.
-    this.pickupSpawner = new PickupSpawner(() => this.registry.alivePlayerPositions().length);
+    this.pickupSpawner = new PickupSpawner(
+      () => this.registry.alivePlayerPositions().length,
+      this.endlessWorld?.getPickups() ?? undefined,
+    );
 
     if (this.mode === "bots") {
       this.botAI = new BotAI(this.registry);
       this.botAI.setTickDtSeconds(TICK_DT_SECONDS);
       this.botAI.spawnBots(BOT_COUNT);
+    } else if (this.mode === "endless") {
+      this.botAI = new BotAI(this.registry, {
+        getGeometry: () => this.currentGeometry(),
+        getWaypoints: () => this.endlessWorld?.getSpawnPoints() ?? [],
+      });
+      this.botAI.setTickDtSeconds(TICK_DT_SECONDS);
     }
   }
 
@@ -130,7 +160,9 @@ export class Match {
    * instead.
    */
   canAcceptHuman(): boolean {
-    return this.mode !== "public" || this.humanCount() < MAX_PUBLIC_PLAYERS_PER_MATCH;
+    if (this.mode === "public") return this.humanCount() < MAX_PUBLIC_PLAYERS_PER_MATCH;
+    if (this.mode === "endless") return this.humanCount() < 1;
+    return true;
   }
 
   hasNicknameKey(nicknameKey: string): boolean {
@@ -139,10 +171,13 @@ export class Match {
 
   addHuman(connectionId: string, socket: WebSocket, nickname: string, nicknameKey: string): void {
     this.sockets.set(connectionId, socket);
+    if (this.mode === "endless") this.endlessHumanId = connectionId;
     this.registry.spawn(connectionId, nickname, nicknameKey);
+    this.sendMapState();
     this.sendLoadout(connectionId);
     this.broadcastScoreboard();
     this.broadcastPickupState();
+    this.sendEndlessState();
   }
 
   /**
@@ -155,7 +190,7 @@ export class Match {
     this.registry.remove(connectionId);
     this.sockets.delete(connectionId);
     this.broadcastScoreboard();
-    if (this.mode === "bots" && this.sockets.size === 0) {
+    if ((this.mode === "bots" || this.mode === "endless") && this.sockets.size === 0) {
       this.options.onEmpty?.(this.id);
     }
   }
@@ -180,7 +215,32 @@ export class Match {
   broadcastPickupState(): void {
     const message: PickupStateMessage = {
       type: "pickup_state",
-      pickups: this.pickupSpawner.list().map((item) => ({ id: item.id, active: item.active })),
+      pickups: this.pickupSpawner.list().map((item) => ({
+        id: item.id,
+        active: item.active,
+        category: item.category,
+        weapon: item.weapon,
+        position: item.position,
+      })),
+    };
+    this.broadcast(message);
+  }
+
+  sendMapState(): void {
+    const bounds = this.endlessWorld?.getBounds() ?? ARENA_BOUNDS;
+    const message: MapStateMessage = { type: "map_state", geometry: [...this.currentGeometry()], bounds };
+    this.broadcast(message);
+    this.lastMapGeometryCount = message.geometry.length;
+  }
+
+  sendEndlessState(): void {
+    if (!this.endlessWorld) return;
+    const state = this.endlessWorld.state();
+    const message: EndlessStateMessage = {
+      type: "endless_state",
+      fogZ: state.fogZ,
+      distanceMeters: state.distanceMeters,
+      botKills: this.endlessBotKills,
     };
     this.broadcast(message);
   }
@@ -320,7 +380,14 @@ export class Match {
           victimNickname: this.registry.getNickname(event.targetId),
         };
         this.broadcast(killMessage);
-        this.options.onKillRecorded?.(killMessage.attackerNickname, killMessage.victimNickname);
+        if (this.mode === "endless") {
+          if (this.endlessHumanId && shooterId === this.endlessHumanId && this.botAI?.isBot(event.targetId)) {
+            this.endlessBotKills += 1;
+            this.publishEndlessProgress();
+          }
+        } else {
+          this.options.onKillRecorded?.(killMessage.attackerNickname, killMessage.victimNickname);
+        }
         scoreboardChanged = true;
       }
     }
@@ -370,7 +437,7 @@ export class Match {
       let impactKind: "geometry" | "player" | null = null;
       let targetId: string | null = null;
 
-      for (const box of ARENA_GEOMETRY) {
+      for (const box of this.currentGeometry()) {
         const distance = rayIntersectsAabb(ray, boxBounds(box), nearestDistance);
         if (distance !== null && distance < nearestDistance) {
           nearestDistance = distance;
@@ -427,6 +494,7 @@ export class Match {
 
   private tick(): void {
     const nowMs = Date.now();
+    this.updateEndlessWorld(nowMs);
 
     // EPIC 9 Story 9.3: bot AI computes this tick's input/fire intent BEFORE
     // the physics step below, so it goes through the exact same
@@ -437,6 +505,7 @@ export class Match {
     this.stepProjectiles(TICK_DT_SECONDS);
 
     this.registry.step(TICK_DT_SECONDS);
+    this.applyEndlessFogDamage();
 
     // Respawn is time-driven, not event-driven — checked every tick so it
     // happens on schedule even though the kill itself was resolved
@@ -505,5 +574,56 @@ export class Match {
       players: this.registry.toWorldState(),
     };
     this.broadcast(worldState);
+  }
+
+  private currentGeometry(): readonly MapBox[] {
+    return this.endlessWorld?.getGeometry() ?? ARENA_GEOMETRY;
+  }
+
+  private updateEndlessWorld(nowMs: number): void {
+    if (!this.endlessWorld || !this.endlessHumanId) return;
+    const human = this.registry.getPlayer(this.endlessHumanId);
+    const state = this.endlessWorld.update(TICK_DT_SECONDS, human?.position ?? null);
+    this.pickupSpawner.syncPoints(this.endlessWorld.getPickups());
+
+    if (this.currentGeometry().length !== this.lastMapGeometryCount) {
+      this.sendMapState();
+      this.broadcastPickupState();
+    }
+
+    if (human?.alive) {
+      for (const point of this.endlessWorld.takeBotSpawns(3, human.position.z)) {
+        const id = `${this.id}:Bot ${this.endlessNextBotSeq++}`;
+        this.botAI?.spawnBotAt(id, point, `Bot ${this.endlessNextBotSeq - 1}`);
+        this.broadcastScoreboard();
+      }
+    }
+
+    if (nowMs - this.lastEndlessProgressAtMs >= 1000) {
+      this.lastEndlessProgressAtMs = nowMs;
+      this.sendEndlessState();
+      const nickname = this.registry.getNickname(this.endlessHumanId);
+      this.options.onEndlessProgress?.(nickname, this.endlessBotKills, state.distanceMeters / 1000);
+    }
+  }
+
+  private applyEndlessFogDamage(): void {
+    if (!this.endlessWorld || !this.endlessHumanId) return;
+    const human = this.registry.getPlayer(this.endlessHumanId);
+    if (!human || !human.alive || !this.endlessWorld.isInFog(human.position)) return;
+    const damage = this.endlessWorld.fogDamagePerTick(TICK_DT_SECONDS);
+    const event = this.registry.applyEnvironmentalDamage(this.endlessHumanId, damage, {
+      x: human.position.x,
+      y: human.position.y + 1,
+      z: this.endlessWorld.state().fogZ,
+    });
+    if (event) this.broadcastDamageEvents("fog", [event]);
+  }
+
+  private publishEndlessProgress(): void {
+    if (!this.endlessWorld || !this.endlessHumanId) return;
+    const nickname = this.registry.getNickname(this.endlessHumanId);
+    this.sendEndlessState();
+    this.options.onEndlessProgress?.(nickname, this.endlessBotKills, this.endlessWorld.state().distanceMeters / 1000);
   }
 }

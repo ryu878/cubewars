@@ -4,6 +4,7 @@ import {
   ARENA_GEOMETRY,
   PICKUP_RADIUS,
   WEAPON_STATS,
+  type MapBox,
   type PlayerInputMessage,
   type WeaponType,
   type WorldStateMessage,
@@ -24,6 +25,10 @@ import { CombatEffects } from "./combatEffects";
 const statusEl = document.getElementById("status") as HTMLDivElement;
 const hintEl = document.getElementById("hint") as HTMLDivElement;
 const appEl = document.getElementById("app") as HTMLDivElement;
+const endlessHudEl = document.getElementById("endlessHud") as HTMLDivElement;
+const endlessDistanceEl = document.getElementById("endlessDistance") as HTMLSpanElement;
+const endlessKillsEl = document.getElementById("endlessKills") as HTMLSpanElement;
+const endlessFogEl = document.getElementById("endlessFog") as HTMLSpanElement;
 
 // --- Scene: sandy/tan de_dust-inspired arena (EPIC 3), gradient sky (EPIC 10) ---
 // EPIC 10 Story 10.2: a warm tone matching the gradient sky dome's horizon
@@ -66,7 +71,7 @@ scene.add(sunLight);
 // --- Ground: sandy plane sized to the arena's outer envelope (shared/mapData.ts) ---
 const groundWidth = ARENA_BOUNDS.maxX - ARENA_BOUNDS.minX + 8;
 const groundDepth = ARENA_BOUNDS.maxZ - ARENA_BOUNDS.minZ + 8;
-const groundGeo = new THREE.PlaneGeometry(groundWidth, groundDepth);
+let groundGeo = new THREE.PlaneGeometry(groundWidth, groundDepth);
 const groundMat = new THREE.MeshStandardMaterial({ color: 0xe3c98c }); // sandy tan
 const ground = new THREE.Mesh(groundGeo, groundMat);
 ground.rotation.x = -Math.PI / 2;
@@ -85,26 +90,64 @@ scene.add(ground);
 // ARENA_GEOMETRY independently) are untouched. ---
 const WALL_TEXTURE_TILE_SIZE = 2; // world units per texture tile, both wood & brick
 const wallTextures = buildWallTextures();
-ARENA_GEOMETRY.forEach((box, index) => {
-  const baseTexture = index % 2 === 0 ? wallTextures.wood : wallTextures.brick;
-  // Each box gets its own texture instance (repeat differs per box size) —
-  // cheap, still generated from the same one canvas-drawn image, not a
-  // second draw call.
-  const texture = baseTexture.clone();
-  texture.needsUpdate = true;
-  const longAxis = Math.max(box.size.x, box.size.z);
-  texture.repeat.set(
-    Math.max(1, Math.round(longAxis / WALL_TEXTURE_TILE_SIZE)),
-    Math.max(1, Math.round(box.size.y / WALL_TEXTURE_TILE_SIZE)),
-  );
+const mapGeometryGroup = new THREE.Group();
+scene.add(mapGeometryGroup);
+const fogWall = new THREE.Mesh(
+  new THREE.BoxGeometry(52, 5, 0.35),
+  new THREE.MeshStandardMaterial({
+    color: 0x7a2f3a,
+    transparent: true,
+    opacity: 0.38,
+    emissive: 0x4a1018,
+    emissiveIntensity: 0.35,
+  }),
+);
+fogWall.position.y = 2.5;
+fogWall.visible = false;
+scene.add(fogWall);
 
-  const geometry = new THREE.BoxGeometry(box.size.x, box.size.y, box.size.z);
-  const material = new THREE.MeshStandardMaterial({ map: texture });
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.position.set(box.center.x, box.center.y, box.center.z);
-  mesh.name = box.id;
-  scene.add(mesh);
-});
+function renderMapGeometry(boxes: readonly MapBox[]): void {
+  for (const child of mapGeometryGroup.children) {
+    if (child instanceof THREE.Mesh) {
+      child.geometry.dispose();
+      if (Array.isArray(child.material)) {
+        for (const material of child.material) material.dispose();
+      } else {
+        child.material.dispose();
+      }
+    }
+  }
+  mapGeometryGroup.clear();
+  boxes.forEach((box, index) => {
+    const baseTexture = index % 2 === 0 ? wallTextures.wood : wallTextures.brick;
+    // Each box gets its own texture instance (repeat differs per box size) —
+    // cheap, still generated from the same one canvas-drawn image, not a
+    // second draw call.
+    const texture = baseTexture.clone();
+    texture.needsUpdate = true;
+    const longAxis = Math.max(box.size.x, box.size.z);
+    texture.repeat.set(
+      Math.max(1, Math.round(longAxis / WALL_TEXTURE_TILE_SIZE)),
+      Math.max(1, Math.round(box.size.y / WALL_TEXTURE_TILE_SIZE)),
+    );
+
+    const geometry = new THREE.BoxGeometry(box.size.x, box.size.y, box.size.z);
+    const material = new THREE.MeshStandardMaterial({ map: texture });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(box.center.x, box.center.y, box.center.z);
+    mesh.name = box.id;
+    mapGeometryGroup.add(mesh);
+  });
+}
+
+function resizeGround(bounds: { minX: number; maxX: number; minZ: number; maxZ: number }): void {
+  groundGeo.dispose();
+  groundGeo = new THREE.PlaneGeometry(bounds.maxX - bounds.minX + 8, bounds.maxZ - bounds.minZ + 8);
+  ground.geometry = groundGeo;
+  ground.position.set((bounds.minX + bounds.maxX) / 2, 0, (bounds.minZ + bounds.maxZ) / 2);
+}
+
+renderMapGeometry(ARENA_GEOMETRY);
 
 // --- First-person controls (replaces EPIC 1's OrbitControls demo camera) ---
 const hud = new CombatHud();
@@ -235,6 +278,7 @@ statusEl.textContent = `connecting to ${wsUrl}…`;
 statusEl.dataset.state = "connecting";
 
 let selfId: string | null = null;
+let joinedEndless = false;
 
 // EPIC 5: kill feed and scoreboard are both driven entirely by server
 // broadcasts (KillEvent / ScoreboardMessage) wired below — neither ever
@@ -276,9 +320,28 @@ const connection = new GameConnection(wsUrl, {
   onLeaderboard: (message) => {
     modeSelect.setLeaderboard(message.entries);
   },
+  onEndlessLeaderboard: (message) => {
+    modeSelect.setEndlessLeaderboard(message.entries);
+  },
+  onMapState: (message) => {
+    renderMapGeometry(message.geometry);
+    resizeGround(message.bounds);
+    fps.setCollisionGeometry(message.geometry);
+  },
+  onEndlessState: (message) => {
+    endlessHudEl.classList.add("visible");
+    endlessDistanceEl.textContent = `${(message.distanceMeters / 1000).toFixed(2)} km`;
+    endlessKillsEl.textContent = `${message.botKills} bots`;
+    endlessFogEl.textContent = `fog ${Math.max(0, Math.round(Math.abs(message.fogZ)))}m`;
+    fogWall.visible = joinedEndless;
+    fogWall.position.z = message.fogZ;
+  },
   onJoinAccepted: (message) => {
     modeSelect.joinAccepted(message.nickname);
     statusEl.textContent = `joined ${message.matchId} — ${message.nickname}`;
+    joinedEndless = message.matchId.startsWith("endless:");
+    endlessHudEl.classList.toggle("visible", joinedEndless);
+    fogWall.visible = joinedEndless;
     // EPIC 14 "Sound System" Design Decision 6: this accepted join follows
     // the user's mode-select click, the natural point to resume audio before
     // gameplay input starts.

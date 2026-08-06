@@ -214,7 +214,31 @@ export class PickupRenderer {
    * PickupRendererOptions doc comment above for the exact firing rule.
    */
   sync(pickups: PickupStatus[]): void {
+    const liveIds = new Set(pickups.map((status) => status.id));
+    for (const [id, mesh] of this.meshes) {
+      if (liveIds.has(id)) continue;
+      this.scene.remove(mesh);
+      this.meshes.delete(id);
+      this.pointsById.delete(id);
+      this.previousActive.delete(id);
+    }
+
     for (const status of pickups) {
+      if (!this.meshes.has(status.id) && status.category && status.position) {
+        const point: PickupSpawnPoint = {
+          id: status.id,
+          category: status.category,
+          weapon: status.weapon,
+          position: status.position,
+        };
+        const object = this.buildMesh(point.category, point.weapon);
+        object.position.set(point.position.x, object.position.y, point.position.z);
+        object.name = point.id;
+        this.scene.add(object);
+        this.meshes.set(point.id, object);
+        this.pointsById.set(point.id, point);
+      }
+
       const mesh = this.meshes.get(status.id);
       if (mesh) mesh.visible = status.active;
 

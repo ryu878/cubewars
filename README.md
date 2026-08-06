@@ -79,6 +79,14 @@ Combat is server-authoritative too: firing sends a bare "fire" event, and the se
 
 ## Current status
 
+EPIC 22 (Endless Single Player) — see `docs/tasks/epic-22-endless-single-player.md`. Direct user feedback (Russian): "Добавь еще режим Endless Single Player. Сервер должен генерить бесконечный лабиринт ... задняя стена должна двигаться на тебя, ну типо туман ... Для этого режима тоже нужен отдельный лидербоард..."
+
+- **Endless mode:** the start screen now has an **Endless** button that creates a private one-human `endless:<connectionId>` match.
+- **Server-generated maze:** the server grows an endless forward maze in chunks, including collidable walls/crates, pickups, and bot spawn points. The client renders only the `map_state` geometry/pickups the server sends; server-side movement/combat remain authoritative.
+- **Pressure wall/fog:** a translucent fog wall moves forward from behind and applies slow server-side damage while the player is inside it, forcing forward movement.
+- **Endless leaderboard:** a separate top-20 table tracks each nickname's best bot-kill count and best distance in kilometers, sorted by bot kills descending, then distance descending.
+- Verified via `npm run regression:endless`, `npm run regression:lobby-nicknames`, `npm run regression:leaderboard`, `npm run typecheck`, and `npm run build`.
+
 EPIC 21 (Nickname Leaderboard) — see `docs/tasks/epic-21-nickname-leaderboard.md`. Direct user feedback (Russian): "сделай еще лидербоард, где будет написано сколько раз ник выиграл, сколько смертей. И сортировку чтобы сверху были топы. Ну и пусть будет всего 20 в списке."
 
 - **Top-20 nickname leaderboard:** the start screen now shows a leaderboard with rank, nickname, kills, and deaths. The game does not have round wins yet, so the "wins/top" metric is currently kills.

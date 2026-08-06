@@ -7,6 +7,7 @@ export type { Vector3 } from "./types.js";
 import type { WeaponType } from "./weapons.js";
 import type { PickupStatus } from "./pickups.js";
 import type { DamageKind, DamageZone } from "./combat.js";
+import type { MapBox } from "./mapData.js";
 // EPIC 3 "The Arena": the single source of truth for map geometry, spawn
 // points, and their collision resolution — see mapData.ts / collision.ts
 // doc comments. Re-exported here so both client and server keep importing
@@ -175,7 +176,7 @@ export interface SwitchWeaponEvent {
  * game, unchanged) — `"bots"` creates/joins a fresh private match with
  * exactly this one connection + 2 AI-controlled bots.
  */
-export type MatchMode = "public" | "bots";
+export type MatchMode = "public" | "bots" | "endless";
 
 export const MAX_PUBLIC_PLAYERS_PER_MATCH = 4;
 export const LEADERBOARD_LIMIT = 20;
@@ -320,6 +321,12 @@ export interface LeaderboardEntry {
   deaths: number;
 }
 
+export interface EndlessLeaderboardEntry {
+  nickname: string;
+  botKills: number;
+  distanceKm: number;
+}
+
 export interface LobbyStateMessage {
   type: "lobby_state";
   matches: LobbyMatchSummary[];
@@ -339,6 +346,29 @@ export interface JoinRejectedMessage {
 export interface LeaderboardMessage {
   type: "leaderboard";
   entries: LeaderboardEntry[];
+}
+
+export interface EndlessLeaderboardMessage {
+  type: "endless_leaderboard";
+  entries: EndlessLeaderboardEntry[];
+}
+
+export interface MapStateMessage {
+  type: "map_state";
+  geometry: MapBox[];
+  bounds: {
+    minX: number;
+    maxX: number;
+    minZ: number;
+    maxZ: number;
+  };
+}
+
+export interface EndlessStateMessage {
+  type: "endless_state";
+  fogZ: number;
+  distanceMeters: number;
+  botKills: number;
 }
 
 /**
@@ -432,6 +462,9 @@ export type ServerMessage =
   | KillEvent
   | ScoreboardMessage
   | LeaderboardMessage
+  | EndlessLeaderboardMessage
+  | EndlessStateMessage
+  | MapStateMessage
   | LobbyStateMessage
   | JoinAcceptedMessage
   | JoinRejectedMessage

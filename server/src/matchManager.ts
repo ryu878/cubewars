@@ -10,6 +10,7 @@ import {
   LEADERBOARD_LIMIT,
   MAX_PUBLIC_PLAYERS_PER_MATCH,
   normalizeNickname,
+  type EndlessLeaderboardEntry,
   type LeaderboardEntry,
   type LobbyMatchSummary,
 } from "@cubewars/shared";
@@ -20,12 +21,14 @@ export const PUBLIC_MATCH_ID = "public";
 
 export interface MatchManagerOptions {
   onLeaderboardChanged?: (entries: LeaderboardEntry[]) => void;
+  onEndlessLeaderboardChanged?: (entries: EndlessLeaderboardEntry[]) => void;
 }
 
 export class MatchManager {
   private matches = new Map<string, Match>();
   private nextPublicMatchNumber = 1;
   private leaderboard = new Map<string, LeaderboardEntry>();
+  private endlessLeaderboard = new Map<string, EndlessLeaderboardEntry>();
 
   constructor(private options: MatchManagerOptions = {}) {
     // Created at startup and kept available as the first public game.
@@ -69,6 +72,31 @@ export class MatchManager {
     this.broadcastLeaderboard();
   }
 
+  listEndlessLeaderboard(): EndlessLeaderboardEntry[] {
+    return [...this.endlessLeaderboard.values()]
+      .sort(
+        (a, b) =>
+          b.botKills - a.botKills || b.distanceKm - a.distanceKm || a.nickname.localeCompare(b.nickname),
+      )
+      .slice(0, LEADERBOARD_LIMIT)
+      .map((entry) => ({ ...entry }));
+  }
+
+  recordEndlessProgress(nickname: string, botKills: number, distanceKm: number): void {
+    const normalized = normalizeNickname(nickname);
+    const key = normalized.ok ? normalized.key : nickname.toLocaleLowerCase();
+    const current = this.endlessLeaderboard.get(key);
+    const nextNickname = normalized.ok ? normalized.nickname : nickname;
+    if (!current) {
+      this.endlessLeaderboard.set(key, { nickname: nextNickname, botKills, distanceKm });
+    } else {
+      current.nickname = nextNickname;
+      current.botKills = Math.max(current.botKills, botKills);
+      current.distanceKm = Math.max(current.distanceKm, distanceKm);
+    }
+    this.options.onEndlessLeaderboardChanged?.(this.listEndlessLeaderboard());
+  }
+
   /**
    * Create a fresh private "bots:<connectionId>" match containing exactly
    * this one (about-to-join) human + 2 bots (EPIC 9 spec Section 2). The
@@ -83,6 +111,21 @@ export class MatchManager {
       mode: "bots",
       onEmpty: (matchId) => this.destroy(matchId),
       onKillRecorded: (attackerNickname, victimNickname) => this.recordKill(attackerNickname, victimNickname),
+    });
+    match.start();
+    this.matches.set(id, match);
+    console.log(`[server] match created: ${id}`);
+    return match;
+  }
+
+  createEndlessMatch(connectionId: string): Match {
+    const id = `endless:${connectionId}`;
+    const match = new Match({
+      id,
+      mode: "endless",
+      onEmpty: (matchId) => this.destroy(matchId),
+      onEndlessProgress: (nickname, botKills, distanceKm) =>
+        this.recordEndlessProgress(nickname, botKills, distanceKm),
     });
     match.start();
     this.matches.set(id, match);

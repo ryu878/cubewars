@@ -5,12 +5,14 @@
 import * as THREE from "three";
 import {
   BUNNY_HOP,
+  ARENA_GEOMETRY,
   EYE_HEIGHT,
   MAX_PITCH,
   MOVEMENT,
   boxesBlockingAt,
   crateTopHeightAt,
   resolveSteppedMovement,
+  type MapBox,
 } from "@cubewars/shared";
 
 const MOUSE_SENSITIVITY = 0.0025;
@@ -83,6 +85,7 @@ export class FpsController {
   private horizontalSpeedMps = 0;
   private fireHeld = false;
   private autoFireTimer: number | undefined;
+  private collisionGeometry: readonly MapBox[] | undefined;
 
   private stopAutoFire(): void {
     this.fireHeld = false;
@@ -170,6 +173,10 @@ export class FpsController {
 
   isLocked(): boolean {
     return this.locked;
+  }
+
+  setCollisionGeometry(geometry: readonly MapBox[]): void {
+    this.collisionGeometry = geometry;
   }
 
   /** Update the locally-known alive state from the server's world_state broadcast (EPIC 4 Story 4.2) — gates local movement/fire prediction only; the server independently enforces this regardless of client state. */
@@ -296,7 +303,8 @@ export class FpsController {
     // server — so a crate the player is standing on/above does not block
     // them horizontally here either (EPIC 12 Story 12.1).
     const feetYThisFrame = this.position.y;
-    const blockingBoxes = boxesBlockingAt(feetYThisFrame);
+    const geometry = this.collisionGeometry ?? ARENA_GEOMETRY;
+    const blockingBoxes = boxesBlockingAt(feetYThisFrame, geometry);
     const previousX = this.position.x;
     const previousZ = this.position.z;
     const resolved = resolveSteppedMovement(this.position.x, this.position.z, dx, dz, undefined, blockingBoxes);
@@ -325,7 +333,10 @@ export class FpsController {
     // client-predicted and server-authoritative crate mount/dismount stay in
     // agreement — evaluated at this frame's POST-horizontal-resolution
     // (x, z).
-    const groundHeight = Math.max(MOVEMENT.groundY, crateTopHeightAt(this.position.x, this.position.z));
+    const groundHeight = Math.max(
+      MOVEMENT.groundY,
+      crateTopHeightAt(this.position.x, this.position.z, geometry),
+    );
 
     if (this.position.y <= groundHeight) {
       this.position.y = groundHeight;

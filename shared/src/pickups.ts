@@ -110,4 +110,7 @@ export const ARMOR_PICKUP_COLOR = 0x2f6fae; // steel blue
 export interface PickupStatus {
   id: string;
   active: boolean;
+  category?: PickupCategory;
+  weapon?: WeaponType;
+  position?: Vector3;
 }

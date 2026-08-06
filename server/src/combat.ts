@@ -17,6 +17,7 @@ import {
   type Ray,
   type Vector3,
   type DamageZone,
+  type MapBox,
   type ShotTrace,
   type WeaponType,
 } from "@cubewars/shared";
@@ -128,6 +129,7 @@ export function findGrenadeSplashCandidates(
 export function performHitscan(
   shooter: PlayerRecord,
   allPlayers: Iterable<PlayerRecord>,
+  geometry: readonly MapBox[] = ARENA_GEOMETRY,
 ): HitscanResult {
   const ray = buildAimRay(shooter);
 
@@ -138,7 +140,7 @@ export function performHitscan(
 
   // Map geometry: blocking-only, never itself a "hit" — but it can still be
   // the nearest candidate along the ray, which is what blocks a shot.
-  for (const box of ARENA_GEOMETRY) {
+  for (const box of geometry) {
     const dist = rayIntersectsAabb(ray, boxBounds(box), nearestDistance);
     if (dist !== null && dist < nearestDistance) {
       nearestDistance = dist;

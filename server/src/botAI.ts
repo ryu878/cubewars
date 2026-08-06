@@ -19,6 +19,7 @@ import {
   boxBounds,
   rayIntersectsAabb,
   type Ray,
+  type MapBox,
   type Vector3,
 } from "@cubewars/shared";
 import type { PlayerRegistry } from "./playerRegistry.js";
@@ -83,12 +84,12 @@ function wrapAngle(delta: number): number {
 }
 
 /** Pick a random SPAWN_POINTS waypoint, preferring one different from `exclude` (best-effort — with only a handful of points this can still repeat, which is harmless). */
-function pickWaypoint(exclude?: Vector3): Vector3 {
-  if (SPAWN_POINTS.length <= 1) return SPAWN_POINTS[0];
+function pickWaypoint(points: readonly Vector3[], exclude?: Vector3): Vector3 {
+  if (points.length <= 1) return points[0] ?? SPAWN_POINTS[0];
   let candidate: Vector3;
   let attempts = 0;
   do {
-    candidate = SPAWN_POINTS[Math.floor(Math.random() * SPAWN_POINTS.length)];
+    candidate = points[Math.floor(Math.random() * points.length)];
     attempts += 1;
   } while (exclude && candidate === exclude && attempts < 8);
   return candidate;
@@ -104,7 +105,7 @@ function pickWaypoint(exclude?: Vector3): Vector3 {
  * consider other players as occluders, matching combat.ts's own
  * map-geometry pass (blocking-only, never itself a "hit").
  */
-function hasLineOfSight(from: Vector3, to: Vector3): boolean {
+function hasLineOfSight(from: Vector3, to: Vector3, geometry: readonly MapBox[]): boolean {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const dz = to.z - from.z;
@@ -112,7 +113,7 @@ function hasLineOfSight(from: Vector3, to: Vector3): boolean {
   if (distance < 1e-6) return true;
   const direction: Vector3 = { x: dx / distance, y: dy / distance, z: dz / distance };
   const ray: Ray = { origin: from, direction };
-  for (const box of ARENA_GEOMETRY) {
+  for (const box of geometry) {
     if (rayIntersectsAabb(ray, boxBounds(box), distance) !== null) return false;
   }
   return true;
@@ -121,7 +122,10 @@ function hasLineOfSight(from: Vector3, to: Vector3): boolean {
 export class BotAI {
   private bots = new Map<string, BotRuntime>();
 
-  constructor(private registry: PlayerRegistry) {}
+  constructor(
+    private registry: PlayerRegistry,
+    private options: { getGeometry?: () => readonly MapBox[]; getWaypoints?: () => readonly Vector3[] } = {},
+  ) {}
 
   /** True if `id` belongs to a bot managed by this instance — used by match.ts's tick loop to exclude bots from pickup consumption (EPIC 9 spec: bots ignore all pickups entirely). */
   isBot(id: string): boolean {
@@ -146,13 +150,24 @@ export class BotAI {
       this.bots.set(id, {
         id,
         state: "SEEKING",
-        waypoint: pickWaypoint(),
+        waypoint: pickWaypoint(this.waypoints()),
         waypointDeadlineMs: Date.now() + WAYPOINT_TIMEOUT_MS,
         lastFireAcceptedAt: 0,
       });
       ids.push(id);
     }
     return ids;
+  }
+
+  spawnBotAt(id: string, position: Vector3, nickname: string = id): void {
+    this.registry.spawnAt(id, position, nickname, nickname.toLocaleLowerCase());
+    this.bots.set(id, {
+      id,
+      state: "SEEKING",
+      waypoint: pickWaypoint(this.waypoints()),
+      waypointDeadlineMs: Date.now() + WAYPOINT_TIMEOUT_MS,
+      lastFireAcceptedAt: 0,
+    });
   }
 
   /**
@@ -245,7 +260,7 @@ export class BotAI {
     const wz = bot.waypoint.z - self.position.z;
     const distanceToWaypoint = Math.hypot(wx, wz);
     if (distanceToWaypoint <= WAYPOINT_ARRIVE_DISTANCE || nowMs >= bot.waypointDeadlineMs) {
-      bot.waypoint = pickWaypoint(bot.waypoint);
+      bot.waypoint = pickWaypoint(this.waypoints(), bot.waypoint);
       bot.waypointDeadlineMs = nowMs + WAYPOINT_TIMEOUT_MS;
     }
 
@@ -280,7 +295,7 @@ export class BotAI {
         y: candidate.position.y + EYE_HEIGHT,
         z: candidate.position.z,
       };
-      if (!hasLineOfSight(fromEye, candidateEye)) continue;
+      if (!hasLineOfSight(fromEye, candidateEye, this.geometry())) continue;
 
       nearest = candidate;
       nearestDistance = distance;
@@ -294,5 +309,14 @@ export class BotAI {
   /** Called once by match.ts right after construction to align this AI's turn-rate math with the match's actual fixed tick duration, instead of hardcoding the 20Hz assumption here too. */
   setTickDtSeconds(dtSeconds: number): void {
     this.tickDtSeconds = dtSeconds;
+  }
+
+  private geometry(): readonly MapBox[] {
+    return this.options.getGeometry?.() ?? ARENA_GEOMETRY;
+  }
+
+  private waypoints(): readonly Vector3[] {
+    const points = this.options.getWaypoints?.() ?? SPAWN_POINTS;
+    return points.length > 0 ? points : SPAWN_POINTS;
   }
 }

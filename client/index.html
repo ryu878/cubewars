@@ -455,7 +455,8 @@
         border-color: #7fb3e0;
       }
       #lobbyList,
-      #leaderboardList {
+      #leaderboardList,
+      #endlessLeaderboardList {
         display: grid;
         gap: 8px;
         margin: 0 0 14px;
@@ -464,7 +465,8 @@
       #lobbyList {
         max-height: 150px;
       }
-      #leaderboardList {
+      #leaderboardList,
+      #endlessLeaderboardList {
         max-height: 210px;
       }
       .lobby-row {
@@ -560,6 +562,32 @@
       #modeSelect #modeBotsBtn:hover:not(:disabled) {
         background: #a56c34;
       }
+      #modeSelect #modeEndlessBtn {
+        background: #476329;
+      }
+      #modeSelect #modeEndlessBtn:hover:not(:disabled) {
+        background: #5d8037;
+      }
+      #endlessHud {
+        position: fixed;
+        top: 52px;
+        left: 12px;
+        display: none;
+        gap: 14px;
+        padding: 7px 12px;
+        background: rgba(0, 0, 0, 0.62);
+        color: #fff;
+        font: 800 13px system-ui, sans-serif;
+        border-radius: 8px;
+        z-index: 10;
+        pointer-events: none;
+      }
+      #endlessHud.visible {
+        display: flex;
+      }
+      #endlessHud span {
+        font-variant-numeric: tabular-nums;
+      }
     </style>
   </head>
   <body>
@@ -599,12 +627,20 @@
         <div id="lobbyList" aria-live="polite"></div>
         <div class="mode-section-title">Leaderboard</div>
         <div id="leaderboardList" aria-live="polite"></div>
+        <div class="mode-section-title">Endless</div>
+        <div id="endlessLeaderboardList" aria-live="polite"></div>
         <div id="modeSelectError" aria-live="polite"></div>
         <div class="mode-select-buttons">
           <button id="modePublicBtn" type="button" disabled>Quick Join</button>
           <button id="modeBotsBtn" type="button" disabled>vs Bots</button>
+          <button id="modeEndlessBtn" type="button" disabled>Endless</button>
         </div>
       </div>
+    </div>
+    <div id="endlessHud" aria-hidden="true">
+      <span id="endlessDistance">0.00 km</span>
+      <span id="endlessKills">0 bots</span>
+      <span id="endlessFog">fog 0m</span>
     </div>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>

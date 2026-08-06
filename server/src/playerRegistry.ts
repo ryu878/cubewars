@@ -9,6 +9,7 @@ import {
   GRENADE_SPLASH,
   MAX_PITCH,
   MOVEMENT,
+  ARENA_GEOMETRY,
   SPAWN_POINTS,
   WEAPON_ORDER,
   WEAPON_STATS,
@@ -19,6 +20,7 @@ import {
   type PickupCategory,
   type DamageKind,
   type DamageZone,
+  type MapBox,
   type PlayerScore,
   type PlayerState,
   type ShotTrace,
@@ -250,6 +252,12 @@ function applyBaselineLoadout(
  */
 const MIN_SPAWN_SEPARATION = 12;
 
+export interface PlayerRegistryOptions {
+  getGeometry?: () => readonly MapBox[];
+  getSpawnPoints?: () => readonly Vector3[];
+  worldBound?: number;
+}
+
 function computeDirectDamage(baseDamage: number, hitZone: Exclude<DamageZone, "splash">): number {
   return Math.max(1, Math.round(baseDamage * DAMAGE_ZONE_MULTIPLIERS[hitZone]));
 }
@@ -262,6 +270,17 @@ function computeGrenadeSplashDamage(baseDamage: number, distance: number): numbe
 
 export class PlayerRegistry {
   private players = new Map<string, PlayerRecord>();
+
+  constructor(private options: PlayerRegistryOptions = {}) {}
+
+  private geometry(): readonly MapBox[] {
+    return this.options.getGeometry?.() ?? ARENA_GEOMETRY;
+  }
+
+  private spawnPoints(): readonly Vector3[] {
+    const points = this.options.getSpawnPoints?.() ?? SPAWN_POINTS;
+    return points.length > 0 ? points : SPAWN_POINTS;
+  }
 
   /**
    * Anti-clustering heuristic (EPIC 5 Story 5.3): rank every candidate in
@@ -283,10 +302,11 @@ export class PlayerRegistry {
     }
 
     if (others.length === 0) {
-      return SPAWN_POINTS[Math.floor(Math.random() * SPAWN_POINTS.length)];
+      const points = this.spawnPoints();
+      return points[Math.floor(Math.random() * points.length)];
     }
 
-    const ranked = SPAWN_POINTS.map((point) => {
+    const ranked = this.spawnPoints().map((point) => {
       let nearestDistance = Infinity;
       for (const other of others) {
         const distance = Math.hypot(point.x - other.x, point.z - other.z);
@@ -322,16 +342,25 @@ export class PlayerRegistry {
     const angle = Math.random() * Math.PI * 2;
     const jitterX = Math.cos(angle) * jitterRadius * Math.random();
     const jitterZ = Math.sin(angle) * jitterRadius * Math.random();
-    const resolved = resolveHorizontalCollisions(base.x + jitterX, base.z + jitterZ);
+    const resolved = resolveHorizontalCollisions(base.x + jitterX, base.z + jitterZ, undefined, this.geometry());
     return { x: resolved.x, y: MOVEMENT.groundY, z: resolved.z };
   }
 
   spawn(id: string, nickname: string = id, nicknameKey: string = nickname.toLocaleLowerCase()): PlayerRecord {
+    return this.spawnAt(id, this.pickSpawnPosition(), nickname, nicknameKey);
+  }
+
+  spawnAt(
+    id: string,
+    position: Vector3,
+    nickname: string = id,
+    nicknameKey: string = nickname.toLocaleLowerCase(),
+  ): PlayerRecord {
     const record: PlayerRecord = {
       id,
       nickname,
       nicknameKey,
-      position: this.pickSpawnPosition(),
+      position: { ...position },
       velocityY: 0,
       grounded: true,
       bunnyHopAvailable: true,
@@ -513,7 +542,7 @@ export class PlayerRegistry {
       };
     }
 
-    const result = performHitscan(shooter, this.players.values());
+    const result = performHitscan(shooter, this.players.values(), this.geometry());
     if (!result.hitPlayerId || !result.point) {
       return { hit: false, dry: false, autoSwitchedTo, weapon, damageEvents: [], shotTrace: result.trace };
     }
@@ -583,6 +612,7 @@ export class PlayerRegistry {
     damageKind: DamageKind,
     hitZone: DamageZone,
     point: Vector3,
+    countKill: boolean = true,
   ): DamageEvent {
     // EPIC 7 damage-absorption order remains unchanged under EPIC 18:
     // armor absorbs first, then exact spillover comes off health. Only the
@@ -600,7 +630,7 @@ export class PlayerRegistry {
       target.alive = false;
       target.respawnAtMs = Date.now() + COMBAT.respawnDelayMs;
       killed = true;
-      shooter.kills += 1;
+      if (countKill) shooter.kills += 1;
     }
 
     return {
@@ -614,6 +644,12 @@ export class PlayerRegistry {
       killed,
       respawnAtMs: target.respawnAtMs,
     };
+  }
+
+  applyEnvironmentalDamage(targetId: string, damage: number, point: Vector3): DamageEvent | null {
+    const target = this.players.get(targetId);
+    if (!target || !target.alive) return null;
+    return this.applyDamage(target, target, damage, "splash", "splash", point, false);
   }
 
   /**
@@ -906,9 +942,10 @@ export class PlayerRegistry {
     // block them horizontally (EPIC 12 Story 12.1), while every wall and
     // every not-yet-mounted crate still does.
     const feetYAtTickStart = player.position.y;
-    const blockingBoxes = boxesBlockingAt(feetYAtTickStart);
-    const proposedX = clampBound(player.position.x + dx);
-    const proposedZ = clampBound(player.position.z + dz);
+    const geometry = this.geometry();
+    const blockingBoxes = boxesBlockingAt(feetYAtTickStart, geometry);
+    const proposedX = this.clampBound(player.position.x + dx);
+    const proposedZ = this.clampBound(player.position.z + dz);
     const resolved = resolveSteppedMovement(
       player.position.x,
       player.position.z,
@@ -935,7 +972,7 @@ export class PlayerRegistry {
     // resolution (x, z) this tick — the highest of the flat ground plane or
     // any crate whose radius-expanded footprint is under the player right
     // now (0 if none, i.e. the pre-EPIC-12 flat-ground-only behavior).
-    const groundHeight = Math.max(MOVEMENT.groundY, crateTopHeightAt(player.position.x, player.position.z));
+    const groundHeight = Math.max(MOVEMENT.groundY, crateTopHeightAt(player.position.x, player.position.z, geometry));
 
     if (player.position.y <= groundHeight) {
       player.position.y = groundHeight;
@@ -963,6 +1000,11 @@ export class PlayerRegistry {
       // without having just jumped.
       player.grounded = false;
     }
+  }
+
+  private clampBound(value: number): number {
+    const bound = this.options.worldBound ?? WORLD_BOUND;
+    return Math.max(-bound, Math.min(bound, value));
   }
 
   /**
@@ -997,8 +1039,4 @@ export class PlayerRegistry {
     }
     return states;
   }
-}
-
-function clampBound(value: number): number {
-  return Math.max(-WORLD_BOUND, Math.min(WORLD_BOUND, value));
 }

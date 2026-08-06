@@ -5,6 +5,7 @@ import {
   PROTOCOL_VERSION,
   normalizeNickname,
   type ClientMessage,
+  type EndlessLeaderboardMessage,
   type JoinAcceptedMessage,
   type JoinRejectedMessage,
   type LeaderboardMessage,
@@ -84,6 +85,7 @@ const wss = new WebSocketServer({ port: PORT, maxPayload: MAX_MESSAGE_BYTES });
 // itself (global-standards.mdc: keep game logic separate from transport).
 const matchManager = new MatchManager({
   onLeaderboardChanged: () => broadcastLobbyLeaderboard(),
+  onEndlessLeaderboardChanged: () => broadcastLobbyEndlessLeaderboard(),
 });
 
 // Shared across EVERY message shape a connection can send (join, input,
@@ -183,9 +185,19 @@ function leaderboardMessage(): LeaderboardMessage {
   return { type: "leaderboard", entries: matchManager.listLeaderboard() };
 }
 
+function endlessLeaderboardMessage(): EndlessLeaderboardMessage {
+  return { type: "endless_leaderboard", entries: matchManager.listEndlessLeaderboard() };
+}
+
 function sendJson(
   socket: WebSocket,
-  message: WelcomeMessage | LobbyStateMessage | LeaderboardMessage | JoinAcceptedMessage | JoinRejectedMessage,
+  message:
+    | WelcomeMessage
+    | LobbyStateMessage
+    | LeaderboardMessage
+    | EndlessLeaderboardMessage
+    | JoinAcceptedMessage
+    | JoinRejectedMessage,
 ): void {
   if (socket.readyState === socket.OPEN) {
     socket.send(JSON.stringify(message));
@@ -201,6 +213,13 @@ function broadcastLobbyState(): void {
 
 function broadcastLobbyLeaderboard(): void {
   const message = leaderboardMessage();
+  for (const socket of lobbySockets) {
+    sendJson(socket, message);
+  }
+}
+
+function broadcastLobbyEndlessLeaderboard(): void {
+  const message = endlessLeaderboardMessage();
   for (const socket of lobbySockets) {
     sendJson(socket, message);
   }
@@ -236,6 +255,7 @@ wss.on("connection", (socket: WebSocket) => {
   sendJson(socket, welcome);
   sendJson(socket, lobbyStateMessage());
   sendJson(socket, leaderboardMessage());
+  sendJson(socket, endlessLeaderboardMessage());
 
   socket.on("message", (data, isBinary) => {
     // Rolling-window count check runs FIRST, before any
@@ -287,7 +307,7 @@ wss.on("connection", (socket: WebSocket) => {
         alreadyJoinedDropTracker.record(playerId, now);
         return;
       }
-      if (parsed.mode !== "public" && parsed.mode !== "bots") {
+      if (parsed.mode !== "public" && parsed.mode !== "bots" && parsed.mode !== "endless") {
         unknownTypeDropTracker.record(playerId, now);
         return;
       }
@@ -319,12 +339,14 @@ wss.on("connection", (socket: WebSocket) => {
           return;
         }
         match = targetMatch;
-      } else {
+      } else if (parsed.mode === "bots") {
         if (nicknameKey === "bot 1" || nicknameKey === "bot 2") {
           sendJson(socket, { type: "join_rejected", reason: "nickname_taken" });
           return;
         }
         match = matchManager.createBotsMatch(playerId);
+      } else {
+        match = matchManager.createEndlessMatch(playerId);
       }
 
       lobbySockets.delete(socket);
@@ -332,12 +354,14 @@ wss.on("connection", (socket: WebSocket) => {
       const accepted: JoinAcceptedMessage = { type: "join_accepted", matchId: match.id, nickname };
       sendJson(socket, accepted);
       sendJson(socket, leaderboardMessage());
+      sendJson(socket, endlessLeaderboardMessage());
       console.log(
         `[server] player joined match "${match.id}" (mode=${parsed.mode}): ${nickname} (${playerId}) ` +
           `(${match.humanCount()} human(s) in match)`,
       );
       broadcastLobbyState();
       broadcastLobbyLeaderboard();
+      broadcastLobbyEndlessLeaderboard();
       return;
     }
 
@@ -413,6 +437,7 @@ wss.on("connection", (socket: WebSocket) => {
       match.removeHuman(playerId);
       broadcastLobbyState();
       broadcastLobbyLeaderboard();
+      broadcastLobbyEndlessLeaderboard();
     }
     lobbySockets.delete(socket);
     connectionCount -= 1;

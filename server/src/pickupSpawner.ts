@@ -40,14 +40,17 @@ export class PickupSpawner {
     points: readonly PickupSpawnPoint[] = PICKUP_SPAWN_POINTS,
   ) {
     for (const point of points) {
-      this.items.set(point.id, {
-        id: point.id,
-        category: point.category,
-        weapon: point.weapon,
-        position: point.position,
-        active: true,
-        respawnAtMs: null,
-      });
+      this.addPoint(point);
+    }
+  }
+
+  syncPoints(points: readonly PickupSpawnPoint[]): void {
+    const ids = new Set(points.map((point) => point.id));
+    for (const id of [...this.items.keys()]) {
+      if (!ids.has(id)) this.items.delete(id);
+    }
+    for (const point of points) {
+      if (!this.items.has(point.id)) this.addPoint(point);
     }
   }
 
@@ -112,5 +115,16 @@ export class PickupSpawner {
       changed.push(item);
     }
     return changed;
+  }
+
+  private addPoint(point: PickupSpawnPoint): void {
+    this.items.set(point.id, {
+      id: point.id,
+      category: point.category,
+      weapon: point.weapon,
+      position: point.position,
+      active: true,
+      respawnAtMs: null,
+    });
   }
 }

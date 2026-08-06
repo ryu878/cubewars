@@ -3,6 +3,8 @@
 import type {
   ClientMessage,
   DeathEvent,
+  EndlessLeaderboardMessage,
+  EndlessStateMessage,
   FireBroadcastEvent,
   HitEvent,
   JoinAcceptedMessage,
@@ -11,6 +13,7 @@ import type {
   LeaderboardMessage,
   LoadoutMessage,
   LobbyStateMessage,
+  MapStateMessage,
   PickupStateMessage,
   ProjectileImpactEvent,
   RespawnEvent,
@@ -27,6 +30,9 @@ export interface NetworkHandlers {
   onJoinAccepted?: (message: JoinAcceptedMessage) => void;
   onJoinRejected?: (message: JoinRejectedMessage) => void;
   onLeaderboard?: (message: LeaderboardMessage) => void;
+  onEndlessLeaderboard?: (message: EndlessLeaderboardMessage) => void;
+  onEndlessState?: (message: EndlessStateMessage) => void;
+  onMapState?: (message: MapStateMessage) => void;
   /** A fire event resolved to a confirmed hit somewhere (EPIC 4 Story 4.1) — cosmetic feedback trigger only, not the source of truth for health (see WorldStateMessage.players[].health for that). */
   onHit?: (message: HitEvent) => void;
   /** A player's health reached 0 (EPIC 4 Story 4.2) — cosmetic feedback trigger only. */
@@ -72,6 +78,12 @@ export class GameConnection {
           handlers.onJoinRejected?.(message);
         } else if (message.type === "leaderboard") {
           handlers.onLeaderboard?.(message);
+        } else if (message.type === "endless_leaderboard") {
+          handlers.onEndlessLeaderboard?.(message);
+        } else if (message.type === "endless_state") {
+          handlers.onEndlessState?.(message);
+        } else if (message.type === "map_state") {
+          handlers.onMapState?.(message);
         } else if (message.type === "hit") {
           handlers.onHit?.(message);
         } else if (message.type === "death") {
