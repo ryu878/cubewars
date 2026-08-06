@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { LEADERBOARD_LIMIT } from "@cubewars/shared";
+import { LEADERBOARD_LIMIT, boxBounds } from "@cubewars/shared";
 import { EndlessWorld } from "../server/src/endlessWorld.js";
 import { Match } from "../server/src/match.js";
 import { MatchManager, PUBLIC_MATCH_ID } from "../server/src/matchManager.js";
@@ -17,6 +17,13 @@ assert.ok(world.getGeometry().length > initialGeometryCount, "endless world shou
 assert.ok(world.getPickups().length > initialPickupCount, "endless world should add pickups ahead of progress");
 assert.ok(world.takeBotSpawns(3, -120).length > 0, "endless world should provide bot spawns ahead of the player");
 assert.ok(world.getVersion() > initialVersion, "endless world version should change when generated content changes");
+for (let z = -2; z >= -900; z -= 2) {
+  const blocked = world.getGeometry().some((box) => {
+    const bounds = boxBounds(box);
+    return 0 > bounds.minX - 0.45 && 0 < bounds.maxX + 0.45 && z > bounds.minZ - 0.45 && z < bounds.maxZ + 0.45;
+  });
+  assert.equal(blocked, false, `endless center path should remain open at z=${z}`);
+}
 
 const rollingWorld = new EndlessWorld();
 rollingWorld.update(1, { x: 0, y: 0, z: -500 });

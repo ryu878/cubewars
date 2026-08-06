@@ -154,19 +154,17 @@ export class EndlessWorld {
       },
     );
 
-    const gapIndex = index % 3;
     const laneCenters = [-14, 0, 14];
-    for (const [laneIndex, x] of laneCenters.entries()) {
-      if (laneIndex === gapIndex) continue;
+    for (const side of [-1, 1]) {
       this.boxes.push({
-        id: `${prefix}_gate_${laneIndex}`,
+        id: `${prefix}_side_stub_${side}`,
         kind: "wall",
-        center: { x, y: WALL_Y, z: centerZ - 2 },
-        size: { x: 8, y: WALL_HEIGHT, z: 1 },
+        center: { x: side * 11, y: WALL_Y, z: centerZ - 2 },
+        size: { x: 5, y: WALL_HEIGHT, z: 1 },
       });
     }
 
-    const crateX = laneCenters[(index + 1) % laneCenters.length];
+    const crateX = index % 2 === 0 ? -12 : 12;
     this.boxes.push({
       id: `${prefix}_crate`,
       kind: "crate",

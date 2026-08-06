@@ -111,6 +111,7 @@ export class Match {
   private endlessNextBotSeq = 1;
   private lastMapVersion = -1;
   private lastEndlessProgressAtMs = 0;
+  private skipRestOfTickAfterEndlessRestart = false;
 
   constructor(private options: MatchOptions) {
     this.id = options.id;
@@ -514,10 +515,13 @@ export class Match {
     // — a bot is a PlayerRecord whose "input" is computed here instead of
     // read from a socket, not a special-cased exception to physics.
     this.botAI?.update(nowMs, (shooterId) => this.resolveFire(shooterId));
+    if (this.skipRestOfTickAfterEndlessRestart) return this.finishEndlessRestartTick(nowMs);
     this.stepProjectiles(TICK_DT_SECONDS);
+    if (this.skipRestOfTickAfterEndlessRestart) return this.finishEndlessRestartTick(nowMs);
 
     this.registry.step(TICK_DT_SECONDS);
     this.applyEndlessFogDamage();
+    if (this.skipRestOfTickAfterEndlessRestart) return this.finishEndlessRestartTick(nowMs);
 
     // Respawn is time-driven, not event-driven — checked every tick so it
     // happens on schedule even though the kill itself was resolved
@@ -653,6 +657,7 @@ export class Match {
     this.endlessBotKills = 0;
     this.endlessNextBotSeq = 1;
     this.lastMapVersion = -1;
+    this.skipRestOfTickAfterEndlessRestart = true;
     this.sendMapState();
     this.broadcastPickupState();
     this.sendEndlessState();
@@ -679,5 +684,15 @@ export class Match {
 
   private isEndlessHuman(playerId: string): boolean {
     return this.mode === "endless" && playerId === this.endlessHumanId;
+  }
+
+  private finishEndlessRestartTick(nowMs: number): void {
+    this.skipRestOfTickAfterEndlessRestart = false;
+    const worldState: WorldStateMessage = {
+      type: "world_state",
+      serverTimeMs: nowMs,
+      players: this.registry.toWorldState(),
+    };
+    this.broadcast(worldState);
   }
 }
