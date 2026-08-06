@@ -11,10 +11,11 @@ Adapted from a sibling project's `ai-office/` layout, with the **quant research 
 | **`.mdc`** | Hard agent instructions (role, prohibitions, mandatory actions). Also the canonical source that `.claude/agents/*.md` subagents are built from. |
 | **`.md`** | Process description, templates, reference, examples (not binding "law" for the agent). |
 
-## Two ways these rules are consumed
+## Ways these rules are consumed
 
 1. **As documentation / shared law** — every role file (`agents/*/role.mdc`) is the canonical, single-source-of-truth definition of that role.
-2. **As real Claude Code subagents** — `.claude/agents/*.md` in the repository root wraps each role into an invocable subagent (via the `Agent` tool). Each subagent is a **thin wrapper**: its first instruction is to read its canonical `ai-office/agents/<role>/role.mdc` (plus the relevant `global/`, `process/`, and `templates/` files) before doing anything else. There is only **one copy** of the actual rules — edit `ai-office/`, and every subagent picks up the change on its next invocation.
+2. **As real Claude Code subagents** — `.claude/agents/*.md` in the repository root wraps each role into an invocable subagent (via the `Agent` tool). Each subagent is a **thin wrapper**: its first instruction is to read its canonical `ai-office/agents/<role>/role.mdc` (plus the relevant `global/`, `process/`, and `templates/` files) before doing anything else.
+3. **As Codex project instructions** — `AGENTS.md` in the repository root routes Codex to the same canonical `ai-office/` role files and preserves the same Team Lead → Programmer → Tester → Critic → Judge/Infosec boundaries. Codex-specific behavior should stay thin for the same reason as the Claude wrappers: there is only **one copy** of the actual rules — edit `ai-office/`, and every agent surface picks up the change on its next run.
 
 ## Navigation
 
