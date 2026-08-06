@@ -124,7 +124,11 @@ export class BotAI {
 
   constructor(
     private registry: PlayerRegistry,
-    private options: { getGeometry?: () => readonly MapBox[]; getWaypoints?: () => readonly Vector3[] } = {},
+    private options: {
+      getGeometry?: () => readonly MapBox[];
+      getWaypoints?: () => readonly Vector3[];
+      canTarget?: (candidateId: string) => boolean;
+    } = {},
   ) {}
 
   /** True if `id` belongs to a bot managed by this instance — used by match.ts's tick loop to exclude bots from pickup consumption (EPIC 9 spec: bots ignore all pickups entirely). */
@@ -168,6 +172,18 @@ export class BotAI {
       waypointDeadlineMs: Date.now() + WAYPOINT_TIMEOUT_MS,
       lastFireAcceptedAt: 0,
     });
+  }
+
+  removeBot(id: string): void {
+    if (!this.bots.delete(id)) return;
+    this.registry.remove(id);
+  }
+
+  clearBots(): void {
+    for (const id of [...this.bots.keys()]) {
+      this.registry.remove(id);
+    }
+    this.bots.clear();
   }
 
   /**
@@ -285,6 +301,7 @@ export class BotAI {
 
     for (const candidate of this.registry.alivePlayerPositions()) {
       if (candidate.id === fromId) continue;
+      if (this.options.canTarget && !this.options.canTarget(candidate.id)) continue;
       const dx = candidate.position.x - fromPosition.x;
       const dz = candidate.position.z - fromPosition.z;
       const distance = Math.hypot(dx, dz);

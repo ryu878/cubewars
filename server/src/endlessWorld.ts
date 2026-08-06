@@ -49,6 +49,21 @@ export class EndlessWorld {
     return [{ x: 0, y: MOVEMENT.groundY, z: 0 }];
   }
 
+  getWaypoints(): readonly Vector3[] {
+    const pickupPoints = this.pickups.slice(-24).map((pickup) => pickup.position);
+    return [...this.getSpawnPoints(), ...pickupPoints, ...this.botSpawns.slice(-12)];
+  }
+
+  reset(): void {
+    this.generatedUntilChunk = 0;
+    this.boxes = [];
+    this.pickups = [];
+    this.botSpawns = [];
+    this.fogZ = FOG_START_Z;
+    this.furthestDistanceMeters = 0;
+    this.ensureGeneratedToDistance(0);
+  }
+
   getBounds(): { minX: number; maxX: number; minZ: number; maxZ: number } {
     return {
       minX: -MAZE_HALF_WIDTH - 2,

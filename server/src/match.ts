@@ -139,7 +139,8 @@ export class Match {
     } else if (this.mode === "endless") {
       this.botAI = new BotAI(this.registry, {
         getGeometry: () => this.currentGeometry(),
-        getWaypoints: () => this.endlessWorld?.getSpawnPoints() ?? [],
+        getWaypoints: () => this.endlessWorld?.getWaypoints() ?? [],
+        canTarget: (candidateId) => candidateId === this.endlessHumanId,
       });
       this.botAI.setTickDtSeconds(TICK_DT_SECONDS);
     }
@@ -385,6 +386,7 @@ export class Match {
             this.endlessBotKills += 1;
             this.publishEndlessProgress();
           }
+          if (this.botAI?.isBot(event.targetId)) this.botAI.removeBot(event.targetId);
         } else {
           this.options.onKillRecorded?.(killMessage.attackerNickname, killMessage.victimNickname);
         }
@@ -511,6 +513,7 @@ export class Match {
     // happens on schedule even though the kill itself was resolved
     // out-of-band (resolveFire() above, called either from the "fire"
     // message handler or from botAI immediately when it decides to shoot).
+    this.resetEndlessRunBeforeRespawn(nowMs);
     const respawns = this.registry.processRespawns(nowMs);
     for (const respawn of respawns) {
       const respawnMessage: RespawnEvent = {
@@ -625,5 +628,28 @@ export class Match {
     const nickname = this.registry.getNickname(this.endlessHumanId);
     this.sendEndlessState();
     this.options.onEndlessProgress?.(nickname, this.endlessBotKills, this.endlessWorld.state().distanceMeters / 1000);
+  }
+
+  private resetEndlessRunBeforeRespawn(nowMs: number): void {
+    if (!this.endlessWorld || !this.endlessHumanId) return;
+    const human = this.registry.getPlayer(this.endlessHumanId);
+    if (!human || human.alive || human.respawnAtMs === null || nowMs < human.respawnAtMs) return;
+
+    this.options.onEndlessProgress?.(
+      human.nickname,
+      this.endlessBotKills,
+      this.endlessWorld.state().distanceMeters / 1000,
+    );
+    this.endlessWorld.reset();
+    this.pickupSpawner.syncPoints(this.endlessWorld.getPickups());
+    this.botAI?.clearBots();
+    this.projectiles.clear();
+    this.endlessBotKills = 0;
+    this.endlessNextBotSeq = 1;
+    this.lastMapGeometryCount = 0;
+    this.sendMapState();
+    this.broadcastPickupState();
+    this.sendEndlessState();
+    this.broadcastScoreboard();
   }
 }
