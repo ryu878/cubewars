@@ -54,7 +54,7 @@ const internalMatch = match as unknown as {
   endlessWorld: EndlessWorld;
   endlessBotKills: number;
   botAI: { spawnBotAt(id: string, position: { x: number; y: number; z: number }, nickname: string): void };
-  resetEndlessRunBeforeRespawn(nowMs: number): void;
+  restartEndlessRunIfDead(nowMs: number): void;
 };
 
 internalMatch.endlessWorld.update(1, { x: 0, y: 0, z: -520 });
@@ -64,12 +64,12 @@ const expandedGeometryCount = internalMatch.endlessWorld.getGeometry().length;
 const human = match.registry.getPlayer("human");
 assert.ok(human, "human should exist in endless match");
 human.alive = false;
-human.respawnAtMs = Date.now() - 1;
+human.respawnAtMs = Date.now() + 3000;
 
-internalMatch.resetEndlessRunBeforeRespawn(Date.now());
-const respawns = match.registry.processRespawns(Date.now());
+internalMatch.restartEndlessRunIfDead(Date.now());
+const restartedHuman = match.registry.getPlayer("human");
 
-assert.equal(respawns.length, 1, "endless reset should allow the human to respawn");
+assert.ok(restartedHuman?.alive, "endless death should immediately restart the run");
 assert.equal(match.registry.has("old-bot"), false, "endless reset should remove old bots");
 assert.ok(
   internalMatch.endlessWorld.getGeometry().length < expandedGeometryCount,

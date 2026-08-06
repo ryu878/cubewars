@@ -364,6 +364,13 @@ export class Match {
       );
 
       if (event.killed) {
+        const shouldRestartEndlessRun = this.isEndlessHuman(event.targetId);
+        if (shouldRestartEndlessRun) {
+          const human = this.registry.getPlayer(event.targetId);
+          if (human) human.respawnAtMs = Date.now();
+          event.respawnAtMs = Date.now();
+        }
+
         const deathMessage: DeathEvent = {
           type: "death",
           playerId: event.targetId,
@@ -391,6 +398,9 @@ export class Match {
           this.options.onKillRecorded?.(killMessage.attackerNickname, killMessage.victimNickname);
         }
         scoreboardChanged = true;
+        if (shouldRestartEndlessRun) {
+          this.restartEndlessRun(Date.now());
+        }
       }
     }
 
@@ -513,21 +523,8 @@ export class Match {
     // happens on schedule even though the kill itself was resolved
     // out-of-band (resolveFire() above, called either from the "fire"
     // message handler or from botAI immediately when it decides to shoot).
-    this.resetEndlessRunBeforeRespawn(nowMs);
-    const respawns = this.registry.processRespawns(nowMs);
-    for (const respawn of respawns) {
-      const respawnMessage: RespawnEvent = {
-        type: "respawn",
-        playerId: respawn.playerId,
-        position: respawn.position,
-        health: respawn.health,
-      };
-      this.broadcast(respawnMessage);
-      this.sendLoadout(respawn.playerId);
-      console.log(
-        `[server] [${this.id}] respawn: ${respawn.playerId} at (${respawn.position.x.toFixed(1)}, ${respawn.position.z.toFixed(1)})`,
-      );
-    }
+    this.restartEndlessRunIfDead(nowMs);
+    this.processDueRespawns(nowMs);
 
     // Server-authoritative pickup-on-proximity, checked every tick against
     // every currently ALIVE player's own server-tracked position. EPIC 9:
@@ -630,11 +627,20 @@ export class Match {
     this.options.onEndlessProgress?.(nickname, this.endlessBotKills, this.endlessWorld.state().distanceMeters / 1000);
   }
 
-  private resetEndlessRunBeforeRespawn(nowMs: number): void {
+  private restartEndlessRunIfDead(nowMs: number): void {
     if (!this.endlessWorld || !this.endlessHumanId) return;
     const human = this.registry.getPlayer(this.endlessHumanId);
-    if (!human || human.alive || human.respawnAtMs === null || nowMs < human.respawnAtMs) return;
+    if (!human || human.alive) return;
+    if (human.respawnAtMs === null || nowMs < human.respawnAtMs) {
+      human.respawnAtMs = nowMs;
+    }
+    this.restartEndlessRun(nowMs);
+  }
 
+  private restartEndlessRun(nowMs: number): void {
+    if (!this.endlessWorld || !this.endlessHumanId) return;
+    const human = this.registry.getPlayer(this.endlessHumanId);
+    if (!human || human.alive || human.respawnAtMs === null) return;
     this.options.onEndlessProgress?.(
       human.nickname,
       this.endlessBotKills,
@@ -650,6 +656,28 @@ export class Match {
     this.sendMapState();
     this.broadcastPickupState();
     this.sendEndlessState();
+    this.processDueRespawns(nowMs);
     this.broadcastScoreboard();
+  }
+
+  private processDueRespawns(nowMs: number): void {
+    const respawns = this.registry.processRespawns(nowMs);
+    for (const respawn of respawns) {
+      const respawnMessage: RespawnEvent = {
+        type: "respawn",
+        playerId: respawn.playerId,
+        position: respawn.position,
+        health: respawn.health,
+      };
+      this.broadcast(respawnMessage);
+      this.sendLoadout(respawn.playerId);
+      console.log(
+        `[server] [${this.id}] respawn: ${respawn.playerId} at (${respawn.position.x.toFixed(1)}, ${respawn.position.z.toFixed(1)})`,
+      );
+    }
+  }
+
+  private isEndlessHuman(playerId: string): boolean {
+    return this.mode === "endless" && playerId === this.endlessHumanId;
   }
 }
