@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-24 |
 | Author (Pusya) | Programmer (Pusya) |
 | Task / Story / EPIC | EPIC 26 — Drop Table Completion & Durable Achievements (Tasks 26.1–26.5) |
-| Branch / commit / PR | `task/epic-26-durable-achievements-drops` @ `134261f`; base `task/epic-25-gems-amulets-shards` @ `b4f3918` — compare https://github.com/ryu878/cubewars/compare/task/epic-25-gems-amulets-shards...task/epic-26-durable-achievements-drops (`gh pr create` may fail if token cannot see repo — use compare URL) |
+| Branch / commit / PR | `task/epic-26-durable-achievements-drops` @ `5b51455`; base `task/epic-25-gems-amulets-shards` @ `b4f3918` — compare https://github.com/ryu878/cubewars/compare/task/epic-25-gems-amulets-shards...task/epic-26-durable-achievements-drops (`gh pr create` failed: token account cannot see `ryu878/cubewars`) |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
