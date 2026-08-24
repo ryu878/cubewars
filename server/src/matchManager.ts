@@ -5,6 +5,9 @@
 // games fill up) and creates/destroys private "bots:<connectionId>" matches
 // on demand, driven entirely by server/src/index.ts's connection/message
 // handling (this module has no `ws`/transport dependency of its own).
+//
+// EPIC 26: PvP career K/D and endless personal bests are durable in SQLite
+// via EconomyStore; in-memory Maps are write-through caches hydrated on start.
 
 import {
   LEADERBOARD_LIMIT,
@@ -29,10 +32,15 @@ export interface MatchManagerOptions {
 export class MatchManager {
   private matches = new Map<string, Match>();
   private nextPublicMatchNumber = 1;
+  /** Cache of durable career K/D (hydrated from SQLite when economy is set). */
   private leaderboard = new Map<string, LeaderboardEntry>();
+  /** Cache of durable endless personal bests. */
   private endlessLeaderboard = new Map<string, EndlessLeaderboardEntry>();
 
   constructor(private options: MatchManagerOptions = {}) {
+    if (this.options.economy) {
+      this.hydrateLeaderboardsFromStore();
+    }
     // Created at startup and kept available as the first public game.
     this.createPublicMatch();
   }
@@ -67,10 +75,25 @@ export class MatchManager {
   }
 
   recordKill(attackerNickname: string, victimNickname: string): void {
-    const attacker = this.getOrCreateLeaderboardEntry(attackerNickname);
-    attacker.kills += 1;
-    const victim = this.getOrCreateLeaderboardEntry(victimNickname);
-    victim.deaths += 1;
+    const economy = this.options.economy;
+    if (economy) {
+      const { attacker, victim } = economy.incrementCareerKillDeath(attackerNickname, victimNickname);
+      this.leaderboard.set(attacker.nicknameKey, {
+        nickname: attacker.nickname,
+        kills: attacker.kills,
+        deaths: attacker.deaths,
+      });
+      this.leaderboard.set(victim.nicknameKey, {
+        nickname: victim.nickname,
+        kills: victim.kills,
+        deaths: victim.deaths,
+      });
+    } else {
+      const attacker = this.getOrCreateLeaderboardEntry(attackerNickname);
+      attacker.kills += 1;
+      const victim = this.getOrCreateLeaderboardEntry(victimNickname);
+      victim.deaths += 1;
+    }
     this.broadcastLeaderboard();
   }
 
@@ -85,16 +108,26 @@ export class MatchManager {
   }
 
   recordEndlessProgress(nickname: string, botKills: number, distanceKm: number): void {
-    const normalized = normalizeNickname(nickname);
-    const key = normalized.ok ? normalized.key : nickname.toLocaleLowerCase();
-    const current = this.endlessLeaderboard.get(key);
-    const nextNickname = normalized.ok ? normalized.nickname : nickname;
-    if (!current) {
-      this.endlessLeaderboard.set(key, { nickname: nextNickname, botKills, distanceKm });
+    const economy = this.options.economy;
+    if (economy) {
+      const entry = economy.upsertEndlessBest(nickname, botKills, distanceKm);
+      this.endlessLeaderboard.set(entry.nicknameKey, {
+        nickname: entry.nickname,
+        botKills: entry.botKills,
+        distanceKm: entry.distanceKm,
+      });
     } else {
-      current.nickname = nextNickname;
-      current.botKills = Math.max(current.botKills, botKills);
-      current.distanceKm = Math.max(current.distanceKm, distanceKm);
+      const normalized = normalizeNickname(nickname);
+      const key = normalized.ok ? normalized.key : nickname.toLocaleLowerCase();
+      const current = this.endlessLeaderboard.get(key);
+      const nextNickname = normalized.ok ? normalized.nickname : nickname;
+      if (!current) {
+        this.endlessLeaderboard.set(key, { nickname: nextNickname, botKills, distanceKm });
+      } else {
+        current.nickname = nextNickname;
+        current.botKills = Math.max(current.botKills, botKills);
+        current.distanceKm = Math.max(current.distanceKm, distanceKm);
+      }
     }
     this.options.onEndlessLeaderboardChanged?.(this.listEndlessLeaderboard());
   }
@@ -149,6 +182,28 @@ export class MatchManager {
   /** Count of currently-live match instances (ops/logging visibility only). */
   size(): number {
     return this.matches.size;
+  }
+
+  private hydrateLeaderboardsFromStore(): void {
+    const economy = this.options.economy;
+    if (!economy) return;
+    for (const entry of economy.listAllCareerStats()) {
+      this.leaderboard.set(entry.nicknameKey, {
+        nickname: entry.nickname,
+        kills: entry.kills,
+        deaths: entry.deaths,
+      });
+    }
+    for (const entry of economy.listAllEndlessCareerStats()) {
+      this.endlessLeaderboard.set(entry.nicknameKey, {
+        nickname: entry.nickname,
+        botKills: entry.botKills,
+        distanceKm: entry.distanceKm,
+      });
+    }
+    console.log(
+      `[economy] leaderboards hydrated: career=${this.leaderboard.size} endless=${this.endlessLeaderboard.size}`,
+    );
   }
 
   private destroy(matchId: string): void {

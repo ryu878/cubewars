@@ -1,16 +1,21 @@
-// Durable player economy profiles keyed by nickname (EPIC 23–25).
-// Gold / pets / eggs / stimulators / gems / amulets / shards / repair kits
-// are transactional. Single-process assumption: better-sqlite3 sync API;
-// do not run multiple server processes against the same SQLite file.
+// Durable player economy profiles keyed by nickname (EPIC 23–26).
+// Gold / pets / eggs / stimulators / gems / amulets / shards / repair kits /
+// career K/D / endless personal bests are transactional. Single-process
+// assumption: better-sqlite3 sync API; do not run multiple server processes
+// against the same SQLite file.
 
 import path from "node:path";
 import type Database from "better-sqlite3";
 import {
+  DROP_CHANCE,
   ECONOMY_CAPS,
   GEM_TYPES,
   GEM_VALUE_MAX,
   GEM_VALUE_MIN,
+  GOLD_DROP_MAX,
+  GOLD_DROP_MIN,
   INCUBATION,
+  LEADERBOARD_LIMIT,
   PET_TYPES,
   REPAIR_KIT_SOFT_CAP,
   STIMULATOR_SOFT_CAP,
@@ -19,12 +24,6 @@ import {
   applyStimulatorDeadline,
   emptyRatings,
   isEggReady,
-  shouldGrantAmuletDrop,
-  shouldGrantEggDrop,
-  shouldGrantGemDrop,
-  shouldGrantRepairKitDrop,
-  shouldGrantShard,
-  shouldGrantStimulatorDrop,
   type GemType,
   type PetGemBonuses,
   type PetType,
@@ -132,6 +131,10 @@ export interface KillItemDropsResult {
   shard: boolean;
   amulet: EconomyAmulet | null;
   repairKit: boolean;
+  /** Extra gold minted when a rolled (or shard-eligible) item could not be granted. */
+  substitutedGold: number;
+  /** Item kinds that overflowed into gold this kill (for logs). */
+  substitutedKinds: string[];
 }
 
 export interface KillDropRolls {
@@ -140,6 +143,11 @@ export interface KillDropRolls {
   gem: number;
   amulet: number;
   repairKit: number;
+  /**
+   * When set, every overflow→gold substitute uses this exact amount (tests).
+   * Otherwise each substitute rolls independently in [GOLD_DROP_MIN, GOLD_DROP_MAX].
+   */
+  substituteGold?: number;
 }
 
 export interface VictimDropContext {
@@ -278,6 +286,25 @@ function defaultKillRolls(): KillDropRolls {
   };
 }
 
+/** Inclusive gold band for primary kill mint and overflow substitutes. */
+function rollGoldDropAmount(): number {
+  return GOLD_DROP_MIN + Math.floor(Math.random() * (GOLD_DROP_MAX - GOLD_DROP_MIN + 1));
+}
+
+export interface CareerStatsEntry {
+  nickname: string;
+  nicknameKey: string;
+  kills: number;
+  deaths: number;
+}
+
+export interface EndlessCareerEntry {
+  nickname: string;
+  nicknameKey: string;
+  botKills: number;
+  distanceKm: number;
+}
+
 export class EconomyStore {
   readonly dbPath: string;
 
@@ -398,6 +425,179 @@ export class EconomyStore {
     });
 
     return run();
+  }
+
+  /**
+   * Increment attacker kills and victim deaths in one transaction (EPIC 26).
+   * Ensures both profiles exist. Returns updated career rows for cache write-through.
+   */
+  incrementCareerKillDeath(
+    attackerNickname: string,
+    victimNickname: string,
+  ): { attacker: CareerStatsEntry; victim: CareerStatsEntry } {
+    const run = this.db.transaction(() => {
+      const attacker = this.getOrCreateProfile(attackerNickname);
+      const victim = this.getOrCreateProfile(victimNickname);
+      const now = Date.now();
+      this.db
+        .prepare(
+          `INSERT INTO career_stats (profile_id, kills, deaths, updated_at)
+           VALUES (@profile_id, 1, 0, @updated_at)
+           ON CONFLICT(profile_id) DO UPDATE SET
+             kills = kills + 1,
+             updated_at = @updated_at`,
+        )
+        .run({ profile_id: attacker.id, updated_at: now });
+      this.db
+        .prepare(
+          `INSERT INTO career_stats (profile_id, kills, deaths, updated_at)
+           VALUES (@profile_id, 0, 1, @updated_at)
+           ON CONFLICT(profile_id) DO UPDATE SET
+             deaths = deaths + 1,
+             updated_at = @updated_at`,
+        )
+        .run({ profile_id: victim.id, updated_at: now });
+      return {
+        attacker: this.readCareerEntry(attacker.id)!,
+        victim: this.readCareerEntry(victim.id)!,
+      };
+    });
+    return run();
+  }
+
+  listCareerLeaderboard(limit: number = LEADERBOARD_LIMIT): CareerStatsEntry[] {
+    const rows = this.db
+      .prepare(
+        `SELECT p.nickname_key AS nickname_key, p.nickname AS nickname,
+                c.kills AS kills, c.deaths AS deaths
+         FROM career_stats c
+         JOIN profiles p ON p.id = c.profile_id
+         ORDER BY c.kills DESC, c.deaths ASC, p.nickname ASC
+         LIMIT ?`,
+      )
+      .all(Math.max(0, Math.floor(limit))) as Array<{
+      nickname_key: string;
+      nickname: string;
+      kills: number;
+      deaths: number;
+    }>;
+    return rows.map((row) => ({
+      nicknameKey: row.nickname_key,
+      nickname: row.nickname,
+      kills: row.kills,
+      deaths: row.deaths,
+    }));
+  }
+
+  /** Load every career row (startup cache hydrate). */
+  listAllCareerStats(): CareerStatsEntry[] {
+    return this.listCareerLeaderboard(Number.MAX_SAFE_INTEGER);
+  }
+
+  /**
+   * Upsert endless personal bests (max bot kills / distance). Same compare rules
+   * as the former in-memory MatchManager path.
+   */
+  upsertEndlessBest(
+    nickname: string,
+    botKills: number,
+    distanceKm: number,
+  ): EndlessCareerEntry {
+    if (!Number.isFinite(botKills) || botKills < 0 || !Number.isFinite(distanceKm) || distanceKm < 0) {
+      throw new Error(`invalid endless best values: botKills=${botKills} distanceKm=${distanceKm}`);
+    }
+    const killsInt = Math.floor(botKills);
+    const run = this.db.transaction(() => {
+      const profile = this.getOrCreateProfile(nickname);
+      const now = Date.now();
+      this.db
+        .prepare(
+          `INSERT INTO endless_career_stats (profile_id, best_bot_kills, best_distance_km, updated_at)
+           VALUES (@profile_id, @bot_kills, @distance_km, @updated_at)
+           ON CONFLICT(profile_id) DO UPDATE SET
+             best_bot_kills = MAX(best_bot_kills, excluded.best_bot_kills),
+             best_distance_km = MAX(best_distance_km, excluded.best_distance_km),
+             updated_at = excluded.updated_at`,
+        )
+        .run({
+          profile_id: profile.id,
+          bot_kills: killsInt,
+          distance_km: distanceKm,
+          updated_at: now,
+        });
+      return this.readEndlessEntry(profile.id)!;
+    });
+    return run();
+  }
+
+  listEndlessLeaderboard(limit: number = LEADERBOARD_LIMIT): EndlessCareerEntry[] {
+    const rows = this.db
+      .prepare(
+        `SELECT p.nickname_key AS nickname_key, p.nickname AS nickname,
+                e.best_bot_kills AS bot_kills, e.best_distance_km AS distance_km
+         FROM endless_career_stats e
+         JOIN profiles p ON p.id = e.profile_id
+         ORDER BY e.best_bot_kills DESC, e.best_distance_km DESC, p.nickname ASC
+         LIMIT ?`,
+      )
+      .all(Math.max(0, Math.floor(limit))) as Array<{
+      nickname_key: string;
+      nickname: string;
+      bot_kills: number;
+      distance_km: number;
+    }>;
+    return rows.map((row) => ({
+      nicknameKey: row.nickname_key,
+      nickname: row.nickname,
+      botKills: row.bot_kills,
+      distanceKm: row.distance_km,
+    }));
+  }
+
+  listAllEndlessCareerStats(): EndlessCareerEntry[] {
+    return this.listEndlessLeaderboard(Number.MAX_SAFE_INTEGER);
+  }
+
+  private readCareerEntry(profileId: number): CareerStatsEntry | null {
+    const row = this.db
+      .prepare(
+        `SELECT p.nickname_key AS nickname_key, p.nickname AS nickname,
+                c.kills AS kills, c.deaths AS deaths
+         FROM career_stats c
+         JOIN profiles p ON p.id = c.profile_id
+         WHERE c.profile_id = ?`,
+      )
+      .get(profileId) as
+      | { nickname_key: string; nickname: string; kills: number; deaths: number }
+      | undefined;
+    if (!row) return null;
+    return {
+      nicknameKey: row.nickname_key,
+      nickname: row.nickname,
+      kills: row.kills,
+      deaths: row.deaths,
+    };
+  }
+
+  private readEndlessEntry(profileId: number): EndlessCareerEntry | null {
+    const row = this.db
+      .prepare(
+        `SELECT p.nickname_key AS nickname_key, p.nickname AS nickname,
+                e.best_bot_kills AS bot_kills, e.best_distance_km AS distance_km
+         FROM endless_career_stats e
+         JOIN profiles p ON p.id = e.profile_id
+         WHERE e.profile_id = ?`,
+      )
+      .get(profileId) as
+      | { nickname_key: string; nickname: string; bot_kills: number; distance_km: number }
+      | undefined;
+    if (!row) return null;
+    return {
+      nicknameKey: row.nickname_key,
+      nickname: row.nickname,
+      botKills: row.bot_kills,
+      distanceKm: row.distance_km,
+    };
   }
 
   listEggs(profileId: number): EconomyEgg[] {
@@ -741,10 +941,24 @@ export class EconomyStore {
 
   /**
    * Human-only kill item drops (egg/stim + gem/shard/amulet/repair).
-   * Gold is handled separately. Caps skip the drop silently.
+   * Gold primary mint is handled separately in Match.
+   * Chance rolls are independent of caps; when a rolled (or shard-eligible)
+   * item cannot be granted, mint substitute gold in [GOLD_DROP_MIN, GOLD_DROP_MAX]
+   * and log via returned substitutedKinds (Match logs `drop_substituted_gold`).
    * Gem/amulet drops are **loot copies** (victim keeps items).
    */
   tryKillItemDrops(
+    nickname: string,
+    victimIsHuman: boolean,
+    rolls: Partial<KillDropRolls> = {},
+    nowMs: number = Date.now(),
+    victim?: VictimDropContext,
+  ): KillItemDropsResult {
+    return this.resolveKillDrops(nickname, victimIsHuman, rolls, nowMs, victim);
+  }
+
+  /** Alias for the unified kill-drop resolver (EPIC 26). */
+  resolveKillDrops(
     nickname: string,
     victimIsHuman: boolean,
     rolls: Partial<KillDropRolls> = {},
@@ -759,35 +973,52 @@ export class EconomyStore {
       shard: false,
       amulet: null,
       repairKit: false,
+      substitutedGold: 0,
+      substitutedKinds: [],
     };
     if (!victimIsHuman) {
       return empty;
     }
-    const profile = this.getOrCreateProfile(nickname);
+    this.getOrCreateProfile(nickname);
     let egg: EconomyEgg | null = null;
     let stimulator = false;
     let gem: EconomyGem | null = null;
     let shard = false;
     let amulet: EconomyAmulet | null = null;
     let repairKit = false;
+    let substitutedGold = 0;
+    const substitutedKinds: string[] = [];
 
-    const eggCount = this.countEggs(profile.id);
-    const petCount = this.countPets(profile.id);
-    if (shouldGrantEggDrop(eggCount, petCount, merged.egg)) {
+    const substitute = (kind: string): void => {
+      const amount =
+        merged.substituteGold !== undefined && Number.isFinite(merged.substituteGold)
+          ? Math.floor(merged.substituteGold)
+          : rollGoldDropAmount();
+      const clamped = Math.max(GOLD_DROP_MIN, Math.min(GOLD_DROP_MAX, amount));
+      this.addGold(nickname, clamped);
+      substitutedGold += clamped;
+      substitutedKinds.push(kind);
+      console.log(
+        `[economy] drop_substituted_gold kind=${kind} amount=${clamped} -> ${nickname}`,
+      );
+    };
+
+    if (merged.egg < DROP_CHANCE.egg) {
       try {
         egg = this.grantEgg(nickname, nowMs);
       } catch (err) {
-        if (!(err instanceof EconomyActionError)) throw err;
+        if (err instanceof EconomyActionError) substitute("egg");
+        else throw err;
       }
     }
 
-    const stimCount = this.countStimulators(profile.id);
-    if (shouldGrantStimulatorDrop(stimCount, merged.stimulator)) {
+    if (merged.stimulator < DROP_CHANCE.growthStimulator) {
       try {
         this.grantStimulator(nickname, nowMs);
         stimulator = true;
       } catch (err) {
-        if (!(err instanceof EconomyActionError)) throw err;
+        if (err instanceof EconomyActionError) substitute("stimulator");
+        else throw err;
       }
     }
 
@@ -795,19 +1026,18 @@ export class EconomyStore {
       const victimProfile = this.getOrCreateProfile(victim.nickname);
       const victimHasAmulet = this.hasAnyAmulet(victimProfile.id);
       const victimEquippedGems = this.listGemsOnEquippedPets(victimProfile.id);
+      const killerProfile = this.getOrCreateProfile(nickname);
 
-      if (
-        shouldGrantGemDrop(this.countGems(profile.id), victimEquippedGems.length > 0, merged.gem)
-      ) {
+      if (victimEquippedGems.length > 0 && merged.gem < DROP_CHANCE.gem) {
         const source = victimEquippedGems[Math.floor(Math.random() * victimEquippedGems.length)]!;
         try {
-          // Loot copy may carry death-decayed values (< GEM_VALUE_MIN); never abort kill path.
           gem = this.grantGem(nickname, source.gemType, source.value, nowMs, {
             allowExistingValue: true,
           });
         } catch (err) {
-          // Caps or unexpected errors: skip gem drop; do not throw out of kill economy.
-          if (!(err instanceof EconomyActionError)) {
+          if (err instanceof EconomyActionError) {
+            substitute("gem");
+          } else {
             console.warn(
               `[economy] gem loot copy skipped for ${nickname}: ${err instanceof Error ? err.message : String(err)}`,
             );
@@ -815,23 +1045,23 @@ export class EconomyStore {
         }
       }
 
+      // Shard eligibility: victim has amulet, once-per-match, killer under amulet cap.
+      // Shard stack full → substitute gold (EPIC 26).
       if (
-        shouldGrantShard(
-          this.countAmulets(profile.id),
-          this.getShardCount(profile.id),
-          victimHasAmulet,
-          victim.alreadyGrantedShard,
-        )
+        victimHasAmulet &&
+        !victim.alreadyGrantedShard &&
+        this.countAmulets(killerProfile.id) < ECONOMY_CAPS.amulets
       ) {
         try {
           this.addShard(nickname, 1, nowMs);
           shard = true;
         } catch (err) {
-          if (!(err instanceof EconomyActionError)) throw err;
+          if (err instanceof EconomyActionError) substitute("shard");
+          else throw err;
         }
       }
 
-      if (shouldGrantAmuletDrop(this.countAmulets(profile.id), victimHasAmulet, merged.amulet)) {
+      if (victimHasAmulet && merged.amulet < DROP_CHANCE.amulet) {
         const victimAmulets = this.listAmulets(victimProfile.id);
         const equipped = victimAmulets.find((a) => a.equipped);
         const source =
@@ -840,22 +1070,33 @@ export class EconomyStore {
           try {
             amulet = this.grantAmulet(nickname, source.durability, nowMs);
           } catch (err) {
-            if (!(err instanceof EconomyActionError)) throw err;
+            if (err instanceof EconomyActionError) substitute("amulet");
+            else throw err;
           }
         }
       }
 
-      if (shouldGrantRepairKitDrop(this.countRepairKits(profile.id), merged.repairKit)) {
+      if (merged.repairKit < DROP_CHANCE.repairKit) {
         try {
           this.grantRepairKit(nickname, nowMs);
           repairKit = true;
         } catch (err) {
-          if (!(err instanceof EconomyActionError)) throw err;
+          if (err instanceof EconomyActionError) substitute("repairKit");
+          else throw err;
         }
       }
     }
 
-    return { egg, stimulator, gem, shard, amulet, repairKit };
+    return {
+      egg,
+      stimulator,
+      gem,
+      shard,
+      amulet,
+      repairKit,
+      substitutedGold,
+      substitutedKinds,
+    };
   }
 
   applyStimulator(nickname: string, eggId: number, nowMs: number = Date.now()): EconomyEgg {

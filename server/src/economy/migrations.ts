@@ -1,6 +1,7 @@
 // Schema migrations for the economy SQLite DB.
 // EPIC 23: profiles. EPIC 24: eggs, pets, growth_stimulators.
 // EPIC 25: gems, amulets, shards, repair_kits; pets.equip_slot allows 2.
+// EPIC 26: career_stats + endless_career_stats (durable leaderboards).
 
 import type Database from "better-sqlite3";
 
@@ -114,6 +115,24 @@ const MIGRATIONS: readonly Migration[] = [
         created_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_repair_kits_profile ON repair_kits(profile_id);
+    `,
+  },
+  {
+    id: "20260824_004_career_endless_stats",
+    sql: `
+      CREATE TABLE IF NOT EXISTS career_stats (
+        profile_id INTEGER PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
+        kills INTEGER NOT NULL DEFAULT 0 CHECK (kills >= 0),
+        deaths INTEGER NOT NULL DEFAULT 0 CHECK (deaths >= 0),
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS endless_career_stats (
+        profile_id INTEGER PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
+        best_bot_kills INTEGER NOT NULL DEFAULT 0 CHECK (best_bot_kills >= 0),
+        best_distance_km REAL NOT NULL DEFAULT 0 CHECK (best_distance_km >= 0),
+        updated_at INTEGER NOT NULL
+      );
     `,
   },
 ];

@@ -14,4 +14,6 @@ export {
   type KillItemDropsResult,
   type KillDropRolls,
   type VictimDropContext,
+  type CareerStatsEntry,
+  type EndlessCareerEntry,
 } from "./store.js";

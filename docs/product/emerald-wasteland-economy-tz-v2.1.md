@@ -163,11 +163,38 @@ No real-money gold sales in-repo. Auction developer cut is in-game gold ledger o
 
 ## 4. Technical requirements (cubewars)
 
-### 4.1 Persistence
+### 4.1 Persistence (mandatory — survives server restart)
 
-- SQLite file path via env (`CUBEWARS_ECONOMY_DB`, default under server data dir).
-- Tables mirror entities: Profile, Pet, Gem, Egg, Amulet, ShardStack, InventorySlot, AuctionLot, RepairKit, GrowthStimulator, EconomyLedger, MatchShardGrant.
-- All mutations server-side inside transactions.
+SQLite file path via env (`CUBEWARS_ECONOMY_DB`, default under server data dir). All mutations server-side inside transactions.
+
+**MUST persist (player achievements / progress):**
+
+| Data | Storage |
+|------|---------|
+| Gold | `profiles.gold` |
+| Pets (type, base_value, equip_slot, decayed values) | `pets` |
+| Eggs + `hatch_deadline_ms` | `eggs` |
+| Growth stimulators | `growth_stimulators` |
+| Gems (type, value, socket pet_id) | `gems` |
+| Amulets (durability, equipped) | `amulets` |
+| Shard stack | `shards` |
+| Repair kits | `repair_kits` |
+| PvP career kills / deaths (lobby leaderboard) | `career_stats` (EPIC 26) |
+| Endless best bot kills + best distance km | `endless_career_stats` (EPIC 26) |
+| Auction lots / bids / developer gold ledger | later EPICs |
+
+**MUST NOT persist (session-only — OK to reset):**
+
+| Data | Why |
+|------|-----|
+| Current match HP / absorptive armor / ammo / position | Arena life state |
+| In-match Tab scoreboard for current match only | Ephemeral FFA score |
+| Per-match shard-from-victim grant set | Match-scoped anti-farm rule |
+| WebSocket connection ids | Runtime |
+
+**Rule:** if the player would perceive it as an *achievement* or *owned item*, it belongs in SQLite. Restarting the server must not wipe gold, pets, eggs, gems, amulets, shards, kits, stimulators, career K/D, or endless personal bests.
+
+**Identity note:** profiles remain keyed by normalized nickname until an auth EPIC; spoofing risk is accepted interim, but data for a given nickname key must still reload from DB after restart.
 
 ### 4.2 Authority
 
@@ -196,7 +223,7 @@ No real-money gold sales in-repo. Auction developer cut is in-game gold ledger o
 | **23** | Persistence foundation, profile, gold on kill, economy config | Sprint 1 start |
 | **24** | Pets, eggs, incubation, stimulators, equip + stat application | Sprint 1 |
 | **25** | Gems, amulets, shards, repair, death penalties, craft | Sprint 1 end |
-| **26** | Full kill drop table + limit/overflow gold substitute | Sprint 1–2 |
+| **26** | Full kill drop table + overflow→gold + **durable career/endless leaderboards** | Sprint 1–2 |
 | **27** | Inventory / equip / incubation UI | Sprint 2 |
 | **28** | Auction, P2P trade, ground item drops | Sprint 3 |
 | **29** | Balance pass, stimulator polish, economy simulation scripts | Sprint 4 |
@@ -214,6 +241,7 @@ Same checklist as user §6, minus OBS until EPIC 30. Plus:
 - [ ] Server-authoritative; regression scripts for drop, hatch, fees, caps.
 - [ ] Stable with existing multiplayer/endless modes (economy does not break match tick).
 - [ ] Config-driven numbers; no secrets in git.
+- [ ] **Durable achievements:** gold, pets, eggs, gems, amulets, shards, kits, stimulators, career K/D, and endless personal bests survive server restart (TZ §4.1).
 
 ---
 

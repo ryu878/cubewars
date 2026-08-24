@@ -82,6 +82,13 @@ Combat is server-authoritative too: firing sends a bare "fire" event, and the se
 
 ## Current status
 
+EPIC 26 (Drop Table Completion & Durable Achievements) — see `docs/tasks/epic-26-durable-achievements-drops.md` and TZ §4.1.
+
+- **Durable career / endless:** lobby PvP kills/deaths and endless personal bests (bot kills + distance km) live in SQLite (`career_stats`, `endless_career_stats`) and reload after server restart. MatchManager keeps an in-memory write-through cache.
+- **Kill-drop overflow → gold:** when a chance roll (or shard eligibility) succeeds but the item cannot be granted (cap/soft-cap), the killer receives substitute gold in `[GOLD_DROP_MIN, GOLD_DROP_MAX]` instead of a silent skip (`drop_substituted_gold` log).
+- **Still session-only:** match HP/armor/ammo/position, Tab match scoreboard, and per-match shard-from-victim grant sets reset on match/restart (not achievements).
+- Verified via `npm run regression:economy-persistence`, `npm run regression:economy-gems-amulets`, `npm run regression:economy-pets`, `npm run regression:economy-gold`, `npm run typecheck`, and `npm run build`.
+
 EPIC 25 (Gems, Amulets, Shards & Death Penalties) — see `docs/tasks/epic-25-gems-amulets-shards.md`.
 
 - **Gems:** socket/unsocket onto pets (one gem per type per pet). Kill loot is a **copy** of a gem from the victim's equipped pet (victim keeps theirs).
@@ -111,13 +118,13 @@ EPIC 22 (Endless Single Player) — see `docs/tasks/epic-22-endless-single-playe
 - **Endless mode:** the start screen now has an **Endless** button that creates a private one-human `endless:<connectionId>` match.
 - **Server-generated maze:** the server grows an endless forward maze in chunks, including collidable walls/crates, pickups, and bot spawn points. The client renders only the `map_state` geometry/pickups the server sends; server-side movement/combat remain authoritative.
 - **Pressure wall/fog:** a translucent fog wall moves forward from behind and applies slow server-side damage while the player is inside it, forcing forward movement.
-- **Endless leaderboard:** a separate top-20 table tracks each nickname's best bot-kill count and best distance in kilometers, sorted by bot kills descending, then distance descending.
+- **Endless leaderboard:** a separate top-20 table tracks each nickname's best bot-kill count and best distance in kilometers, sorted by bot kills descending, then distance descending. As of EPIC 26 these personal bests persist in SQLite across server restart.
 - Verified via `npm run regression:endless`, `npm run regression:lobby-nicknames`, `npm run regression:leaderboard`, `npm run typecheck`, and `npm run build`.
 
 EPIC 21 (Nickname Leaderboard) — see `docs/tasks/epic-21-nickname-leaderboard.md`. Direct user feedback (Russian): "сделай еще лидербоард, где будет написано сколько раз ник выиграл, сколько смертей. И сортировку чтобы сверху были топы. Ну и пусть будет всего 20 в списке."
 
 - **Top-20 nickname leaderboard:** the start screen now shows a leaderboard with rank, nickname, kills, and deaths. The game does not have round wins yet, so the "wins/top" metric is currently kills.
-- **Server-side accounting:** every server-confirmed kill increments the attacker's kills and the victim's deaths in an in-memory table keyed by normalized nickname. The leaderboard resets on server restart; no database/account system was added.
+- **Server-side accounting:** every server-confirmed kill increments the attacker's kills and the victim's deaths keyed by normalized nickname. As of EPIC 26 these career totals persist in SQLite across server restart (see Current status / EPIC 26).
 - **Sorting:** entries sort by kills descending, then deaths ascending, then nickname, and only the top 20 are broadcast/rendered.
 - Verified via `npm run regression:leaderboard`.
 

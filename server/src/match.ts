@@ -466,8 +466,9 @@ export class Match {
   }
 
   /**
-   * EPIC 23–25: mint kill gold into the human killer's nickname profile, and
+   * EPIC 23–26: mint kill gold into the human killer's nickname profile, and
    * on human victims only roll egg/stim/gem/shard/amulet/repair drops.
+   * Overflow (rolled item cannot grant) substitutes additional gold.
    * Skips fog deaths, self-kills, and non-human shooters (bots have no socket).
    */
   private grantKillGold(shooterId: string, victimId: string): void {
@@ -480,11 +481,10 @@ export class Match {
     const killer = this.registry.getPlayer(shooterId);
     if (!killer) return;
 
-    const gained = randomInt(GOLD_DROP_MIN, GOLD_DROP_MAX + 1);
-    const profile = economy.addGold(killer.nickname, gained);
-    this.sendEconomyGoldUpdate(shooterId, profile.gold, gained);
+    const primaryGained = randomInt(GOLD_DROP_MIN, GOLD_DROP_MAX + 1);
+    economy.addGold(killer.nickname, primaryGained);
     console.log(
-      `[economy] gold minted: +${gained} -> ${profile.nickname} (total ${profile.gold}) ` +
+      `[economy] gold minted: +${primaryGained} -> ${killer.nickname} ` +
         `[match=${this.id} kill ${shooterId} -> ${victimId}]`,
     );
 
@@ -492,12 +492,13 @@ export class Match {
     const victimIsHuman = this.sockets.has(victimId) && !this.botAI?.isBot(victimId);
     const victimPlayer = victimIsHuman ? this.registry.getPlayer(victimId) : null;
     let alreadyGrantedShard = false;
+    const killerProfile = economy.getOrCreateProfile(killer.nickname);
     if (victimPlayer) {
-      const killerKey = profile.nicknameKey;
+      const killerKey = killerProfile.nicknameKey;
       const victimKey = economy.getOrCreateProfile(victimPlayer.nickname).nicknameKey;
       alreadyGrantedShard = this.matchShardGrants.get(killerKey)?.has(victimKey) ?? false;
     }
-    const drops = economy.tryKillItemDrops(
+    const drops = economy.resolveKillDrops(
       killer.nickname,
       victimIsHuman,
       {},
@@ -510,7 +511,7 @@ export class Match {
         : undefined,
     );
     if (drops.shard && victimPlayer) {
-      const killerKey = profile.nicknameKey;
+      const killerKey = killerProfile.nicknameKey;
       const victimKey = economy.getOrCreateProfile(victimPlayer.nickname).nicknameKey;
       let set = this.matchShardGrants.get(killerKey);
       if (!set) {
@@ -519,6 +520,11 @@ export class Match {
       }
       set.add(victimKey);
     }
+
+    const profile = economy.getOrCreateProfile(killer.nickname);
+    const totalGained = primaryGained + drops.substitutedGold;
+    this.sendEconomyGoldUpdate(shooterId, profile.gold, totalGained);
+
     if (drops.egg || drops.stimulator || drops.gem || drops.shard || drops.amulet || drops.repairKit) {
       this.sendEconomyProfile(shooterId, killer.nickname);
       console.log(
@@ -530,6 +536,14 @@ export class Match {
           `${drops.amulet ? ` amulet#${drops.amulet.id}` : ""}` +
           `${drops.repairKit ? " repairKit" : ""}` +
           ` [match=${this.id}]`,
+      );
+    }
+    if (drops.substitutedGold > 0) {
+      this.sendEconomyProfile(shooterId, killer.nickname);
+      console.log(
+        `[economy] drop_substituted_gold total=+${drops.substitutedGold}` +
+          ` kinds=${drops.substitutedKinds.join(",")}` +
+          ` -> ${killer.nickname} (total gold ${profile.gold}) [match=${this.id}]`,
       );
     }
   }
