@@ -252,6 +252,52 @@ store.socketGem("LootKiller", drops.gem!.id, store.grantPetForTests("LootKiller"
 store.unsocketGem("LootKiller", drops.gem!.id, now);
 assert.equal(store.getFullProfile("LootKiller").gems.find((g) => g.id === drops.gem!.id)!.petId, null);
 
+// --- Critic F-001: loot copy of death-decayed gem value (< 5) must not throw ---
+store.getOrCreateProfile("DecayedVictim");
+store.getOrCreateProfile("DecayedKiller");
+const dPet = store.grantPetForTests("DecayedVictim", "dog", 50, now);
+const dGem = store.grantGem("DecayedVictim", "armor", 5, now);
+store.socketGem("DecayedVictim", dGem.id, dPet.id, now);
+store.equipPet("DecayedVictim", dPet.id, 1, now);
+store.applyHumanDeathPenalties("DecayedVictim", now);
+const decayedGem = store.getFullProfile("DecayedVictim").gems.find((g) => g.id === dGem.id)!;
+assert.equal(decayedGem.value, 4, "floor(5*0.9)=4 below mint min");
+const decayedDrops = store.tryKillItemDrops(
+  "DecayedKiller",
+  true,
+  { egg: 1, stimulator: 1, gem: 0, amulet: 1, repairKit: 1 },
+  now,
+  { nickname: "DecayedVictim", alreadyGrantedShard: false },
+);
+assert.ok(decayedDrops.gem, "F-001: loot copy of value 4 must succeed");
+assert.equal(decayedDrops.gem!.value, 4);
+assert.doesNotThrow(() => {
+  store.grantGem("DecayedKiller", "speed", 3, now, { allowExistingValue: true });
+});
+assert.throws(() => store.grantGem("DecayedKiller", "speed", 3, now), (err: unknown) => {
+  assert.ok(err instanceof Error);
+  assert.match(err.message, /invalid gem type\/value/);
+  return true;
+});
+
+// --- Critic F-002: slot2 pet decays even when amulet destroyed on same death ---
+store.getOrCreateProfile("Slot2Decay");
+const s1 = store.grantPetForTests("Slot2Decay", "cat", 100, now);
+const s2 = store.grantPetForTests("Slot2Decay", "lion", 100, now);
+const sAmulet = store.grantAmulet("Slot2Decay", 1, now);
+store.equipAmulet("Slot2Decay", sAmulet.id, now);
+store.equipPet("Slot2Decay", s1.id, 1, now);
+store.equipPet("Slot2Decay", s2.id, 2, now);
+const deathResult = store.applyHumanDeathPenalties("Slot2Decay", now);
+assert.equal(deathResult.amuletDestroyed, true);
+assert.equal(deathResult.petsDecayed, 2, "F-002: both slot1 and former slot2 must decay");
+const afterSlot2 = store.getFullProfile("Slot2Decay");
+assert.equal(afterSlot2.amulets.length, 0);
+assert.equal(afterSlot2.slot2Enabled, false);
+assert.equal(afterSlot2.pets.find((p) => p.id === s1.id)!.baseValue, 90);
+assert.equal(afterSlot2.pets.find((p) => p.id === s2.id)!.baseValue, 90);
+assert.equal(afterSlot2.pets.find((p) => p.id === s2.id)!.equipSlot, null);
+
 store.close();
 const reopened = EconomyStore.open(dbPath);
 const restored = reopened.getFullProfile("LootKiller");

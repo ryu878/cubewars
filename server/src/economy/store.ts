@@ -620,13 +620,26 @@ export class EconomyStore {
     return { id: Number(result.lastInsertRowid) };
   }
 
+  /**
+   * Grant a gem into the bag.
+   * - Default (mint): value must be in [GEM_VALUE_MIN, GEM_VALUE_MAX] (5–100).
+   * - `allowExistingValue` (loot copy): allows decayed values down to 1 (schema min)
+   *   so kill loot never rejects post-death gems (Critic F-001).
+   */
   grantGem(
     nickname: string,
     gemType: GemType,
     value: number,
     nowMs: number = Date.now(),
+    opts?: { allowExistingValue?: boolean },
   ): EconomyGem {
-    if (!GEM_TYPES.includes(gemType) || value < GEM_VALUE_MIN || value > GEM_VALUE_MAX) {
+    const minValue = opts?.allowExistingValue ? 1 : GEM_VALUE_MIN;
+    if (
+      !GEM_TYPES.includes(gemType) ||
+      !Number.isInteger(value) ||
+      value < minValue ||
+      value > GEM_VALUE_MAX
+    ) {
       throw new Error(`invalid gem type/value: ${gemType}/${value}`);
     }
     const profile = this.getOrCreateProfile(nickname);
@@ -788,9 +801,17 @@ export class EconomyStore {
       ) {
         const source = victimEquippedGems[Math.floor(Math.random() * victimEquippedGems.length)]!;
         try {
-          gem = this.grantGem(nickname, source.gemType, source.value, nowMs);
+          // Loot copy may carry death-decayed values (< GEM_VALUE_MIN); never abort kill path.
+          gem = this.grantGem(nickname, source.gemType, source.value, nowMs, {
+            allowExistingValue: true,
+          });
         } catch (err) {
-          if (!(err instanceof EconomyActionError)) throw err;
+          // Caps or unexpected errors: skip gem drop; do not throw out of kill economy.
+          if (!(err instanceof EconomyActionError)) {
+            console.warn(
+              `[economy] gem loot copy skipped for ${nickname}: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
         }
       }
 
@@ -1178,8 +1199,10 @@ export class EconomyStore {
 
   /**
    * Human death penalties (EPIC 25 §2.4): equipped amulet durability −1
-   * (destroy at 0 + unequ slot2 pet); each active pet and its socketed gems
-   * lose 10% effectiveness (floor, min 1). Bots must not call this.
+   * (destroy at 0); each pet that was active at death (slot 1 or 2) and its
+   * socketed gems lose 10% effectiveness (floor, min 1). Slot-2 unequip runs
+   * AFTER decay so a destroyed amulet does not skip the slot-2 pet (Critic F-002).
+   * Bots must not call this.
    */
   applyHumanDeathPenalties(
     nickname: string,
@@ -1197,6 +1220,14 @@ export class EconomyStore {
       let petsDecayed = 0;
       let gemsDecayed = 0;
 
+      // Snapshot active pets before amulet destroy / slot2 unequip (F-002).
+      const activePets = this.db
+        .prepare(
+          `SELECT id, profile_id, type, base_value, equip_slot, created_at FROM pets
+           WHERE profile_id = ? AND equip_slot IN (1, 2)`,
+        )
+        .all(profile.id) as PetRow[];
+
       const equipped = this.db
         .prepare(
           `SELECT id, profile_id, durability, equipped, created_at FROM amulets
@@ -1207,9 +1238,6 @@ export class EconomyStore {
         const next = equipped.durability - 1;
         if (next <= 0) {
           this.db.prepare("DELETE FROM amulets WHERE id = ?").run(equipped.id);
-          this.db
-            .prepare("UPDATE pets SET equip_slot = NULL WHERE profile_id = ? AND equip_slot = 2")
-            .run(profile.id);
           amuletDestroyed = true;
           durabilityAfter = 0;
         } else {
@@ -1218,12 +1246,6 @@ export class EconomyStore {
         }
       }
 
-      const activePets = this.db
-        .prepare(
-          `SELECT id, profile_id, type, base_value, equip_slot, created_at FROM pets
-           WHERE profile_id = ? AND equip_slot IN (1, 2)`,
-        )
-        .all(profile.id) as PetRow[];
       for (const pet of activePets) {
         const nextBase = applyDeathEffectivenessDecay(pet.base_value);
         if (nextBase !== pet.base_value) {
@@ -1242,6 +1264,13 @@ export class EconomyStore {
             gemsDecayed += 1;
           }
         }
+      }
+
+      // Unequip slot 2 only after decay so the former slot-2 pet still loses 10%.
+      if (amuletDestroyed) {
+        this.db
+          .prepare("UPDATE pets SET equip_slot = NULL WHERE profile_id = ? AND equip_slot = 2")
+          .run(profile.id);
       }
 
       this.touchProfile(profile.id, nowMs);
