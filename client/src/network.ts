@@ -3,6 +3,7 @@
 import type {
   ClientMessage,
   DeathEvent,
+  EconomyActionResultMessage,
   EconomyGoldUpdateMessage,
   EconomyProfileMessage,
   EndlessLeaderboardMessage,
@@ -53,10 +54,12 @@ export interface NetworkHandlers {
   onFireBroadcast?: (message: FireBroadcastEvent) => void;
   /** A server-simulated projectile impacted something; cosmetic only. */
   onProjectileImpact?: (message: ProjectileImpactEvent) => void;
-  /** Durable gold snapshot for this nickname (EPIC 23) — private, server-authored. */
+  /** Durable gold + pets/eggs snapshot for this nickname (EPIC 23/24) — private, server-authored. */
   onEconomyProfile?: (message: EconomyProfileMessage) => void;
   /** Gold balance after a server mint (EPIC 23) — private, server-authored. */
   onEconomyGoldUpdate?: (message: EconomyGoldUpdateMessage) => void;
+  /** Result of an economy action (EPIC 24) — private, server-authored. */
+  onEconomyActionResult?: (message: EconomyActionResultMessage) => void;
   onClose?: () => void;
   onError?: (err: Event) => void;
 }
@@ -112,6 +115,8 @@ export class GameConnection {
           handlers.onEconomyProfile?.(message);
         } else if (message.type === "economy_gold_update") {
           handlers.onEconomyGoldUpdate?.(message);
+        } else if (message.type === "economy_action_result") {
+          handlers.onEconomyActionResult?.(message);
         }
       } catch (err) {
         console.error("[client] failed to parse server message", err);

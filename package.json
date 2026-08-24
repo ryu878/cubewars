@@ -22,6 +22,7 @@
     "regression:leaderboard": "tsx scripts/regression-leaderboard.ts",
     "regression:endless": "tsx scripts/regression-endless-mode.ts",
     "regression:economy-gold": "tsx scripts/regression-economy-gold.ts",
+    "regression:economy-pets": "tsx scripts/regression-economy-pets.ts",
     "regression:fire-input-drop-rate": "node scripts/regression-fire-input-drop-rate.mjs",
     "qa:epic17-avatar-selfcheck": "node scripts/qa-epic17-avatar-selfcheck.mjs",
     "qa:epic18-hold-fire": "node scripts/qa-epic18-hold-fire.mjs",

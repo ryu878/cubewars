@@ -17,6 +17,7 @@ import { KillFeed } from "./killFeed";
 import { Scoreboard } from "./scoreboard";
 import { PickupRenderer } from "./pickups";
 import { ModeSelect } from "./modeSelect";
+import { PetsPanel } from "./petsPanel";
 import { WeaponViewmodel } from "./viewmodel";
 import { buildSkyDome, buildWallTextures } from "./textures";
 import { SoundManager } from "./audio/soundManager";
@@ -307,6 +308,7 @@ const modeSelect = new ModeSelect((selection) => {
   connection.send({ type: "join", ...selection });
 });
 
+let petsPanel!: PetsPanel;
 const connection = new GameConnection(wsUrl, {
   onOpen: () => {
     statusEl.textContent = "connected (waiting for welcome)";
@@ -418,11 +420,16 @@ const connection = new GameConnection(wsUrl, {
   },
   onEconomyProfile: (message) => {
     hud.setGold(message.gold);
+    hud.setRatings(message.ratings);
     modeSelect.setGold(message.gold);
+    petsPanel.setProfile(message);
   },
   onEconomyGoldUpdate: (message) => {
     hud.setGold(message.gold);
     modeSelect.setGold(message.gold);
+  },
+  onEconomyActionResult: (message) => {
+    petsPanel.setActionResult(message);
   },
   onPickupState: (message) => {
     pickupRenderer.sync(message.pickups);
@@ -454,6 +461,8 @@ const connection = new GameConnection(wsUrl, {
     statusEl.dataset.state = "error";
   },
 });
+
+petsPanel = new PetsPanel((message) => connection.send(message));
 
 // Send input intent on a fixed interval, independent of render frame rate.
 // ~30Hz (33ms) is responsive without flooding the server; the server's own

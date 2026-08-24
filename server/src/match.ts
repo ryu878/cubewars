@@ -34,6 +34,7 @@ import {
   playerHitboxBounds,
   rayIntersectsAabb,
   type DeathEvent,
+  type EconomyActionResultMessage,
   type EconomyGoldUpdateMessage,
   type EconomyProfileMessage,
   type FireBroadcastEvent,
@@ -59,7 +60,7 @@ import { PickupSpawner } from "./pickupSpawner.js";
 import { BotAI } from "./botAI.js";
 import { EndlessWorld } from "./endlessWorld.js";
 import { classifyHitZone, pointOnRay } from "./combat.js";
-import type { EconomyStore } from "./economy/index.js";
+import type { EconomyActionError, EconomyStore } from "./economy/index.js";
 
 // Same tick rate/derivation as the pre-EPIC-9 single global loop
 // (server/src/index.ts) — every Match now runs its own independent copy of
@@ -183,6 +184,7 @@ export class Match {
     this.sockets.set(connectionId, socket);
     if (this.mode === "endless") this.endlessHumanId = connectionId;
     this.registry.spawn(connectionId, nickname, nicknameKey);
+    this.applyEconomyCombatToPlayer(connectionId, nickname);
     this.sendMapState();
     this.sendLoadout(connectionId);
     this.sendEconomyProfile(connectionId, nickname);
@@ -266,17 +268,30 @@ export class Match {
     socket.send(JSON.stringify(message));
   }
 
-  /** Send durable gold snapshot to the owning human socket only (EPIC 23). */
+  /** Send durable economy snapshot to the owning human socket only (EPIC 23/24). */
   sendEconomyProfile(playerId: string, nickname: string): void {
     const economy = this.options.economy;
     if (!economy) return;
     const socket = this.sockets.get(playerId);
     if (!socket || socket.readyState !== socket.OPEN) return;
-    const profile = economy.getOrCreateProfile(nickname);
+    const profile = economy.getFullProfile(nickname);
     const message: EconomyProfileMessage = {
       type: "economy_profile",
       nickname: profile.nickname,
       gold: profile.gold,
+      pets: profile.pets.map((p) => ({
+        id: p.id,
+        type: p.type,
+        baseValue: p.baseValue,
+        equipSlot: p.equipSlot,
+      })),
+      eggs: profile.eggs.map((e) => ({
+        id: e.id,
+        hatchDeadlineMs: e.hatchDeadlineMs,
+      })),
+      stimulatorCount: profile.stimulatorCount,
+      ratings: profile.ratings,
+      slot2Enabled: false,
     };
     socket.send(JSON.stringify(message));
   }
@@ -288,9 +303,86 @@ export class Match {
     socket.send(JSON.stringify(message));
   }
 
+  private sendEconomyActionResult(
+    playerId: string,
+    action: EconomyActionResultMessage["action"],
+    ok: boolean,
+    code?: string,
+  ): void {
+    const socket = this.sockets.get(playerId);
+    if (!socket || socket.readyState !== socket.OPEN) return;
+    const message: EconomyActionResultMessage = { type: "economy_action_result", action, ok, code };
+    socket.send(JSON.stringify(message));
+  }
+
+  /** Push equipped pet ratings into the live PlayerRecord (EPIC 24). */
+  applyEconomyCombatToPlayer(playerId: string, nickname: string): void {
+    const economy = this.options.economy;
+    if (!economy) return;
+    const full = economy.getFullProfile(nickname);
+    this.registry.applyPetRatings(playerId, full.ratings);
+  }
+
   /**
-   * EPIC 23: mint kill gold into the human killer's nickname profile.
-   * Skips fog deaths, self-kills, and non-human shooters (bots have no socket).
+   * Handle an economy action from the owning connection. Validates ownership
+   * server-side; rejects slot 2 and cross-profile ids.
+   */
+  handleEconomyAction(
+    playerId: string,
+    nickname: string,
+    action: "equip" | "unequip" | "hatch" | "stimulator",
+    payload: { petId?: number; eggId?: number; slot?: number },
+  ): void {
+    const economy = this.options.economy;
+    if (!economy) {
+      this.sendEconomyActionResult(playerId, action, false, "not_found");
+      return;
+    }
+    try {
+      if (action === "equip") {
+        if (typeof payload.petId !== "number" || !Number.isInteger(payload.petId)) {
+          this.sendEconomyActionResult(playerId, action, false, "not_found");
+          return;
+        }
+        const slot = payload.slot ?? 1;
+        economy.equipPet(nickname, payload.petId, slot);
+      } else if (action === "unequip") {
+        if (typeof payload.petId !== "number" || !Number.isInteger(payload.petId)) {
+          this.sendEconomyActionResult(playerId, action, false, "not_found");
+          return;
+        }
+        economy.unequipPet(nickname, payload.petId);
+      } else if (action === "hatch") {
+        if (typeof payload.eggId !== "number" || !Number.isInteger(payload.eggId)) {
+          this.sendEconomyActionResult(playerId, action, false, "not_found");
+          return;
+        }
+        economy.hatchEgg(nickname, payload.eggId);
+      } else if (action === "stimulator") {
+        if (typeof payload.eggId !== "number" || !Number.isInteger(payload.eggId)) {
+          this.sendEconomyActionResult(playerId, action, false, "not_found");
+          return;
+        }
+        economy.applyStimulator(nickname, payload.eggId);
+      }
+      this.applyEconomyCombatToPlayer(playerId, nickname);
+      this.sendEconomyActionResult(playerId, action, true);
+      this.sendEconomyProfile(playerId, nickname);
+      console.log(`[economy] ${action} ok for ${nickname} [match=${this.id}]`);
+    } catch (err) {
+      const code =
+        err && typeof err === "object" && "code" in err
+          ? String((err as EconomyActionError).code)
+          : "not_found";
+      this.sendEconomyActionResult(playerId, action, false, code);
+      console.warn(`[economy] ${action} rejected for ${nickname}: ${code}`);
+    }
+  }
+
+  /**
+   * EPIC 23/24: mint kill gold into the human killer's nickname profile, and
+   * on human victims only roll egg + stimulator drops. Skips fog deaths,
+   * self-kills, and non-human shooters (bots have no socket).
    */
   private grantKillGold(shooterId: string, victimId: string): void {
     const economy = this.options.economy;
@@ -309,6 +401,19 @@ export class Match {
       `[economy] gold minted: +${gained} -> ${profile.nickname} (total ${profile.gold}) ` +
         `[match=${this.id} kill ${shooterId} -> ${victimId}]`,
     );
+
+    // Item drops: human victims only (bots remain gold-only for items).
+    const victimIsHuman = this.sockets.has(victimId) && !this.botAI?.isBot(victimId);
+    const drops = economy.tryKillItemDrops(killer.nickname, victimIsHuman);
+    if (drops.egg || drops.stimulator) {
+      this.sendEconomyProfile(shooterId, killer.nickname);
+      console.log(
+        `[economy] kill item drops -> ${killer.nickname}` +
+          `${drops.egg ? ` egg#${drops.egg.id}` : ""}` +
+          `${drops.stimulator ? " stimulator" : ""}` +
+          ` [match=${this.id}]`,
+      );
+    }
   }
 
   /**

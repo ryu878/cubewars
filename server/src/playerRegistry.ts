@@ -13,6 +13,11 @@ import {
   SPAWN_POINTS,
   WEAPON_ORDER,
   WEAPON_STATS,
+  applyArmorDr,
+  damageMultiplierFromRatings,
+  emptyRatings,
+  maxHealthBonusFromRatings,
+  speedMultiplierFromRatings,
   boxesBlockingAt,
   crateTopHeightAt,
   resolveHorizontalCollisions,
@@ -23,6 +28,7 @@ import {
   type MapBox,
   type PlayerScore,
   type PlayerState,
+  type ProfileRatings,
   type ShotTrace,
   type Vector3,
   type WeaponType,
@@ -92,8 +98,16 @@ export interface PlayerRecord {
   yaw: number;
   /** Look pitch, radians, clamped to [-MAX_PITCH, MAX_PITCH]. Tracked continuously from input messages (see clampPitch) so the hitscan raycast always fires along the player's actual current aim. */
   pitch: number;
-  /** Current health, [0, COMBAT.maxHealth]. */
+  /**
+   * Current health, [0, maxHealth]. Baseline max is COMBAT.maxHealth; EPIC 24
+   * pet health rating raises maxHealth for this life.
+   */
   health: number;
+  /**
+   * Effective max HP for this life (EPIC 24). Equals COMBAT.maxHealth plus
+   * the equipped pet health bonus. Respawns refill to this value.
+   */
+  maxHealth: number;
   /**
    * Current armor, [0, COMBAT.maxArmor] (EPIC 7 "Health & Armor Pickups").
    * Absorbs damage before health on a confirmed hit (see fire() below).
@@ -103,6 +117,11 @@ export interface PlayerRecord {
    * already established.
    */
   armor: number;
+  /**
+   * Equipped pet profile ratings (EPIC 24). Server-only; recalculated on
+   * equip/unequip/hatch via applyPetRatings(). Default empty (no pets).
+   */
+  petRatings: ProfileRatings;
   /** False while dead and waiting to respawn. */
   alive: boolean;
   /** Server timestamp (Date.now()-based) at which a dead player should respawn; null while alive. */
@@ -268,6 +287,12 @@ function computeGrenadeSplashDamage(baseDamage: number, distance: number): numbe
   return Math.max(1, Math.min(baseDamage, Math.round(baseDamage * GRENADE_SPLASH.maxDamageFraction * falloff)));
 }
 
+/** Scale weapon base damage by the shooter's pet damage rating (EPIC 24). */
+function scaleWeaponDamage(baseDamage: number, shooter: PlayerRecord): number {
+  const mult = damageMultiplierFromRatings(shooter.petRatings.damageRating);
+  return Math.max(1, Math.round(baseDamage * mult));
+}
+
 export class PlayerRegistry {
   private players = new Map<string, PlayerRecord>();
 
@@ -369,7 +394,9 @@ export class PlayerRegistry {
       yaw: 0,
       pitch: 0,
       health: COMBAT.maxHealth,
+      maxHealth: COMBAT.maxHealth,
       armor: 0,
+      petRatings: emptyRatings(),
       alive: true,
       respawnAtMs: null,
       kills: 0,
@@ -386,6 +413,29 @@ export class PlayerRegistry {
     applyBaselineLoadout(record);
     this.players.set(id, record);
     return record;
+  }
+
+  /**
+   * Apply equipped pet ratings to a living (or just-spawned) player (EPIC 24).
+   * Max-HP increase heals only the delta when currently at the old max; if
+   * damaged, current HP is kept unless it exceeds the new max (then clamped).
+   * DR / speed / damage multipliers take effect immediately on subsequent
+   * combat/movement ticks.
+   */
+  applyPetRatings(playerId: string, ratings: ProfileRatings): void {
+    const player = this.players.get(playerId);
+    if (!player) return;
+    const oldMax = player.maxHealth;
+    const newMax = COMBAT.maxHealth + maxHealthBonusFromRatings(ratings.healthRating);
+    player.petRatings = { ...ratings };
+    player.maxHealth = newMax;
+    if (player.alive) {
+      if (player.health >= oldMax) {
+        player.health = newMax;
+      } else if (player.health > newMax) {
+        player.health = newMax;
+      }
+    }
   }
 
   remove(id: string): void {
@@ -551,7 +601,8 @@ export class PlayerRegistry {
     if (!target || !target.alive) return { hit: false, dry: false, autoSwitchedTo, weapon }; // defensive: target could not exist / already dead
 
     const hitZone = result.hitZone ?? "body";
-    const damage = computeDirectDamage(stats.damage, hitZone);
+    const scaledBase = scaleWeaponDamage(stats.damage, shooter);
+    const damage = computeDirectDamage(scaledBase, hitZone);
     const damageEvent = this.applyDamage(shooter, target, damage, "direct", hitZone, result.point);
 
     return {
@@ -581,7 +632,10 @@ export class PlayerRegistry {
     const shooter = this.players.get(shooterId);
     const target = this.players.get(targetId);
     if (!shooter || !shooter.alive || !target || !target.alive) return [];
-    const damage = computeDirectDamage(WEAPON_STATS.grenade_launcher.damage, hitZone);
+    const damage = computeDirectDamage(
+      scaleWeaponDamage(WEAPON_STATS.grenade_launcher.damage, shooter),
+      hitZone,
+    );
     return [this.applyDamage(shooter, target, damage, "direct", hitZone, point)];
   }
 
@@ -593,12 +647,13 @@ export class PlayerRegistry {
     const shooter = this.players.get(shooterId);
     if (!shooter || !shooter.alive) return [];
 
+    const scaledBase = scaleWeaponDamage(baseDamage, shooter);
     const events: DamageEvent[] = [];
     const candidates = findGrenadeSplashCandidates(explosionPoint, shooterId, this.players.values());
     for (const candidate of candidates) {
       const target = this.players.get(candidate.targetId);
       if (!target || !target.alive) continue;
-      const damage = computeGrenadeSplashDamage(baseDamage, candidate.distance);
+      const damage = computeGrenadeSplashDamage(scaledBase, candidate.distance);
       if (damage <= 0) continue;
       events.push(this.applyDamage(shooter, target, damage, "splash", "splash", explosionPoint));
     }
@@ -614,13 +669,15 @@ export class PlayerRegistry {
     point: Vector3,
     countKill: boolean = true,
   ): DamageEvent {
+    // EPIC 24: pet %DR applies to raw damage BEFORE EPIC 7 absorptive armor.
+    const afterDr = applyArmorDr(damage, target.petRatings.armorRating);
     // EPIC 7 damage-absorption order remains unchanged under EPIC 18:
     // armor absorbs first, then exact spillover comes off health. Only the
     // incoming `damage` value now varies by hit zone or grenade splash.
-    if (target.armor >= damage) {
-      target.armor -= damage;
+    if (target.armor >= afterDr) {
+      target.armor -= afterDr;
     } else {
-      const spillover = damage - target.armor;
+      const spillover = afterDr - target.armor;
       target.armor = 0;
       target.health = Math.max(0, target.health - spillover);
     }
@@ -635,7 +692,7 @@ export class PlayerRegistry {
 
     return {
       targetId: target.id,
-      damage,
+      damage: afterDr,
       damageKind,
       hitZone,
       targetHealth: target.health,
@@ -720,8 +777,8 @@ export class PlayerRegistry {
     if (!player) return { applied: false };
 
     if (category === "health") {
-      if (player.health >= COMBAT.maxHealth) return { applied: false };
-      player.health = Math.min(COMBAT.maxHealth, player.health + COMBAT.healthPickupAmount);
+      if (player.health >= player.maxHealth) return { applied: false };
+      player.health = Math.min(player.maxHealth, player.health + COMBAT.healthPickupAmount);
       return { applied: true };
     }
 
@@ -833,7 +890,9 @@ export class PlayerRegistry {
       player.bunnyHopAvailable = true;
       player.pendingBunnyHopTrigger = false;
       player.airSpeedMultiplier = 1;
-      player.health = COMBAT.maxHealth;
+      // Keep pet ratings across death; refill to the pet-boosted max HP.
+      player.maxHealth = COMBAT.maxHealth + maxHealthBonusFromRatings(player.petRatings.healthRating);
+      player.health = player.maxHealth;
       player.alive = true;
       player.respawnAtMs = null;
       player.intent = { moveForward: 0, moveRight: 0, jump: false };
@@ -917,10 +976,21 @@ export class PlayerRegistry {
     // airSpeedMultiplier is 1 outside an active bunny-hop boost, so this is
     // a no-op change to normal movement — only a boosted air-time actually
     // sees the extra factor (reaching ~17.3 m/s at the current base).
+    // EPIC 24: pet speed rating multiplies on top (still subject to world
+    // bounds / collision clamps — not a second hard speed ceiling).
+    const petSpeed = speedMultiplierFromRatings(player.petRatings.speedRating);
     const dx =
-      (forwardX * moveForward + rightX * moveRight) * MOVEMENT.maxSpeed * player.airSpeedMultiplier * dt;
+      (forwardX * moveForward + rightX * moveRight) *
+      MOVEMENT.maxSpeed *
+      player.airSpeedMultiplier *
+      petSpeed *
+      dt;
     const dz =
-      (forwardZ * moveForward + rightZ * moveRight) * MOVEMENT.maxSpeed * player.airSpeedMultiplier * dt;
+      (forwardZ * moveForward + rightZ * moveRight) *
+      MOVEMENT.maxSpeed *
+      player.airSpeedMultiplier *
+      petSpeed *
+      dt;
 
     // Authoritative collision (EPIC 3 Story 3.3, sub-stepped since EPIC 11
     // Story 11.1, height-aware since EPIC 12 Story 12.1): resolve the

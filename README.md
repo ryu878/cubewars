@@ -43,6 +43,7 @@ npm run dev --workspace=client
 
 - **Server port:** `CUBEWARS_SERVER_PORT` (see `config.vars.example`). Set via your shell: `export CUBEWARS_SERVER_PORT=7777`.
 - **Economy DB:** `CUBEWARS_ECONOMY_DB` (optional). Defaults to `server/data/economy.sqlite` under the server package. SQLite persistence is **single-process only** — do not run multiple game-server processes against the same file. Profiles are keyed by normalized nickname until a real auth EPIC exists (nickname spoofing is an accepted interim risk).
+- **Egg incubation override:** `CUBEWARS_INCUBATION_MS` (optional, EPIC 24). Positive integer milliseconds applied when an egg is granted. Default remains 24h from `shared` `INCUBATION.durationMs`. Short values are for QA/tests only.
 - **Client → server URL:** `VITE_CUBEWARS_WS_URL` (see `client/.env.example`). Copy to `client/.env` to override the default `ws://localhost:7777`. This is the one place the fixed stack's "no `.env` files" rule is relaxed — Vite conventionally loads `.env` for client-side config; no secrets ever go here.
 
 ## Type-checking and build
@@ -72,6 +73,7 @@ On connecting, pick a mode first: **vs Bots** (a private match against 2 AI oppo
 - **Space** — jump; press it again while still airborne (a genuine second press, not held) for a one-time bunny-hop boost — farther and higher, once per air-time
 - **E** — switch weapon (cycles forward through weapons you own, in tier order)
 - **Tab** (hold) — show the live scoreboard
+- **P** — toggle the pets / eggs panel (hatch, stimulator, equip; server-authored)
 - **Esc** — release pointer lock
 
 Movement/look is predicted locally for responsiveness, but the **server is authoritative**: it computes and broadcasts every player's real position, and no client's self-reported position is ever trusted or relayed to other players directly (see `ai-office/global/security-baseline.mdc`). Every other connected player is rendered as a capsule avatar; you don't see your own (first-person).
@@ -79,6 +81,13 @@ Movement/look is predicted locally for responsiveness, but the **server is autho
 Combat is server-authoritative too: firing sends a bare "fire" event, and the server resolves the actual hitscan raycast from its own tracked position/yaw/pitch **and equipped weapon** for that player — the client never states an aim origin/direction, a weapon, or a hit, of its own. See "Current status" below for the exact model.
 
 ## Current status
+
+EPIC 24 (Pets, Eggs, Incubation & Equip Stats) — see `docs/tasks/epic-24-pets-eggs-equip.md`.
+
+- **Pets loop:** human kills can drop eggs (15%) and growth stimulators (8%, soft-cap 20). Eggs incubate (24h, overridable via `CUBEWARS_INCUBATION_MS`), hatch into pets (type + base_value 1–200), and one pet can be equipped in slot 1.
+- **Combat modifiers:** equipped pet ratings adjust max HP, %DR (before EPIC 7 armor), move speed, and weapon damage on the server. Slot 2 stays disabled until amulets (EPIC 25).
+- **Client:** press **P** for a minimal pets/eggs panel; HUD shows gold + ratings from server `economy_profile`.
+- Verified via `npm run regression:economy-pets`, `npm run regression:economy-gold`, `npm run typecheck`, and `npm run build`.
 
 EPIC 23 (Economy Persistence Foundation) — see `docs/tasks/epic-23-economy-persistence-foundation.md` and product TZ `docs/product/emerald-wasteland-economy-tz-v2.1.md`.
 

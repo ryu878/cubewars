@@ -429,6 +429,45 @@ wss.on("connection", (socket: WebSocket) => {
       return;
     }
 
+    if (parsed.type === "economy_equip_pet") {
+      if (typeof parsed.petId !== "number" || !Number.isInteger(parsed.petId)) {
+        malformedInputDropTracker.record(playerId, now);
+        return;
+      }
+      match.handleEconomyAction(playerId, nickname, "equip", {
+        petId: parsed.petId,
+        slot: parsed.slot === 1 ? 1 : parsed.slot,
+      });
+      return;
+    }
+
+    if (parsed.type === "economy_unequip_pet") {
+      if (typeof parsed.petId !== "number" || !Number.isInteger(parsed.petId)) {
+        malformedInputDropTracker.record(playerId, now);
+        return;
+      }
+      match.handleEconomyAction(playerId, nickname, "unequip", { petId: parsed.petId });
+      return;
+    }
+
+    if (parsed.type === "economy_hatch_egg") {
+      if (typeof parsed.eggId !== "number" || !Number.isInteger(parsed.eggId)) {
+        malformedInputDropTracker.record(playerId, now);
+        return;
+      }
+      match.handleEconomyAction(playerId, nickname, "hatch", { eggId: parsed.eggId });
+      return;
+    }
+
+    if (parsed.type === "economy_apply_stimulator") {
+      if (typeof parsed.eggId !== "number" || !Number.isInteger(parsed.eggId)) {
+        malformedInputDropTracker.record(playerId, now);
+        return;
+      }
+      match.handleEconomyAction(playerId, nickname, "stimulator", { eggId: parsed.eggId });
+      return;
+    }
+
     unknownTypeDropTracker.record(playerId, now);
   });
 

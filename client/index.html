@@ -628,12 +628,135 @@
         color: #ffe082;
         font-variant-numeric: tabular-nums;
       }
+
+      /* EPIC 24: minimal pets / eggs panel (not full inventory grid). */
+      #petsPanel {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: min(420px, calc(100vw - 32px));
+        max-height: min(70vh, 560px);
+        overflow: auto;
+        padding: 16px 18px 18px;
+        background: rgba(12, 18, 14, 0.94);
+        color: #e8f0e4;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        border: 1px solid rgba(120, 160, 110, 0.45);
+        border-radius: 12px;
+        z-index: 40;
+        display: none;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+      }
+      #petsPanel.visible {
+        display: block;
+      }
+      #petsPanel h2 {
+        margin: 0 0 4px;
+        font-size: 18px;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+      }
+      #petsPanel .pets-meta {
+        margin: 0 0 10px;
+        font-size: 13px;
+        color: #b7c9ae;
+      }
+      #petsPanel .pets-section-title {
+        margin: 12px 0 6px;
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #8fba7a;
+      }
+      #petsPanel .pets-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 6px 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        font-size: 13px;
+      }
+      #petsPanel .pets-row.equipped .pets-row-label {
+        color: #c8f0a8;
+        font-weight: 700;
+      }
+      #petsPanel .pets-row-actions {
+        display: flex;
+        gap: 6px;
+        flex-shrink: 0;
+      }
+      #petsPanel button {
+        font: 700 12px system-ui, sans-serif;
+        padding: 4px 10px;
+        border-radius: 6px;
+        border: 1px solid rgba(140, 180, 120, 0.5);
+        background: rgba(40, 70, 40, 0.85);
+        color: #e8f0e4;
+        cursor: pointer;
+      }
+      #petsPanel button:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+      #petsPanel button:not(:disabled):hover {
+        background: rgba(55, 95, 55, 0.95);
+      }
+      #petsPanel .pets-empty {
+        font-size: 13px;
+        color: #7a8a74;
+        padding: 4px 0;
+      }
+      #petsStatus {
+        margin-top: 10px;
+        min-height: 1.2em;
+        font-size: 12px;
+        color: #c9a66b;
+      }
+      #petsCloseBtn {
+        float: right;
+      }
+      #ratingsHud {
+        position: fixed;
+        top: 64px;
+        right: 18px;
+        padding: 6px 12px;
+        background: rgba(0, 0, 0, 0.55);
+        color: #b8d4a8;
+        font: 600 12px system-ui, sans-serif;
+        border-radius: 8px;
+        z-index: 10;
+        pointer-events: none;
+        white-space: nowrap;
+      }
+      #ratingsHud[hidden] {
+        display: none;
+      }
     </style>
   </head>
   <body>
     <div id="status" data-state="connecting">connecting…</div>
     <div id="goldHud" hidden>
       <span class="hud-label">GOLD</span><span id="goldValue">0</span>
+    </div>
+    <div id="ratingsHud" hidden>
+      <span id="ratingsHudValue">HP 0 · DR 0 · SPD 0 · DMG 0</span>
+    </div>
+    <div id="petsPanel" aria-hidden="true">
+      <button id="petsCloseBtn" type="button">Close</button>
+      <h2>Pets &amp; Eggs</h2>
+      <p class="pets-meta">
+        Gold: <span id="petsGold">—</span> · Stimulators: <span id="petsStimCount">0</span>
+        · Press P to toggle
+      </p>
+      <div id="petsRatings" class="pets-meta"></div>
+      <div class="pets-section-title">Eggs</div>
+      <div id="petsEggsList"></div>
+      <div class="pets-section-title">Pets</div>
+      <div id="petsPetsList"></div>
+      <div id="petsStatus"></div>
     </div>
     <div id="healthHud" data-low="false">
       <span class="hud-label">HP</span><span id="healthValue" class="hud-value">100</span>
@@ -657,7 +780,7 @@
     <div id="hint">
       <div class="hint-box">
         <strong>Click to play</strong><br />
-        WASD move &middot; Mouse look &middot; Click to fire &middot; Space jump &middot; E switch weapon &middot; Esc to release &middot; Hold Tab for scoreboard
+        WASD move &middot; Mouse look &middot; Click to fire &middot; Space jump &middot; E switch weapon &middot; P pets &middot; Esc to release &middot; Hold Tab for scoreboard
       </div>
     </div>
     <div id="modeSelect">

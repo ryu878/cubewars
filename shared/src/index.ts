@@ -8,6 +8,7 @@ import type { WeaponType } from "./weapons.js";
 import type { PickupStatus } from "./pickups.js";
 import type { DamageKind, DamageZone } from "./combat.js";
 import type { MapBox } from "./mapData.js";
+import type { PetType, ProfileRatings } from "./economy.js";
 // EPIC 3 "The Arena": the single source of truth for map geometry, spawn
 // points, and their collision resolution — see mapData.ts / collision.ts
 // doc comments. Re-exported here so both client and server keep importing
@@ -206,7 +207,43 @@ export interface JoinMessage {
   matchId?: string;
 }
 
-export type ClientMessage = PlayerInputMessage | FireEvent | SwitchWeaponEvent | JoinMessage;
+/**
+ * Client -> server: equip a pet into slot 1 (EPIC 24). Server validates
+ * ownership, unequips any other slot-1 pet first, and rejects slot 2.
+ */
+export interface EconomyEquipPetMessage {
+  type: "economy_equip_pet";
+  petId: number;
+  slot: 1;
+}
+
+/** Client -> server: unequip a pet the connection owns (EPIC 24). */
+export interface EconomyUnequipPetMessage {
+  type: "economy_unequip_pet";
+  petId: number;
+}
+
+/** Client -> server: hatch a ready egg owned by this profile (EPIC 24). */
+export interface EconomyHatchEggMessage {
+  type: "economy_hatch_egg";
+  eggId: number;
+}
+
+/** Client -> server: consume one growth stimulator on an owned egg (EPIC 24). */
+export interface EconomyApplyStimulatorMessage {
+  type: "economy_apply_stimulator";
+  eggId: number;
+}
+
+export type ClientMessage =
+  | PlayerInputMessage
+  | FireEvent
+  | SwitchWeaponEvent
+  | JoinMessage
+  | EconomyEquipPetMessage
+  | EconomyUnequipPetMessage
+  | EconomyHatchEggMessage
+  | EconomyApplyStimulatorMessage;
 
 /** A single player's authoritative, server-computed state as broadcast to all clients. */
 export interface PlayerState {
@@ -454,15 +491,36 @@ export interface ProjectileImpactEvent {
   point: Vector3;
 }
 
+/** Wire DTO for a durable pet row (EPIC 24). */
+export interface EconomyPetDto {
+  id: number;
+  type: PetType;
+  baseValue: number;
+  /** Only slot 1 is used in EPIC 24; null when unequipped. */
+  equipSlot: 1 | null;
+}
+
+/** Wire DTO for an incubating egg (EPIC 24). */
+export interface EconomyEggDto {
+  id: number;
+  hatchDeadlineMs: number;
+}
+
 /**
- * Server -> owning connection only (EPIC 23): full economy profile snapshot
- * for the player's nickname key. Sent on join and whenever a full refresh is
- * useful. Gold is always server-authoritative — the client never sets it.
+ * Server -> owning connection only (EPIC 23/24): full economy profile
+ * snapshot for the player's nickname key. Sent on join and after equip /
+ * hatch / stim / item drops. All fields are server-authoritative.
  */
 export interface EconomyProfileMessage {
   type: "economy_profile";
   nickname: string;
   gold: number;
+  pets: EconomyPetDto[];
+  eggs: EconomyEggDto[];
+  stimulatorCount: number;
+  ratings: ProfileRatings;
+  /** Always false in EPIC 24 (amulet-gated slot 2 deferred to EPIC 25). */
+  slot2Enabled: false;
 }
 
 /**
@@ -474,6 +532,18 @@ export interface EconomyGoldUpdateMessage {
   type: "economy_gold_update";
   gold: number;
   gained: number;
+}
+
+/**
+ * Server -> owning connection only (EPIC 24): result of an economy action
+ * (equip/unequip/hatch/stimulator). On success the server also pushes a
+ * fresh `economy_profile`. On failure `ok` is false and `code` explains why.
+ */
+export interface EconomyActionResultMessage {
+  type: "economy_action_result";
+  action: "equip" | "unequip" | "hatch" | "stimulator";
+  ok: boolean;
+  code?: string;
 }
 
 export type ServerMessage =
@@ -496,4 +566,5 @@ export type ServerMessage =
   | FireBroadcastEvent
   | ProjectileImpactEvent
   | EconomyProfileMessage
-  | EconomyGoldUpdateMessage;
+  | EconomyGoldUpdateMessage
+  | EconomyActionResultMessage;

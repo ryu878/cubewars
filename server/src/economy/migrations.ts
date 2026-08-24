@@ -1,4 +1,5 @@
-// Schema migrations for the economy SQLite DB (EPIC 23 — profiles only).
+// Schema migrations for the economy SQLite DB.
+// EPIC 23: profiles. EPIC 24: eggs, pets, growth_stimulators.
 
 import type Database from "better-sqlite3";
 
@@ -24,6 +25,35 @@ const MIGRATIONS: readonly Migration[] = [
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
+    `,
+  },
+  {
+    id: "20260824_002_pets_eggs_stimulators",
+    sql: `
+      CREATE TABLE IF NOT EXISTS eggs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+        hatch_deadline_ms INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_eggs_profile ON eggs(profile_id);
+
+      CREATE TABLE IF NOT EXISTS pets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+        type TEXT NOT NULL CHECK (type IN ('dog', 'cat', 'bird', 'lion')),
+        base_value INTEGER NOT NULL CHECK (base_value >= 1 AND base_value <= 200),
+        equip_slot INTEGER CHECK (equip_slot IS NULL OR equip_slot = 1),
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_pets_profile ON pets(profile_id);
+
+      CREATE TABLE IF NOT EXISTS growth_stimulators (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_stimulators_profile ON growth_stimulators(profile_id);
     `,
   },
 ];

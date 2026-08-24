@@ -164,4 +164,23 @@ export class CombatHud {
     this.goldValueEl.textContent = String(clamped);
     this.goldEl.hidden = false;
   }
+
+  /**
+   * Show equipped pet ratings from server `economy_profile` (EPIC 24).
+   * Display only — never computed from client pet lists.
+   */
+  setRatings(ratings: {
+    healthRating: number;
+    armorRating: number;
+    speedRating: number;
+    damageRating: number;
+  }): void {
+    const el = document.getElementById("ratingsHud");
+    const valueEl = document.getElementById("ratingsHudValue");
+    if (!el || !valueEl) return;
+    valueEl.textContent =
+      `HP ${ratings.healthRating} · DR ${ratings.armorRating} · ` +
+      `SPD ${ratings.speedRating} · DMG ${ratings.damageRating}`;
+    el.hidden = false;
+  }
 }
