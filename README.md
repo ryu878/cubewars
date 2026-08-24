@@ -104,6 +104,10 @@ Combat is server-authoritative too: firing sends a bare "fire" event, and the se
 
 ## Current status
 
+EPIC 28 (Lobby Emerald Lore) — see `docs/tasks/epic-28-lobby-emerald-lore.md`.
+
+- **Lobby lore:** the mode-select (`#modeSelect`) screen shows readable Russian Emerald Wasteland backstory beside (desktop) or above (narrow viewports) the nickname/mode card. HTML/CSS only; join CTAs stay primary.
+
 EPIC 27 (Redis Economy Store) — see `docs/tasks/epic-27-redis-economy-store.md` and TZ §4.1.
 
 - **Redis primary store:** profiles / inventory / career / endless leaderboards via `ioredis` (`CUBEWARS_REDIS_URL`). Fail-fast if Redis is down.

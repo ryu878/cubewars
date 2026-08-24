@@ -405,8 +405,12 @@
         position: fixed;
         inset: 0;
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
         justify-content: center;
+        gap: 28px 40px;
+        padding: 24px;
+        overflow: auto;
         background: rgba(10, 10, 15, 0.88);
         color: #fff;
         font-family: system-ui, sans-serif;
@@ -416,20 +420,79 @@
       #modeSelect.hidden {
         display: none;
       }
+      /* EPIC 28: Emerald Wasteland lore — secondary column beside the join card. */
+      #modeSelect .lobby-lore {
+        flex: 1 1 260px;
+        box-sizing: border-box;
+        max-width: 360px;
+        max-height: min(70vh, 540px);
+        padding: 8px 4px 8px 8px;
+        overflow-y: auto;
+        color: #b7c6bb;
+        text-align: left;
+        -webkit-overflow-scrolling: touch;
+      }
+      #modeSelect .lobby-lore-title {
+        margin: 0 0 6px;
+        color: #9ec9a8;
+        font-size: 18px;
+        font-weight: 750;
+        letter-spacing: 0.02em;
+      }
+      #modeSelect .lobby-lore-kicker {
+        margin: 0 0 14px;
+        color: #8fa898;
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 1.35;
+      }
+      #modeSelect .lobby-lore-body {
+        margin: 0 0 12px;
+        color: #b7c6bb;
+        font-size: 13px;
+        font-weight: 500;
+        line-height: 1.5;
+      }
+      #modeSelect .lobby-lore-body:last-child {
+        margin-bottom: 0;
+      }
       #modeSelect .mode-select-box {
+        flex: 0 1 480px;
         width: min(480px, calc(100vw - 32px));
         padding: 24px 28px;
         background: rgba(0, 0, 0, 0.5);
         border-radius: 12px;
       }
-      #modeSelect h1 {
+      #modeSelect .mode-select-box > h1 {
         margin: 0 0 6px;
         font-size: 22px;
       }
-      #modeSelect p {
+      #modeSelect .mode-select-box > p {
         margin: 0 0 18px;
         color: #ccc;
         font-size: 13px;
+      }
+      @media (max-width: 720px) {
+        #modeSelect {
+          flex-direction: column;
+          flex-wrap: nowrap;
+          align-items: stretch;
+          justify-content: flex-start;
+          gap: 16px;
+          padding: 16px;
+        }
+        #modeSelect .lobby-lore {
+          flex: 0 0 auto;
+          order: -1;
+          max-width: none;
+          max-height: 28vh;
+          padding: 4px 2px 8px;
+        }
+        #modeSelect .mode-select-box {
+          flex: 0 0 auto;
+          width: 100%;
+          margin: 0 auto;
+        }
       }
       #modeSelect label {
         display: block;
@@ -793,6 +856,25 @@
       </div>
     </div>
     <div id="modeSelect">
+      <section class="lobby-lore" aria-label="Изумрудная Пустошь — предыстория">
+        <h2 class="lobby-lore-title">Изумрудная Пустошь</h2>
+        <p class="lobby-lore-kicker">Измерение после провала портала 2157 года</p>
+        <p class="lobby-lore-body">
+          В 2157 году неудачный портальный эксперимент разорвал границы миров
+          и открыл измерение Изумрудная Пустошь.
+        </p>
+        <p class="lobby-lore-body">
+          Животные эволюционировали в симбиотических Пэтов — существ, что
+          усиливают хозяина и делят с ним судьбу в этой зоне.
+        </p>
+        <p class="lobby-lore-body">
+          Выжившие сражаются за ресурсы: золото, яйца (из них вылупляются пэты),
+          самоцветы и амулеты.
+        </p>
+        <p class="lobby-lore-body">
+          Цель проста и жестока: выжить, усилить пэтов и подняться в рейтинге Пустоши.
+        </p>
+      </section>
       <div class="mode-select-box">
         <h1>cubewars</h1>
         <p>Choose a nickname and join a game</p>
