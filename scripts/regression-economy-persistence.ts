@@ -137,6 +137,82 @@ assert.equal(
   stimGoldBefore + SUBSTITUTE,
 );
 
+// --- F-001: shard overflow→gold consumes per-match once-per-victim opportunity ---
+// Match-shaped wiring: record victim key when shard granted OR shard substituted.
+const noChanceRolls = {
+  egg: 1,
+  stimulator: 1,
+  gem: 1,
+  amulet: 1,
+  repairKit: 1,
+  substituteGold: SUBSTITUTE,
+} as const;
+reopened.getOrCreateProfile("ShardCapKiller");
+while (
+  reopened.getShardCount(reopened.getOrCreateProfile("ShardCapKiller").id) < ECONOMY_CAPS.shards
+) {
+  reopened.addShard("ShardCapKiller", 1, now);
+}
+assert.equal(
+  reopened.getShardCount(reopened.getOrCreateProfile("ShardCapKiller").id),
+  ECONOMY_CAPS.shards,
+);
+reopened.grantAmulet("AmuletVictimA", 10, now);
+reopened.grantAmulet("AmuletVictimB", 10, now);
+
+const matchShardGrants = new Set<string>();
+const resolveShardKill = (victimNick: string) => {
+  const victimKey = reopened.getOrCreateProfile(victimNick).nicknameKey;
+  const alreadyGrantedShard = matchShardGrants.has(victimKey);
+  const dropsResult = reopened.resolveKillDrops(
+    "ShardCapKiller",
+    true,
+    noChanceRolls,
+    now,
+    { nickname: victimNick, alreadyGrantedShard },
+  );
+  if (dropsResult.shard || dropsResult.substitutedKinds.includes("shard")) {
+    matchShardGrants.add(victimKey);
+  }
+  return dropsResult;
+};
+
+const goldBeforeShardFarm = reopened.getGold(
+  reopened.getOrCreateProfile("ShardCapKiller").nicknameKey,
+);
+const firstA = resolveShardKill("AmuletVictimA");
+assert.equal(firstA.shard, false, "shard must not grant at shard cap");
+assert.deepEqual(firstA.substitutedKinds, ["shard"]);
+assert.equal(firstA.substitutedGold, SUBSTITUTE);
+assert.equal(
+  reopened.getGold(reopened.getOrCreateProfile("ShardCapKiller").nicknameKey),
+  goldBeforeShardFarm + SUBSTITUTE,
+);
+
+const secondA = resolveShardKill("AmuletVictimA");
+assert.equal(secondA.shard, false);
+assert.equal(
+  secondA.substitutedKinds.includes("shard"),
+  false,
+  "second kill of same victim must not shard-substitute after opportunity consumed",
+);
+assert.equal(secondA.substitutedGold, 0);
+assert.equal(
+  reopened.getGold(reopened.getOrCreateProfile("ShardCapKiller").nicknameKey),
+  goldBeforeShardFarm + SUBSTITUTE,
+  "no second shard-substitute gold from same victim",
+);
+
+const firstB = resolveShardKill("AmuletVictimB");
+assert.equal(firstB.shard, false);
+assert.deepEqual(firstB.substitutedKinds, ["shard"]);
+assert.equal(firstB.substitutedGold, SUBSTITUTE);
+assert.equal(
+  reopened.getGold(reopened.getOrCreateProfile("ShardCapKiller").nicknameKey),
+  goldBeforeShardFarm + SUBSTITUTE * 2,
+  "different amulet victim remains eligible once",
+);
+
 reopened.close();
 fs.rmSync(tmpDir, { recursive: true, force: true });
 

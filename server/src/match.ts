@@ -510,7 +510,11 @@ export class Match {
           }
         : undefined,
     );
-    if (drops.shard && victimPlayer) {
+    // Consume once-per-victim shard opportunity on successful grant OR overflow→gold
+    // substitute (EPIC 26 F-001: do not farm substitute gold from the same victim).
+    const shardOpportunityConsumed =
+      drops.shard || drops.substitutedKinds.includes("shard");
+    if (shardOpportunityConsumed && victimPlayer) {
       const killerKey = killerProfile.nicknameKey;
       const victimKey = economy.getOrCreateProfile(victimPlayer.nickname).nicknameKey;
       let set = this.matchShardGrants.get(killerKey);
