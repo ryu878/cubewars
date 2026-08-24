@@ -548,6 +548,41 @@ wss.on("connection", (socket: WebSocket) => {
       return;
     }
 
+    if (parsed.type === "economy_move_item") {
+      if (
+        typeof parsed.itemType !== "string" ||
+        typeof parsed.itemId !== "number" ||
+        !Number.isInteger(parsed.itemId) ||
+        typeof parsed.toAnchor !== "number" ||
+        !Number.isInteger(parsed.toAnchor)
+      ) {
+        malformedInputDropTracker.record(playerId, now);
+        return;
+      }
+      void match.handleEconomyAction(playerId, nickname, "move_item", {
+        itemType: parsed.itemType,
+        itemId: parsed.itemId,
+        toAnchor: parsed.toAnchor,
+      });
+      return;
+    }
+
+    if (parsed.type === "economy_discard_item") {
+      if (
+        typeof parsed.itemType !== "string" ||
+        typeof parsed.itemId !== "number" ||
+        !Number.isInteger(parsed.itemId)
+      ) {
+        malformedInputDropTracker.record(playerId, now);
+        return;
+      }
+      void match.handleEconomyAction(playerId, nickname, "discard_item", {
+        itemType: parsed.itemType,
+        itemId: parsed.itemId,
+      });
+      return;
+    }
+
     unknownTypeDropTracker.record(playerId, now);
   });
 

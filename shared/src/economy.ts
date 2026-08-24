@@ -257,3 +257,85 @@ export function applyStimulatorDeadline(hatchDeadlineMs: number, nowMs: number):
 export function isEggReady(hatchDeadlineMs: number, nowMs: number): boolean {
   return nowMs >= hatchDeadlineMs;
 }
+
+// --- Inventory grid (EPIC 29 / TZ §2.9) ---
+
+/** 8×8 bag grid; cells indexed 0..63 row-major. */
+export const INVENTORY_GRID = {
+  cols: 8,
+  rows: 8,
+  cells: 64,
+} as const;
+
+/** Logical bag item kinds for move/discard and footprint lookup. */
+export type InventoryItemType =
+  | "pet"
+  | "egg"
+  | "gem"
+  | "amulet"
+  | "stimulator"
+  | "repair_kit"
+  | "shard_stack";
+
+export const INVENTORY_ITEM_TYPES: readonly InventoryItemType[] = [
+  "pet",
+  "egg",
+  "gem",
+  "amulet",
+  "stimulator",
+  "repair_kit",
+  "shard_stack",
+] as const;
+
+/** Cell footprint: pets/amulets span two horizontal cells; everything else is 1. */
+export type InventoryFootprint = 1 | 2;
+
+export function footprintForItemType(type: InventoryItemType): InventoryFootprint {
+  return type === "pet" || type === "amulet" ? 2 : 1;
+}
+
+export function inventoryRow(anchor: number): number {
+  return Math.floor(anchor / INVENTORY_GRID.cols);
+}
+
+export function inventoryCol(anchor: number): number {
+  return anchor % INVENTORY_GRID.cols;
+}
+
+/**
+ * Cells occupied by an item whose left/top-left anchor is `anchor`.
+ * Returns null when OOB or a 2-cell footprint would wrap to the next row.
+ */
+export function cellsForAnchor(
+  anchor: number,
+  footprint: InventoryFootprint,
+): number[] | null {
+  if (!Number.isInteger(anchor) || anchor < 0 || anchor >= INVENTORY_GRID.cells) {
+    return null;
+  }
+  if (footprint === 1) return [anchor];
+  const col = inventoryCol(anchor);
+  if (col > INVENTORY_GRID.cols - 2) return null;
+  const right = anchor + 1;
+  if (right >= INVENTORY_GRID.cells) return null;
+  if (inventoryRow(right) !== inventoryRow(anchor)) return null;
+  return [anchor, right];
+}
+
+/** True when `anchor` is a legal left cell for the given footprint. */
+export function isValidAnchor(anchor: number, footprint: InventoryFootprint): boolean {
+  return cellsForAnchor(anchor, footprint) !== null;
+}
+
+/** First free row-major anchor that fits `footprint` given occupied cells. */
+export function findFirstFreeAnchor(
+  occupied: ReadonlySet<number>,
+  footprint: InventoryFootprint,
+): number | null {
+  for (let anchor = 0; anchor < INVENTORY_GRID.cells; anchor++) {
+    const cells = cellsForAnchor(anchor, footprint);
+    if (!cells) continue;
+    if (cells.every((c) => !occupied.has(c))) return anchor;
+  }
+  return null;
+}

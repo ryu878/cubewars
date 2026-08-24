@@ -1,4 +1,4 @@
-// Redis JSON document shape for one player's durable economy profile (EPIC 27).
+// Redis JSON document shape for one player's durable economy profile (EPIC 27/29).
 
 import type { GemType, PetType } from "@cubewars/shared";
 
@@ -7,12 +7,15 @@ export interface StoredPet {
   type: PetType;
   baseValue: number;
   equipSlot: 1 | 2 | null;
+  /** Bag left-cell when unequipped; null/omitted when equipped or legacy. */
+  slotAnchor?: number | null;
   createdAt: number;
 }
 
 export interface StoredEgg {
   id: number;
   hatchDeadlineMs: number;
+  slotAnchor?: number | null;
   createdAt: number;
 }
 
@@ -21,6 +24,8 @@ export interface StoredGem {
   gemType: GemType;
   value: number;
   petId: number | null;
+  /** Bag anchor when unequipped; null when socketed or legacy. */
+  slotAnchor?: number | null;
   createdAt: number;
 }
 
@@ -28,16 +33,19 @@ export interface StoredAmulet {
   id: number;
   durability: number;
   equipped: boolean;
+  slotAnchor?: number | null;
   createdAt: number;
 }
 
 export interface StoredStimulator {
   id: number;
+  slotAnchor?: number | null;
   createdAt: number;
 }
 
 export interface StoredRepairKit {
   id: number;
+  slotAnchor?: number | null;
   createdAt: number;
 }
 
@@ -73,6 +81,8 @@ export interface EconomyDocument {
   gems: StoredGem[];
   amulets: StoredAmulet[];
   shardCount: number;
+  /** Anchor of the single shard stack when shardCount > 0. */
+  shardSlotAnchor?: number | null;
   repairKits: StoredRepairKit[];
   career: StoredCareer;
   endless: StoredEndless;
@@ -112,6 +122,7 @@ export function createEmptyDocument(
     gems: [],
     amulets: [],
     shardCount: 0,
+    shardSlotAnchor: null,
     repairKits: [],
     career: emptyCareer(nowMs),
     endless: emptyEndless(nowMs),

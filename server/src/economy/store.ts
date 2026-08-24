@@ -12,6 +12,7 @@ import {
   GOLD_DROP_MAX,
   GOLD_DROP_MIN,
   INCUBATION,
+  INVENTORY_ITEM_TYPES,
   LEADERBOARD_LIMIT,
   PET_TYPES,
   REPAIR_KIT_SOFT_CAP,
@@ -20,8 +21,11 @@ import {
   applyDeathEffectivenessDecay,
   applyStimulatorDeadline,
   emptyRatings,
+  footprintForItemType,
   isEggReady,
+  isValidAnchor,
   type GemType,
+  type InventoryItemType,
   type PetGemBonuses,
   type PetType,
   type ProfileRatings,
@@ -33,6 +37,14 @@ import {
   type EconomyDocument,
 } from "./document.js";
 import { maybeImportSqliteToRedis } from "./importSqlite.js";
+import {
+  autoPackDocument,
+  canPlaceAt,
+  clearItemAnchor,
+  findFit,
+  needsAutoPack,
+  setItemAnchor,
+} from "./inventoryGrid.js";
 import { connectRedis, resolveRedisUrl } from "./redis.js";
 
 export interface EconomyProfile {
@@ -48,6 +60,7 @@ export interface EconomyEgg {
   id: number;
   profileId: number;
   hatchDeadlineMs: number;
+  slotAnchor: number;
   createdAt: number;
 }
 
@@ -57,6 +70,7 @@ export interface EconomyPet {
   type: PetType;
   baseValue: number;
   equipSlot: 1 | 2 | null;
+  slotAnchor: number | null;
   createdAt: number;
 }
 
@@ -66,6 +80,7 @@ export interface EconomyGem {
   gemType: GemType;
   value: number;
   petId: number | null;
+  slotAnchor: number | null;
   createdAt: number;
 }
 
@@ -74,6 +89,21 @@ export interface EconomyAmulet {
   profileId: number;
   durability: number;
   equipped: boolean;
+  slotAnchor: number | null;
+  createdAt: number;
+}
+
+export interface EconomyStimulator {
+  id: number;
+  profileId: number;
+  slotAnchor: number;
+  createdAt: number;
+}
+
+export interface EconomyRepairKit {
+  id: number;
+  profileId: number;
+  slotAnchor: number;
   createdAt: number;
 }
 
@@ -85,10 +115,13 @@ export interface FullEconomyProfile {
   pets: EconomyPet[];
   eggs: EconomyEgg[];
   stimulatorCount: number;
+  stimulators: EconomyStimulator[];
   gems: EconomyGem[];
   amulets: EconomyAmulet[];
   shardCount: number;
+  shardSlotAnchor: number | null;
   repairKitCount: number;
+  repairKits: EconomyRepairKit[];
   ratings: ProfileRatings;
   slot2Enabled: boolean;
 }
@@ -114,7 +147,12 @@ export type EconomyActionErrorCode =
   | "no_stimulator"
   | "already_ready"
   | "already_equipped"
-  | "not_equipped";
+  | "not_equipped"
+  | "inventory_full"
+  | "bad_anchor"
+  | "overlap"
+  | "not_in_bag"
+  | "invalid_item_type";
 
 export class EconomyActionError extends Error {
   readonly code: EconomyActionErrorCode;
@@ -329,6 +367,7 @@ export class EconomyStore {
       id: egg.id,
       profileId: doc.id,
       hatchDeadlineMs: egg.hatchDeadlineMs,
+      slotAnchor: typeof egg.slotAnchor === "number" ? egg.slotAnchor : -1,
       createdAt: egg.createdAt,
     };
   }
@@ -340,6 +379,12 @@ export class EconomyStore {
       type: pet.type,
       baseValue: pet.baseValue,
       equipSlot: pet.equipSlot,
+      slotAnchor:
+        pet.equipSlot === 1 || pet.equipSlot === 2
+          ? null
+          : typeof pet.slotAnchor === "number"
+            ? pet.slotAnchor
+            : null,
       createdAt: pet.createdAt,
     };
   }
@@ -351,6 +396,12 @@ export class EconomyStore {
       gemType: gem.gemType,
       value: gem.value,
       petId: gem.petId,
+      slotAnchor:
+        gem.petId !== null
+          ? null
+          : typeof gem.slotAnchor === "number"
+            ? gem.slotAnchor
+            : null,
       createdAt: gem.createdAt,
     };
   }
@@ -364,18 +415,75 @@ export class EconomyStore {
       profileId: doc.id,
       durability: amulet.durability,
       equipped: amulet.equipped,
+      slotAnchor: amulet.equipped
+        ? null
+        : typeof amulet.slotAnchor === "number"
+          ? amulet.slotAnchor
+          : null,
       createdAt: amulet.createdAt,
+    };
+  }
+
+  private stimFromDoc(
+    doc: EconomyDocument,
+    stim: EconomyDocument["stimulators"][number],
+  ): EconomyStimulator {
+    return {
+      id: stim.id,
+      profileId: doc.id,
+      slotAnchor: typeof stim.slotAnchor === "number" ? stim.slotAnchor : -1,
+      createdAt: stim.createdAt,
+    };
+  }
+
+  private kitFromDoc(
+    doc: EconomyDocument,
+    kit: EconomyDocument["repairKits"][number],
+  ): EconomyRepairKit {
+    return {
+      id: kit.id,
+      profileId: doc.id,
+      slotAnchor: typeof kit.slotAnchor === "number" ? kit.slotAnchor : -1,
+      createdAt: kit.createdAt,
     };
   }
 
   private async loadDoc(nicknameKey: string): Promise<EconomyDocument | null> {
     const cached = this.cache.get(nicknameKey);
-    if (cached) return cached;
+    if (cached) {
+      await this.ensureInventoryPacked(cached);
+      return cached;
+    }
     const raw = await this.redis.get(this.economyKey(nicknameKey));
     if (!raw) return null;
     const doc = JSON.parse(raw) as EconomyDocument;
+    if (doc.shardSlotAnchor === undefined) doc.shardSlotAnchor = null;
     this.cache.set(nicknameKey, doc);
+    await this.ensureInventoryPacked(doc);
     return doc;
+  }
+
+  /** One-shot auto-pack for legacy docs missing slotAnchor (EPIC 29). */
+  private async ensureInventoryPacked(doc: EconomyDocument): Promise<void> {
+    if (!needsAutoPack(doc)) return;
+    autoPackDocument(doc);
+    console.log(`[economy] inventory auto-pack once for ${doc.nicknameKey}`);
+    await this.saveDoc(doc);
+  }
+
+  /** Assign a free bag anchor or throw inventory_full. */
+  private assignBagAnchor(
+    doc: EconomyDocument,
+    itemType: InventoryItemType,
+    itemId: number,
+  ): number {
+    const footprint = footprintForItemType(itemType);
+    const anchor = findFit(doc, footprint);
+    if (anchor === null) {
+      throw new EconomyActionError("inventory_full", "no free inventory cells for footprint");
+    }
+    setItemAnchor(doc, itemType, itemId, anchor);
+    return anchor;
   }
 
   /**
@@ -784,10 +892,16 @@ export class EconomyStore {
       pets: doc.pets.map((p) => this.petFromDoc(doc, p)),
       eggs: doc.eggs.map((e) => this.eggFromDoc(doc, e)),
       stimulatorCount: doc.stimulators.length,
+      stimulators: doc.stimulators.map((s) => this.stimFromDoc(doc, s)),
       gems: doc.gems.map((g) => this.gemFromDoc(doc, g)),
       amulets: doc.amulets.map((a) => this.amuletFromDoc(doc, a)),
       shardCount: doc.shardCount,
+      shardSlotAnchor:
+        doc.shardCount > 0 && typeof doc.shardSlotAnchor === "number"
+          ? doc.shardSlotAnchor
+          : null,
       repairKitCount: doc.repairKits.length,
+      repairKits: doc.repairKits.map((k) => this.kitFromDoc(doc, k)),
       ratings: this.computeRatings(doc),
       slot2Enabled: this.isSlot2EnabledDoc(doc),
     };
@@ -806,10 +920,14 @@ export class EconomyStore {
     if (doc.pets.length >= ECONOMY_CAPS.pets) {
       throw new EconomyActionError("pet_cap", "pet cap reached (cannot grant egg)");
     }
+    if (findFit(doc, 1) === null) {
+      throw new EconomyActionError("inventory_full", "no free inventory cell for egg");
+    }
     const hatchDeadlineMs = nowMs + durationMs;
     const id = doc.nextEggId++;
-    const egg = { id, hatchDeadlineMs, createdAt: nowMs };
+    const egg = { id, hatchDeadlineMs, createdAt: nowMs, slotAnchor: null as number | null };
     doc.eggs.push(egg);
+    this.assignBagAnchor(doc, "egg", id);
     doc.updatedAt = nowMs;
     await this.saveDoc(doc);
     await this.bindItemOwner("egg", id, doc.nicknameKey);
@@ -822,8 +940,12 @@ export class EconomyStore {
     if (doc.stimulators.length >= STIMULATOR_SOFT_CAP) {
       throw new EconomyActionError("stimulator_cap", "stimulator soft-cap reached");
     }
+    if (findFit(doc, 1) === null) {
+      throw new EconomyActionError("inventory_full", "no free inventory cell for stimulator");
+    }
     const id = doc.nextStimId++;
-    doc.stimulators.push({ id, createdAt: nowMs });
+    doc.stimulators.push({ id, createdAt: nowMs, slotAnchor: null });
+    this.assignBagAnchor(doc, "stimulator", id);
     doc.updatedAt = nowMs;
     await this.saveDoc(doc);
     return { id };
@@ -850,9 +972,20 @@ export class EconomyStore {
     if (doc.gems.length >= ECONOMY_CAPS.gems) {
       throw new EconomyActionError("gem_cap", "gem cap reached");
     }
+    if (findFit(doc, 1) === null) {
+      throw new EconomyActionError("inventory_full", "no free inventory cell for gem");
+    }
     const id = doc.nextGemId++;
-    const gem = { id, gemType, value, petId: null as number | null, createdAt: nowMs };
+    const gem = {
+      id,
+      gemType,
+      value,
+      petId: null as number | null,
+      createdAt: nowMs,
+      slotAnchor: null as number | null,
+    };
     doc.gems.push(gem);
+    this.assignBagAnchor(doc, "gem", id);
     doc.updatedAt = nowMs;
     await this.saveDoc(doc);
     await this.bindItemOwner("gem", id, doc.nicknameKey);
@@ -873,9 +1006,19 @@ export class EconomyStore {
     if (doc.amulets.length >= ECONOMY_CAPS.amulets) {
       throw new EconomyActionError("amulet_cap", "amulet cap reached");
     }
+    if (findFit(doc, 2) === null) {
+      throw new EconomyActionError("inventory_full", "no free inventory cells for amulet");
+    }
     const id = doc.nextAmuletId++;
-    const amulet = { id, durability: dur, equipped: false, createdAt: nowMs };
+    const amulet = {
+      id,
+      durability: dur,
+      equipped: false,
+      createdAt: nowMs,
+      slotAnchor: null as number | null,
+    };
     doc.amulets.push(amulet);
+    this.assignBagAnchor(doc, "amulet", id);
     doc.updatedAt = nowMs;
     await this.saveDoc(doc);
     await this.bindItemOwner("amulet", id, doc.nicknameKey);
@@ -888,8 +1031,12 @@ export class EconomyStore {
     if (doc.repairKits.length >= REPAIR_KIT_SOFT_CAP) {
       throw new EconomyActionError("repair_kit_cap", "repair kit soft-cap reached");
     }
+    if (findFit(doc, 1) === null) {
+      throw new EconomyActionError("inventory_full", "no free inventory cell for repair kit");
+    }
     const id = doc.nextRepairKitId++;
-    doc.repairKits.push({ id, createdAt: nowMs });
+    doc.repairKits.push({ id, createdAt: nowMs, slotAnchor: null });
+    this.assignBagAnchor(doc, "repair_kit", id);
     doc.updatedAt = nowMs;
     await this.saveDoc(doc);
     return { id };
@@ -904,7 +1051,14 @@ export class EconomyStore {
     if (doc.shardCount >= ECONOMY_CAPS.shards) {
       throw new EconomyActionError("shard_cap", "shard cap reached");
     }
+    const hadStack = doc.shardCount > 0;
+    if (!hadStack && findFit(doc, 1) === null) {
+      throw new EconomyActionError("inventory_full", "no free inventory cell for shard stack");
+    }
     doc.shardCount = Math.min(ECONOMY_CAPS.shards, doc.shardCount + amount);
+    if (!hadStack) {
+      this.assignBagAnchor(doc, "shard_stack", 0);
+    }
     doc.updatedAt = nowMs;
     await this.saveDoc(doc);
     return doc.shardCount;
@@ -1108,8 +1262,15 @@ export class EconomyStore {
     if (!PET_TYPES.includes(type) || baseValue < 1 || baseValue > 200) {
       throw new Error(`invalid hatch pet type/value: ${type}/${baseValue}`);
     }
+    // Free egg cell first so the new pet can reuse those cells if needed.
     doc.eggs.splice(eggIndex, 1);
     await this.unbindItemOwner("egg", eggId);
+    if (findFit(doc, 2) === null) {
+      // Roll back egg removal into memory before rejecting (persist nothing yet).
+      doc.eggs.splice(eggIndex, 0, egg);
+      await this.bindItemOwner("egg", eggId, doc.nicknameKey);
+      throw new EconomyActionError("inventory_full", "no free 2-cell fit for hatched pet");
+    }
     const id = doc.nextPetId++;
     const pet = {
       id,
@@ -1117,8 +1278,10 @@ export class EconomyStore {
       baseValue,
       equipSlot: null as 1 | 2 | null,
       createdAt: nowMs,
+      slotAnchor: null as number | null,
     };
     doc.pets.push(pet);
+    this.assignBagAnchor(doc, "pet", id);
     doc.updatedAt = nowMs;
     await this.saveDoc(doc);
     await this.bindItemOwner("pet", id, doc.nicknameKey);
@@ -1135,19 +1298,30 @@ export class EconomyStore {
       throw new EconomyActionError("invalid_slot", `invalid equip slot ${slot}`);
     }
     const profile = await this.getOrCreateProfile(nickname);
-    const doc = (await this.loadDoc(profile.nicknameKey))!;
-    if (slot === 2 && !this.isSlot2EnabledDoc(doc)) {
+    const live = (await this.loadDoc(profile.nicknameKey))!;
+    if (slot === 2 && !this.isSlot2EnabledDoc(live)) {
       throw new EconomyActionError("slot2_disabled", "pet slot 2 requires an equipped amulet");
     }
-    const pet = doc.pets.find((p) => p.id === petId);
-    if (!pet) {
-      await this.assertItemOwnedOrThrow("pet", petId, doc.nicknameKey, `pet ${petId} not found`);
+    if (!live.pets.some((p) => p.id === petId)) {
+      await this.assertItemOwnedOrThrow("pet", petId, live.nicknameKey, `pet ${petId} not found`);
       throw new EconomyActionError("not_found", `pet ${petId} not found`);
     }
-    for (const p of doc.pets) {
-      if (p.equipSlot === slot) p.equipSlot = null;
+    const doc = cloneDocument(live);
+    const pet = doc.pets.find((p) => p.id === petId)!;
+    clearItemAnchor(doc, "pet", petId);
+    const displaced = doc.pets.filter((p) => p.id !== petId && p.equipSlot === slot);
+    for (const other of displaced) {
+      other.equipSlot = null;
+      if (findFit(doc, 2) === null) {
+        throw new EconomyActionError(
+          "inventory_full",
+          "no free inventory cells to unequip displaced pet",
+        );
+      }
+      this.assignBagAnchor(doc, "pet", other.id);
     }
     pet.equipSlot = slot;
+    pet.slotAnchor = null;
     doc.updatedAt = nowMs;
     await this.saveDoc(doc);
     return this.petFromDoc(doc, pet);
@@ -1155,13 +1329,22 @@ export class EconomyStore {
 
   async unequipPet(nickname: string, petId: number, nowMs: number = Date.now()): Promise<EconomyPet> {
     const profile = await this.getOrCreateProfile(nickname);
-    const doc = (await this.loadDoc(profile.nicknameKey))!;
-    const pet = doc.pets.find((p) => p.id === petId);
-    if (!pet) {
-      await this.assertItemOwnedOrThrow("pet", petId, doc.nicknameKey, `pet ${petId} not found`);
+    const live = (await this.loadDoc(profile.nicknameKey))!;
+    const livePet = live.pets.find((p) => p.id === petId);
+    if (!livePet) {
+      await this.assertItemOwnedOrThrow("pet", petId, live.nicknameKey, `pet ${petId} not found`);
       throw new EconomyActionError("not_found", `pet ${petId} not found`);
     }
+    if (livePet.equipSlot === null) {
+      return this.petFromDoc(live, livePet);
+    }
+    const doc = cloneDocument(live);
+    const pet = doc.pets.find((p) => p.id === petId)!;
+    if (findFit(doc, 2) === null) {
+      throw new EconomyActionError("inventory_full", "no free inventory cells to unequip pet");
+    }
     pet.equipSlot = null;
+    this.assignBagAnchor(doc, "pet", petId);
     doc.updatedAt = nowMs;
     await this.saveDoc(doc);
     return this.petFromDoc(doc, pet);
@@ -1192,6 +1375,7 @@ export class EconomyStore {
       throw new EconomyActionError("type_occupied", `pet already has a ${gem.gemType} gem`);
     }
     gem.petId = petId;
+    gem.slotAnchor = null;
     doc.updatedAt = nowMs;
     await this.saveDoc(doc);
     return this.gemFromDoc(doc, gem);
@@ -1211,7 +1395,11 @@ export class EconomyStore {
     if (doc.gems.length > ECONOMY_CAPS.gems) {
       throw new EconomyActionError("gem_cap", "gem cap exceeded");
     }
+    if (findFit(doc, 1) === null) {
+      throw new EconomyActionError("inventory_full", "no free inventory cell to unsocket gem");
+    }
     gem.petId = null;
+    this.assignBagAnchor(doc, "gem", gemId);
     doc.updatedAt = nowMs;
     await this.saveDoc(doc);
     return this.gemFromDoc(doc, gem);
@@ -1223,17 +1411,36 @@ export class EconomyStore {
     nowMs: number = Date.now(),
   ): Promise<EconomyAmulet> {
     const profile = await this.getOrCreateProfile(nickname);
-    const doc = (await this.loadDoc(profile.nicknameKey))!;
-    const amulet = doc.amulets.find((a) => a.id === amuletId);
-    if (!amulet) {
-      await this.assertItemOwnedOrThrow("amulet", amuletId, doc.nicknameKey, `amulet ${amuletId} not found`);
+    const live = (await this.loadDoc(profile.nicknameKey))!;
+    if (!live.amulets.some((a) => a.id === amuletId)) {
+      await this.assertItemOwnedOrThrow(
+        "amulet",
+        amuletId,
+        live.nicknameKey,
+        `amulet ${amuletId} not found`,
+      );
       throw new EconomyActionError("not_found", `amulet ${amuletId} not found`);
     }
-    if (amulet.equipped) {
+    const equippedLive = live.amulets.find((a) => a.id === amuletId)!;
+    if (equippedLive.equipped) {
       throw new EconomyActionError("already_equipped", "amulet already equipped");
     }
-    for (const a of doc.amulets) a.equipped = false;
+    const doc = cloneDocument(live);
+    const amulet = doc.amulets.find((a) => a.id === amuletId)!;
+    clearItemAnchor(doc, "amulet", amuletId);
+    const previous = doc.amulets.find((a) => a.equipped);
+    if (previous) {
+      previous.equipped = false;
+      if (findFit(doc, 2) === null) {
+        throw new EconomyActionError(
+          "inventory_full",
+          "no free inventory cells for previously equipped amulet",
+        );
+      }
+      this.assignBagAnchor(doc, "amulet", previous.id);
+    }
     amulet.equipped = true;
+    amulet.slotAnchor = null;
     doc.updatedAt = nowMs;
     await this.saveDoc(doc);
     return this.amuletFromDoc(doc, amulet);
@@ -1245,19 +1452,38 @@ export class EconomyStore {
     nowMs: number = Date.now(),
   ): Promise<EconomyAmulet> {
     const profile = await this.getOrCreateProfile(nickname);
-    const doc = (await this.loadDoc(profile.nicknameKey))!;
-    const amulet = doc.amulets.find((a) => a.id === amuletId);
-    if (!amulet) {
-      await this.assertItemOwnedOrThrow("amulet", amuletId, doc.nicknameKey, `amulet ${amuletId} not found`);
+    const live = (await this.loadDoc(profile.nicknameKey))!;
+    const liveAmulet = live.amulets.find((a) => a.id === amuletId);
+    if (!liveAmulet) {
+      await this.assertItemOwnedOrThrow(
+        "amulet",
+        amuletId,
+        live.nicknameKey,
+        `amulet ${amuletId} not found`,
+      );
       throw new EconomyActionError("not_found", `amulet ${amuletId} not found`);
     }
-    if (!amulet.equipped) {
+    if (!liveAmulet.equipped) {
       throw new EconomyActionError("not_equipped", "amulet is not equipped");
     }
-    amulet.equipped = false;
-    for (const p of doc.pets) {
-      if (p.equipSlot === 2) p.equipSlot = null;
+    const doc = cloneDocument(live);
+    const amulet = doc.amulets.find((a) => a.id === amuletId)!;
+    const slot2Pets = doc.pets.filter((p) => p.equipSlot === 2);
+    for (const p of slot2Pets) {
+      p.equipSlot = null;
+      if (findFit(doc, 2) === null) {
+        throw new EconomyActionError(
+          "inventory_full",
+          "no free inventory cells for slot-2 pet after unequip",
+        );
+      }
+      this.assignBagAnchor(doc, "pet", p.id);
     }
+    if (findFit(doc, 2) === null) {
+      throw new EconomyActionError("inventory_full", "no free inventory cells to unequip amulet");
+    }
+    amulet.equipped = false;
+    this.assignBagAnchor(doc, "amulet", amuletId);
     doc.updatedAt = nowMs;
     await this.saveDoc(doc);
     return this.amuletFromDoc(doc, amulet);
@@ -1272,15 +1498,29 @@ export class EconomyStore {
     if (doc.shardCount < ECONOMY_CAPS.amuletCraftShards) {
       throw new EconomyActionError("insufficient_shards", "need 10 shards to craft an amulet");
     }
+    // Temporarily free the shard stack if craft will empty it, so amulet can use that cell.
+    const prevShards = doc.shardCount;
+    const prevShardAnchor = doc.shardSlotAnchor;
     doc.shardCount -= ECONOMY_CAPS.amuletCraftShards;
+    if (doc.shardCount <= 0) {
+      doc.shardCount = 0;
+      doc.shardSlotAnchor = null;
+    }
+    if (findFit(doc, 2) === null) {
+      doc.shardCount = prevShards;
+      doc.shardSlotAnchor = prevShardAnchor;
+      throw new EconomyActionError("inventory_full", "no free inventory cells for crafted amulet");
+    }
     const id = doc.nextAmuletId++;
     const amulet = {
       id,
       durability: ECONOMY_CAPS.amuletDurabilityMax,
       equipped: false,
       createdAt: nowMs,
+      slotAnchor: null as number | null,
     };
     doc.amulets.push(amulet);
+    this.assignBagAnchor(doc, "amulet", id);
     doc.updatedAt = nowMs;
     await this.saveDoc(doc);
     await this.bindItemOwner("amulet", id, doc.nicknameKey);
@@ -1360,7 +1600,19 @@ export class EconomyStore {
 
     if (amuletDestroyed) {
       for (const p of doc.pets) {
-        if (p.equipSlot === 2) p.equipSlot = null;
+        if (p.equipSlot === 2) {
+          p.equipSlot = null;
+          const anchor = findFit(doc, 2);
+          if (anchor !== null) {
+            setItemAnchor(doc, "pet", p.id, anchor);
+          } else {
+            // Extremely full bag: leave without anchor; ensureInventoryPacked will retry.
+            p.slotAnchor = null;
+            console.warn(
+              `[economy] inventory_full placing slot-2 pet#${p.id} after amulet destroy (${doc.nicknameKey})`,
+            );
+          }
+        }
       }
     }
 
@@ -1386,6 +1638,9 @@ export class EconomyStore {
     if (doc.pets.length >= ECONOMY_CAPS.pets) {
       throw new EconomyActionError("pet_cap", "pet cap reached");
     }
+    if (findFit(doc, 2) === null) {
+      throw new EconomyActionError("inventory_full", "no free inventory cells for pet");
+    }
     const id = doc.nextPetId++;
     const pet = {
       id,
@@ -1393,11 +1648,153 @@ export class EconomyStore {
       baseValue,
       equipSlot: null as 1 | 2 | null,
       createdAt: nowMs,
+      slotAnchor: null as number | null,
     };
     doc.pets.push(pet);
+    this.assignBagAnchor(doc, "pet", id);
     doc.updatedAt = nowMs;
     await this.saveDoc(doc);
     await this.bindItemOwner("pet", id, doc.nicknameKey);
     return this.petFromDoc(doc, pet);
+  }
+
+  async moveItem(
+    nickname: string,
+    itemType: InventoryItemType,
+    itemId: number,
+    toAnchor: number,
+    nowMs: number = Date.now(),
+  ): Promise<void> {
+    if (!(INVENTORY_ITEM_TYPES as readonly string[]).includes(itemType)) {
+      throw new EconomyActionError("invalid_item_type", `invalid item type ${itemType}`);
+    }
+    const profile = await this.getOrCreateProfile(nickname);
+    const live = (await this.loadDoc(profile.nicknameKey))!;
+    const doc = cloneDocument(live);
+    const footprint = footprintForItemType(itemType);
+    this.assertBagItem(doc, itemType, itemId);
+    if (!isValidAnchor(toAnchor, footprint)) {
+      throw new EconomyActionError("bad_anchor", "anchor out of range or invalid footprint");
+    }
+    if (!canPlaceAt(doc, toAnchor, footprint, { itemType, itemId })) {
+      throw new EconomyActionError("overlap", "target cells overlap another item");
+    }
+    setItemAnchor(doc, itemType, itemId, toAnchor);
+    doc.updatedAt = nowMs;
+    await this.saveDoc(doc);
+  }
+
+  async discardItem(
+    nickname: string,
+    itemType: InventoryItemType,
+    itemId: number,
+    nowMs: number = Date.now(),
+  ): Promise<void> {
+    if (!(INVENTORY_ITEM_TYPES as readonly string[]).includes(itemType)) {
+      throw new EconomyActionError("invalid_item_type", `invalid item type ${itemType}`);
+    }
+    const profile = await this.getOrCreateProfile(nickname);
+    const live = (await this.loadDoc(profile.nicknameKey))!;
+    const doc = cloneDocument(live);
+    this.assertBagItem(doc, itemType, itemId);
+
+    switch (itemType) {
+      case "pet": {
+        doc.pets = doc.pets.filter((p) => p.id !== itemId);
+        await this.unbindItemOwner("pet", itemId);
+        break;
+      }
+      case "egg": {
+        doc.eggs = doc.eggs.filter((e) => e.id !== itemId);
+        await this.unbindItemOwner("egg", itemId);
+        break;
+      }
+      case "gem": {
+        doc.gems = doc.gems.filter((g) => g.id !== itemId);
+        await this.unbindItemOwner("gem", itemId);
+        break;
+      }
+      case "amulet": {
+        doc.amulets = doc.amulets.filter((a) => a.id !== itemId);
+        await this.unbindItemOwner("amulet", itemId);
+        break;
+      }
+      case "stimulator": {
+        doc.stimulators = doc.stimulators.filter((s) => s.id !== itemId);
+        break;
+      }
+      case "repair_kit": {
+        doc.repairKits = doc.repairKits.filter((k) => k.id !== itemId);
+        break;
+      }
+      case "shard_stack": {
+        doc.shardCount = 0;
+        doc.shardSlotAnchor = null;
+        break;
+      }
+    }
+    doc.updatedAt = nowMs;
+    await this.saveDoc(doc);
+    console.log(
+      `[economy] discard ${itemType}#${itemId} by ${doc.nicknameKey}`,
+    );
+  }
+
+  /** Ensure the item exists in the bag (not equipped / socketed). */
+  private assertBagItem(
+    doc: EconomyDocument,
+    itemType: InventoryItemType,
+    itemId: number,
+  ): void {
+    switch (itemType) {
+      case "pet": {
+        const pet = doc.pets.find((p) => p.id === itemId);
+        if (!pet) throw new EconomyActionError("not_found", `pet ${itemId} not found`);
+        if (pet.equipSlot === 1 || pet.equipSlot === 2) {
+          throw new EconomyActionError("not_in_bag", "equipped pets cannot be moved/discarded");
+        }
+        return;
+      }
+      case "egg": {
+        if (!doc.eggs.some((e) => e.id === itemId)) {
+          throw new EconomyActionError("not_found", `egg ${itemId} not found`);
+        }
+        return;
+      }
+      case "gem": {
+        const gem = doc.gems.find((g) => g.id === itemId);
+        if (!gem) throw new EconomyActionError("not_found", `gem ${itemId} not found`);
+        if (gem.petId !== null) {
+          throw new EconomyActionError("not_in_bag", "socketed gems cannot be moved/discarded");
+        }
+        return;
+      }
+      case "amulet": {
+        const amulet = doc.amulets.find((a) => a.id === itemId);
+        if (!amulet) throw new EconomyActionError("not_found", `amulet ${itemId} not found`);
+        if (amulet.equipped) {
+          throw new EconomyActionError("not_in_bag", "equipped amulets cannot be moved/discarded");
+        }
+        return;
+      }
+      case "stimulator": {
+        if (!doc.stimulators.some((s) => s.id === itemId)) {
+          throw new EconomyActionError("not_found", `stimulator ${itemId} not found`);
+        }
+        return;
+      }
+      case "repair_kit": {
+        if (!doc.repairKits.some((k) => k.id === itemId)) {
+          throw new EconomyActionError("not_found", `repair kit ${itemId} not found`);
+        }
+        return;
+      }
+      case "shard_stack": {
+        if (doc.shardCount <= 0) {
+          throw new EconomyActionError("not_found", "shard stack is empty");
+        }
+        return;
+      }
+    }
   }
 }

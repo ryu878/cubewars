@@ -38,6 +38,7 @@ import {
   type EconomyGoldUpdateMessage,
   type EconomyProfileMessage,
   type FireBroadcastEvent,
+  type InventoryItemType,
   type HitEvent,
   type KillEvent,
   type LeaderboardEntry,
@@ -289,25 +290,38 @@ export class Match {
         type: p.type,
         baseValue: p.baseValue,
         equipSlot: p.equipSlot,
+        slotAnchor: p.slotAnchor,
       })),
       eggs: profile.eggs.map((e) => ({
         id: e.id,
         hatchDeadlineMs: e.hatchDeadlineMs,
+        slotAnchor: e.slotAnchor,
       })),
       stimulatorCount: profile.stimulatorCount,
+      stimulators: profile.stimulators.map((s) => ({
+        id: s.id,
+        slotAnchor: s.slotAnchor,
+      })),
       gems: profile.gems.map((g) => ({
         id: g.id,
         gemType: g.gemType,
         value: g.value,
         petId: g.petId,
+        slotAnchor: g.slotAnchor,
       })),
       amulets: profile.amulets.map((a) => ({
         id: a.id,
         durability: a.durability,
         equipped: a.equipped,
+        slotAnchor: a.slotAnchor,
       })),
       shardCount: profile.shardCount,
+      shardSlotAnchor: profile.shardSlotAnchor,
       repairKitCount: profile.repairKitCount,
+      repairKits: profile.repairKits.map((k) => ({
+        id: k.id,
+        slotAnchor: k.slotAnchor,
+      })),
       ratings: profile.ratings,
       slot2Enabled: profile.slot2Enabled,
     };
@@ -355,6 +369,9 @@ export class Match {
       slot?: number;
       gemId?: number;
       amuletId?: number;
+      itemType?: InventoryItemType;
+      itemId?: number;
+      toAnchor?: number;
     },
   ): Promise<void> {
     const economy = this.options.economy;
@@ -425,6 +442,28 @@ export class Match {
           return;
         }
         await economy.repairAmulet(nickname, payload.amuletId);
+      } else if (action === "move_item") {
+        if (
+          typeof payload.itemType !== "string" ||
+          typeof payload.itemId !== "number" ||
+          !Number.isInteger(payload.itemId) ||
+          typeof payload.toAnchor !== "number" ||
+          !Number.isInteger(payload.toAnchor)
+        ) {
+          this.sendEconomyActionResult(playerId, action, false, "not_found");
+          return;
+        }
+        await economy.moveItem(nickname, payload.itemType, payload.itemId, payload.toAnchor);
+      } else if (action === "discard_item") {
+        if (
+          typeof payload.itemType !== "string" ||
+          typeof payload.itemId !== "number" ||
+          !Number.isInteger(payload.itemId)
+        ) {
+          this.sendEconomyActionResult(playerId, action, false, "not_found");
+          return;
+        }
+        await economy.discardItem(nickname, payload.itemType, payload.itemId);
       }
       await this.applyEconomyCombatToPlayer(playerId, nickname);
       this.sendEconomyActionResult(playerId, action, true);

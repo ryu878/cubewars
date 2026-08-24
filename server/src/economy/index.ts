@@ -10,6 +10,8 @@ export {
   type EconomyPet,
   type EconomyGem,
   type EconomyAmulet,
+  type EconomyStimulator,
+  type EconomyRepairKit,
   type FullEconomyProfile,
   type EconomyActionErrorCode,
   type KillItemDropsResult,
@@ -19,3 +21,9 @@ export {
   type EndlessCareerEntry,
   type EconomyStoreOpenOptions,
 } from "./store.js";
+export {
+  findFit,
+  occupiedCells,
+  autoPackDocument,
+  needsAutoPack,
+} from "./inventoryGrid.js";

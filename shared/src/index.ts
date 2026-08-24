@@ -8,7 +8,12 @@ import type { WeaponType } from "./weapons.js";
 import type { PickupStatus } from "./pickups.js";
 import type { DamageKind, DamageZone } from "./combat.js";
 import type { MapBox } from "./mapData.js";
-import type { GemType, PetType, ProfileRatings } from "./economy.js";
+import type {
+  GemType,
+  InventoryItemType,
+  PetType,
+  ProfileRatings,
+} from "./economy.js";
 // EPIC 3 "The Arena": the single source of truth for map geometry, spawn
 // points, and their collision resolution — see mapData.ts / collision.ts
 // doc comments. Re-exported here so both client and server keep importing
@@ -271,6 +276,29 @@ export interface EconomyRepairAmuletMessage {
   amuletId: number;
 }
 
+/**
+ * Client -> server: move a bag item to a new grid anchor (EPIC 29).
+ * Server validates ownership, footprint geometry, and non-overlap.
+ * For `shard_stack`, `itemId` is ignored (always 0).
+ */
+export interface EconomyMoveItemMessage {
+  type: "economy_move_item";
+  itemType: InventoryItemType;
+  itemId: number;
+  toAnchor: number;
+}
+
+/**
+ * Client -> server: destroy a bag item forever (EPIC 29).
+ * Ground drop deferred to EPIC 30. Equipped / socketed items are rejected.
+ * For `shard_stack`, `itemId` is ignored (always 0); clears the whole stack.
+ */
+export interface EconomyDiscardItemMessage {
+  type: "economy_discard_item";
+  itemType: InventoryItemType;
+  itemId: number;
+}
+
 export type ClientMessage =
   | PlayerInputMessage
   | FireEvent
@@ -285,7 +313,9 @@ export type ClientMessage =
   | EconomyEquipAmuletMessage
   | EconomyUnequipAmuletMessage
   | EconomyCraftAmuletMessage
-  | EconomyRepairAmuletMessage;
+  | EconomyRepairAmuletMessage
+  | EconomyMoveItemMessage
+  | EconomyDiscardItemMessage;
 
 /** A single player's authoritative, server-computed state as broadcast to all clients. */
 export interface PlayerState {
@@ -533,40 +563,63 @@ export interface ProjectileImpactEvent {
   point: Vector3;
 }
 
-/** Wire DTO for a durable pet row (EPIC 24/25). */
+/** Wire DTO for a durable pet row (EPIC 24/25/29). */
 export interface EconomyPetDto {
   id: number;
   type: PetType;
   baseValue: number;
   /** Slot 1 default; slot 2 only when amulet equipped; null when unequipped. */
   equipSlot: 1 | 2 | null;
+  /**
+   * Bag grid left-cell anchor when unequipped; null when equipped (equip rail).
+   * Footprint = 2 horizontal cells.
+   */
+  slotAnchor: number | null;
 }
 
-/** Wire DTO for an incubating egg (EPIC 24). */
+/** Wire DTO for an incubating egg (EPIC 24/29). Footprint = 1. */
 export interface EconomyEggDto {
   id: number;
   hatchDeadlineMs: number;
+  slotAnchor: number;
 }
 
-/** Wire DTO for a gem (EPIC 25). `petId` null when unequipped / in bag. */
+/** Wire DTO for a gem (EPIC 25/29). `petId` null when unequipped / in bag. */
 export interface EconomyGemDto {
   id: number;
   gemType: GemType;
   value: number;
   petId: number | null;
+  /** Bag anchor when unequipped; null when socketed on a pet. */
+  slotAnchor: number | null;
 }
 
-/** Wire DTO for an amulet (EPIC 25). */
+/** Wire DTO for an amulet (EPIC 25/29). Footprint = 2 when in bag. */
 export interface EconomyAmuletDto {
   id: number;
   durability: number;
   equipped: boolean;
+  /** Bag anchor when unequipped; null when on the equip rail. */
+  slotAnchor: number | null;
+}
+
+/** Wire DTO for a growth stimulator bag row (EPIC 29). Footprint = 1. */
+export interface EconomyStimulatorDto {
+  id: number;
+  slotAnchor: number;
+}
+
+/** Wire DTO for a repair kit bag row (EPIC 29). Footprint = 1. */
+export interface EconomyRepairKitDto {
+  id: number;
+  slotAnchor: number;
 }
 
 /**
- * Server -> owning connection only (EPIC 23/24/25): full economy profile
+ * Server -> owning connection only (EPIC 23/24/25/29): full economy profile
  * snapshot for the player's nickname key. Sent on join and after equip /
- * hatch / stim / gem / amulet / item drops. All fields are server-authoritative.
+ * hatch / stim / gem / amulet / item drops / move / discard.
+ * All fields are server-authoritative.
  */
 export interface EconomyProfileMessage {
   type: "economy_profile";
@@ -575,10 +628,16 @@ export interface EconomyProfileMessage {
   pets: EconomyPetDto[];
   eggs: EconomyEggDto[];
   stimulatorCount: number;
+  /** Individual stimulator rows with grid anchors (EPIC 29). */
+  stimulators: EconomyStimulatorDto[];
   gems: EconomyGemDto[];
   amulets: EconomyAmuletDto[];
   shardCount: number;
+  /** Anchor of the single shard stack when shardCount > 0; else null. */
+  shardSlotAnchor: number | null;
   repairKitCount: number;
+  /** Individual repair kit rows with grid anchors (EPIC 29). */
+  repairKits: EconomyRepairKitDto[];
   ratings: ProfileRatings;
   /** True when an amulet is equipped (enables pet slot 2 at 40%). */
   slot2Enabled: boolean;
@@ -612,7 +671,9 @@ export interface EconomyActionResultMessage {
     | "equip_amulet"
     | "unequip_amulet"
     | "craft_amulet"
-    | "repair_amulet";
+    | "repair_amulet"
+    | "move_item"
+    | "discard_item";
   ok: boolean;
   code?: string;
 }
