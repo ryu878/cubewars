@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-24 |
 | Author (Pusya) | Programmer (Pusya) |
 | Task / Story / EPIC | EPIC 25 — Gems, Amulets, Shards & Death Penalties (Tasks 25.1–25.6) |
-| Branch / commit / PR | `task/epic-25-gems-amulets-shards` @ feat `cea0275` + handoff commit; base `task/epic-24-pets-eggs-equip` @ `110857b`. Compare: https://github.com/ryu878/cubewars/compare/task/epic-24-pets-eggs-equip...task/epic-25-gems-amulets-shards |
+| Branch / commit / PR | `task/epic-25-gems-amulets-shards` tip `82053f2` (feat `cea0275`); base `task/epic-24-pets-eggs-equip` @ `110857b` — compare https://github.com/ryu878/cubewars/compare/task/epic-24-pets-eggs-equip...task/epic-25-gems-amulets-shards (`gh pr create` failed: token account cannot see `ryu878/cubewars`) |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
