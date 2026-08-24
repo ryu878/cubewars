@@ -9,8 +9,9 @@
 | Date / time (UTC optional) | 2026-08-24 |
 | Author (Pusya) | Pusya |
 | Task / Story / EPIC | EPIC 27 — Redis Economy Store (`docs/tasks/epic-27-redis-economy-store.md`) |
-| Branch / commit / PR | `task/epic-27-redis-economy-store` @ `c449c91` |
+| Branch / commit / PR | `task/epic-27-redis-economy-store` @ `TIP_SHA_PLACEHOLDER` |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
+| Compare URL (gh unavailable) | https://github.com/ryu878/cubewars/compare/task/epic-26-durable-achievements-drops...task/epic-27-redis-economy-store |
 
 ## What was done (brief)
 
@@ -41,6 +42,19 @@
 - Run command: `docker compose up -d redis` then `npm run dev` (or `CUBEWARS_REDIS_URL=redis://127.0.0.1:6379 npm run dev --workspace=server`)
 - Expected smoke result: `[economy] redis ready: …` then `[server] cubewars game server listening on ws://localhost:7777`
 
+## Local checks (Pusya, 2026-08-24)
+
+| Check | Result |
+|-------|--------|
+| `npm run typecheck` | PASS |
+| `npm run build` | PASS |
+| `npm run regression:economy-gold` | PASS |
+| `npm run regression:economy-pets` | PASS |
+| `npm run regression:economy-gems-amulets` | PASS |
+| `npm run regression:economy-persistence` | PASS |
+
+Feature commit: `625ae90` — `feat(economy): replace runtime SQLite with Redis store (EPIC 27)`.
+
 ## Configuration
 
 - New environment variables: yes → `CUBEWARS_REDIS_URL` (default `redis://127.0.0.1:6379`), `CUBEWARS_SQLITE_IMPORT` (0\|1); `CUBEWARS_ECONOMY_DB` now import-only. See `config.vars.example` / README.
@@ -62,6 +76,7 @@
 - Misconfigured Redis without AOF → silent wipe on Redis restart (mitigated by compose AOF default + README warnings).
 - Kill/death economy paths are async (fire-and-forget with error logs); extremely rapid successive kills could interleave Redis writes (single-process Node still serializes awaits per path).
 - Out of scope: inventory UI, auction, OBS, drop math changes.
+- `gh` cannot resolve `ryu878/cubewars` — use compare URL above; no PR opened from this handoff.
 
 ## Status
 
