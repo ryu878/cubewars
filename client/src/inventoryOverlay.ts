@@ -249,10 +249,23 @@ export class InventoryOverlay {
     const now = Date.now();
 
     // Background drop-target cells, one per grid index (row-major).
+    // Explicit gridColumn/gridRow placement is required here: CSS Grid's
+    // auto-placement algorithm places explicitly-positioned items (the
+    // .inv-item elements below) first, then slots any remaining
+    // auto-placed elements into whatever cells are left over in DOM
+    // order. Without an explicit position, a .inv-cell's rendered
+    // location would drift away from its dataset.anchor index as soon as
+    // any bag item occupies a cell, decoupling drop-target hit-testing
+    // (finishDrag reads dataset.anchor from elementsFromPoint) from the
+    // actual on-screen grid position.
     for (let i = 0; i < INVENTORY_GRID.cells; i++) {
       const cell = document.createElement("div");
       cell.className = "inv-cell";
       cell.dataset.anchor = String(i);
+      const cellRow = Math.floor(i / INVENTORY_GRID.cols);
+      const cellCol = i % INVENTORY_GRID.cols;
+      cell.style.gridColumn = String(cellCol + 1);
+      cell.style.gridRow = String(cellRow + 1);
       this.gridEl.appendChild(cell);
     }
 
