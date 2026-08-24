@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-24 |
 | Author (Pusya) | Programmer (Pusya) |
 | Task / Story / EPIC | EPIC 24 — Pets, Eggs, Incubation & Equip Stats (Tasks 24.1–24.6) |
-| Branch / commit / PR | `task/epic-24-pets-eggs-equip` @ `8c17cf1` (feat); base `task/epic-23-economy-foundation` @ `22d4da6` — compare https://github.com/ryu878/cubewars/compare/task/epic-23-economy-foundation...task/epic-24-pets-eggs-equip (`gh pr create` may fail if token cannot see repo) |
+| Branch / commit / PR | `task/epic-24-pets-eggs-equip` tip `8389fdf` (feat `8c17cf1`); base `task/epic-23-economy-foundation` @ `22d4da6` — compare https://github.com/ryu878/cubewars/compare/task/epic-23-economy-foundation...task/epic-24-pets-eggs-equip (`gh pr create` failed: token account cannot see `ryu878/cubewars`) |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
