@@ -17,7 +17,7 @@ import { KillFeed } from "./killFeed";
 import { Scoreboard } from "./scoreboard";
 import { PickupRenderer } from "./pickups";
 import { ModeSelect } from "./modeSelect";
-import { PetsPanel } from "./petsPanel";
+import { InventoryOverlay } from "./inventoryOverlay";
 import { WeaponViewmodel } from "./viewmodel";
 import { buildSkyDome, buildWallTextures } from "./textures";
 import { SoundManager } from "./audio/soundManager";
@@ -308,7 +308,7 @@ const modeSelect = new ModeSelect((selection) => {
   connection.send({ type: "join", ...selection });
 });
 
-let petsPanel!: PetsPanel;
+let inventoryOverlay!: InventoryOverlay;
 const connection = new GameConnection(wsUrl, {
   onOpen: () => {
     statusEl.textContent = "connected (waiting for welcome)";
@@ -422,14 +422,14 @@ const connection = new GameConnection(wsUrl, {
     hud.setGold(message.gold);
     hud.setRatings(message.ratings);
     modeSelect.setGold(message.gold);
-    petsPanel.setProfile(message);
+    inventoryOverlay.setProfile(message);
   },
   onEconomyGoldUpdate: (message) => {
     hud.setGold(message.gold);
     modeSelect.setGold(message.gold);
   },
   onEconomyActionResult: (message) => {
-    petsPanel.setActionResult(message);
+    inventoryOverlay.setActionResult(message);
   },
   onPickupState: (message) => {
     pickupRenderer.sync(message.pickups);
@@ -462,7 +462,10 @@ const connection = new GameConnection(wsUrl, {
   },
 });
 
-petsPanel = new PetsPanel((message) => connection.send(message));
+// EPIC 29: I opens/closes the inventory overlay; P keeps working as an alias
+// (see InventoryOverlay's own keydown listener) — the overlay owns its own
+// key handling the same way ModeSelect/Scoreboard own theirs, not main.ts.
+inventoryOverlay = new InventoryOverlay((message) => connection.send(message));
 
 // Send input intent on a fixed interval, independent of render frame rate.
 // ~30Hz (33ms) is responsive without flooding the server; the server's own

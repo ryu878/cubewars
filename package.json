@@ -26,6 +26,7 @@
     "regression:economy-gems-amulets": "tsx scripts/regression-economy-gems-amulets.ts",
     "regression:economy-persistence": "tsx scripts/regression-economy-persistence.ts",
     "regression:economy-redis-safety": "tsx scripts/regression-economy-redis-safety.ts",
+    "regression:economy-inventory": "tsx scripts/regression-economy-inventory.ts",
     "regression:fire-input-drop-rate": "node scripts/regression-fire-input-drop-rate.mjs",
     "qa:epic17-avatar-selfcheck": "node scripts/qa-epic17-avatar-selfcheck.mjs",
     "qa:epic18-hold-fire": "node scripts/qa-epic18-hold-fire.mjs",
