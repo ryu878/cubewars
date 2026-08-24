@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-24 |
 | Author (Pusya) | Pusya |
 | Task / Story / EPIC | EPIC 27 — Redis Economy Store (`docs/tasks/epic-27-redis-economy-store.md`) |
-| Branch / commit / PR | `task/epic-27-redis-economy-store` @ `5e278c8` |
+| Branch / commit / PR | `task/epic-27-redis-economy-store` @ `ce155d9` |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 | Compare URL (gh unavailable) | https://github.com/ryu878/cubewars/compare/task/epic-26-durable-achievements-drops...task/epic-27-redis-economy-store |
 
