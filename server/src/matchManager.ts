@@ -6,7 +6,7 @@
 // on demand, driven entirely by server/src/index.ts's connection/message
 // handling (this module has no `ws`/transport dependency of its own).
 //
-// EPIC 26: PvP career K/D and endless personal bests are durable in SQLite
+// EPIC 26–27: PvP career K/D and endless personal bests are durable in Redis
 // via EconomyStore; in-memory Maps are write-through caches hydrated on start.
 
 import {
@@ -32,17 +32,19 @@ export interface MatchManagerOptions {
 export class MatchManager {
   private matches = new Map<string, Match>();
   private nextPublicMatchNumber = 1;
-  /** Cache of durable career K/D (hydrated from SQLite when economy is set). */
+  /** Cache of durable career K/D (hydrated from Redis when economy is set). */
   private leaderboard = new Map<string, LeaderboardEntry>();
   /** Cache of durable endless personal bests. */
   private endlessLeaderboard = new Map<string, EndlessLeaderboardEntry>();
 
   constructor(private options: MatchManagerOptions = {}) {
-    if (this.options.economy) {
-      this.hydrateLeaderboardsFromStore();
-    }
     // Created at startup and kept available as the first public game.
     this.createPublicMatch();
+  }
+
+  /** Hydrate lobby caches from Redis (call once after EconomyStore.open). */
+  async hydrateFromEconomy(): Promise<void> {
+    await this.hydrateLeaderboardsFromStore();
   }
 
   findOrCreatePublicMatch(): Match {
@@ -74,10 +76,13 @@ export class MatchManager {
       .map((entry) => ({ ...entry }));
   }
 
-  recordKill(attackerNickname: string, victimNickname: string): void {
+  async recordKill(attackerNickname: string, victimNickname: string): Promise<void> {
     const economy = this.options.economy;
     if (economy) {
-      const { attacker, victim } = economy.incrementCareerKillDeath(attackerNickname, victimNickname);
+      const { attacker, victim } = await economy.incrementCareerKillDeath(
+        attackerNickname,
+        victimNickname,
+      );
       this.leaderboard.set(attacker.nicknameKey, {
         nickname: attacker.nickname,
         kills: attacker.kills,
@@ -107,10 +112,10 @@ export class MatchManager {
       .map((entry) => ({ ...entry }));
   }
 
-  recordEndlessProgress(nickname: string, botKills: number, distanceKm: number): void {
+  async recordEndlessProgress(nickname: string, botKills: number, distanceKm: number): Promise<void> {
     const economy = this.options.economy;
     if (economy) {
-      const entry = economy.upsertEndlessBest(nickname, botKills, distanceKm);
+      const entry = await economy.upsertEndlessBest(nickname, botKills, distanceKm);
       this.endlessLeaderboard.set(entry.nicknameKey, {
         nickname: entry.nickname,
         botKills: entry.botKills,
@@ -145,7 +150,11 @@ export class MatchManager {
       id,
       mode: "bots",
       onEmpty: (matchId) => this.destroy(matchId),
-      onKillRecorded: (attackerNickname, victimNickname) => this.recordKill(attackerNickname, victimNickname),
+      onKillRecorded: (attackerNickname, victimNickname) => {
+        void this.recordKill(attackerNickname, victimNickname).catch((err) => {
+          console.error(`[economy] recordKill failed:`, err);
+        });
+      },
       economy: this.options.economy,
     });
     match.start();
@@ -160,8 +169,11 @@ export class MatchManager {
       id,
       mode: "endless",
       onEmpty: (matchId) => this.destroy(matchId),
-      onEndlessProgress: (nickname, botKills, distanceKm) =>
-        this.recordEndlessProgress(nickname, botKills, distanceKm),
+      onEndlessProgress: (nickname, botKills, distanceKm) => {
+        void this.recordEndlessProgress(nickname, botKills, distanceKm).catch((err) => {
+          console.error(`[economy] recordEndlessProgress failed:`, err);
+        });
+      },
       economy: this.options.economy,
     });
     match.start();
@@ -184,17 +196,17 @@ export class MatchManager {
     return this.matches.size;
   }
 
-  private hydrateLeaderboardsFromStore(): void {
+  private async hydrateLeaderboardsFromStore(): Promise<void> {
     const economy = this.options.economy;
     if (!economy) return;
-    for (const entry of economy.listAllCareerStats()) {
+    for (const entry of await economy.listAllCareerStats()) {
       this.leaderboard.set(entry.nicknameKey, {
         nickname: entry.nickname,
         kills: entry.kills,
         deaths: entry.deaths,
       });
     }
-    for (const entry of economy.listAllEndlessCareerStats()) {
+    for (const entry of await economy.listAllEndlessCareerStats()) {
       this.endlessLeaderboard.set(entry.nicknameKey, {
         nickname: entry.nickname,
         botKills: entry.botKills,
@@ -226,7 +238,11 @@ export class MatchManager {
     const match = new Match({
       id,
       mode: "public",
-      onKillRecorded: (attackerNickname, victimNickname) => this.recordKill(attackerNickname, victimNickname),
+      onKillRecorded: (attackerNickname, victimNickname) => {
+        void this.recordKill(attackerNickname, victimNickname).catch((err) => {
+          console.error(`[economy] recordKill failed:`, err);
+        });
+      },
       economy: this.options.economy,
     });
     match.start();

@@ -1,10 +1,20 @@
 # Server (see server/src/index.ts)
 CUBEWARS_SERVER_PORT=7777
 
-# Economy SQLite path (EPIC 23). Default: <server package>/data/economy.sqlite
-# Use an absolute path in production. Single server process only — do not share
-# this file across multiple Node processes.
+# Economy Redis URL (EPIC 27). Required at runtime — server fails fast if unreachable.
+# Default: redis://127.0.0.1:6379
+# Start Redis with AOF (recommended): docker compose up -d redis
+# WARNING: Redis without AOF/RDB — restarting Redis wipes gold/pets/career/endless.
+# CUBEWARS_REDIS_URL=redis://127.0.0.1:6379
+
+# Legacy SQLite path — IMPORT ONLY (EPIC 27). Not used at runtime after Redis.
+# Default: <server package>/data/economy.sqlite
 # CUBEWARS_ECONOMY_DB=server/data/economy.sqlite
+
+# One-shot SQLite → Redis import (EPIC 27). Set to 1 to force re-import even if
+# the Redis marker key cw:meta:sqlite_imported is already set. Auto-import also
+# runs once when the marker is missing and the SQLite file exists.
+# CUBEWARS_SQLITE_IMPORT=0
 
 # Egg incubation duration override in milliseconds (EPIC 24). Positive integer
 # only; applied when an egg is granted (kill drop / store grant). Default is

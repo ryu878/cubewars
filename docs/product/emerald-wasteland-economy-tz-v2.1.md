@@ -165,23 +165,25 @@ No real-money gold sales in-repo. Auction developer cut is in-game gold ledger o
 
 ### 4.1 Persistence (mandatory — survives server restart)
 
-SQLite file path via env (`CUBEWARS_ECONOMY_DB`, default under server data dir). All mutations server-side inside transactions.
+**Primary store (EPIC 27+): Redis** via `CUBEWARS_REDIS_URL` (default `redis://127.0.0.1:6379`).
+
+| Concern | Choice |
+|---------|--------|
+| Hot reads/writes (profiles, inventory, leaderboards) | Redis |
+| Survive Redis/process restart | Redis **AOF** (recommended: `appendonly yes`) — document in README / compose |
+| One-shot import from older builds | Optional read of legacy SQLite file `CUBEWARS_ECONOMY_DB` → Redis, then SQLite is not used at runtime |
+
+All mutations server-side. Prefer atomic Redis transactions / Lua / single JSON document per nickname key so multi-field updates cannot partially apply.
 
 **MUST persist (player achievements / progress):**
 
-| Data | Storage |
-|------|---------|
-| Gold | `profiles.gold` |
-| Pets (type, base_value, equip_slot, decayed values) | `pets` |
-| Eggs + `hatch_deadline_ms` | `eggs` |
-| Growth stimulators | `growth_stimulators` |
-| Gems (type, value, socket pet_id) | `gems` |
-| Amulets (durability, equipped) | `amulets` |
-| Shard stack | `shards` |
-| Repair kits | `repair_kits` |
-| PvP career kills / deaths (lobby leaderboard) | `career_stats` (EPIC 26) |
-| Endless best bot kills + best distance km | `endless_career_stats` (EPIC 26) |
-| Auction lots / bids / developer gold ledger | later EPICs |
+| Data | Redis shape (logical) |
+|------|------------------------|
+| Gold, nickname, timestamps | profile document / hash |
+| Pets, eggs, stimulators, gems, amulets, shards, repair kits | nested in profile document (or typed keys under same nickname) |
+| PvP career kills / deaths | career fields + ZSET for lobby top-20 |
+| Endless best bot kills + distance km | endless fields + ZSET for endless top-20 |
+| Auction lots / developer gold ledger | later EPICs |
 
 **MUST NOT persist (session-only — OK to reset):**
 
@@ -192,9 +194,11 @@ SQLite file path via env (`CUBEWARS_ECONOMY_DB`, default under server data dir).
 | Per-match shard-from-victim grant set | Match-scoped anti-farm rule |
 | WebSocket connection ids | Runtime |
 
-**Rule:** if the player would perceive it as an *achievement* or *owned item*, it belongs in SQLite. Restarting the server must not wipe gold, pets, eggs, gems, amulets, shards, kits, stimulators, career K/D, or endless personal bests.
+**Rule:** if the player would perceive it as an *achievement* or *owned item*, it lives in Redis with AOF (or equivalent durable Redis config). Restarting the **game server** must not wipe progress; restarting Redis without persistence **will** wipe — ops must enable AOF/RDB.
 
-**Identity note:** profiles remain keyed by normalized nickname until an auth EPIC; spoofing risk is accepted interim, but data for a given nickname key must still reload from DB after restart.
+**Identity note:** profiles remain keyed by normalized nickname until an auth EPIC; spoofing risk is accepted interim.
+
+**Stack sign-off:** Redis + `ioredis` approved by user 2026-08-24 (replace runtime SQLite/`better-sqlite3`).
 
 ### 4.2 Authority
 
@@ -223,12 +227,13 @@ SQLite file path via env (`CUBEWARS_ECONOMY_DB`, default under server data dir).
 | **23** | Persistence foundation, profile, gold on kill, economy config | Sprint 1 start |
 | **24** | Pets, eggs, incubation, stimulators, equip + stat application | Sprint 1 |
 | **25** | Gems, amulets, shards, repair, death penalties, craft | Sprint 1 end |
-| **26** | Full kill drop table + overflow→gold + **durable career/endless leaderboards** | Sprint 1–2 |
-| **27** | Inventory / equip / incubation UI | Sprint 2 |
-| **28** | Auction, P2P trade, ground item drops | Sprint 3 |
-| **29** | Balance pass, stimulator polish, economy simulation scripts | Sprint 4 |
-| **30** | Optional OBS / chain (blocked until sign-off) | Sprint 5 optional |
-| **31** | Polish, load test economy paths, player guide | Sprint 6 |
+| **26** | Full kill drop table + overflow→gold + durable career/endless leaderboards (SQLite era) | Done |
+| **27** | **Redis** economy/career store (replace runtime SQLite) + AOF ops docs + optional SQLite import | Next |
+| **28** | Inventory / equip / incubation UI (8×8) | Sprint 2 |
+| **29** | Auction, P2P trade, ground item drops | Sprint 3 |
+| **30** | Balance pass, stimulator polish, economy simulation scripts | Sprint 4 |
+| **31** | Optional OBS / chain (blocked until sign-off) | optional |
+| **32** | Polish, load test economy paths, player guide | Sprint 6 |
 
 One Task → one branch → one PR (office policy).
 

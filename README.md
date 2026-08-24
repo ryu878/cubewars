@@ -12,6 +12,7 @@ A 3D browser multiplayer shooter (Roblox-like: colorful, low-poly, casual). Buil
 
 - Node.js 20+ (this repo was set up against Node 24 LTS via `nvm`)
 - npm 10+
+- **Redis 7+** for the economy store (EPIC 27). Host may not have a `redis-server` package — use Docker (see below).
 
 ## Install
 
@@ -21,11 +22,29 @@ npm install
 
 This installs all three workspaces (`client/`, `server/`, `shared/`) in one pass.
 
-## Run locally
+## Redis (economy persistence)
 
-Both client and server, together:
+Economy profiles (gold, pets, eggs, gems, amulets, shards, kits, career K/D, endless bests) live in **Redis**.
 
 ```bash
+# Preferred: compose defaults to AOF (appendonly yes)
+docker compose up -d redis
+
+# Or one-off:
+docker run -d --name cubewars-redis -p 6379:6379 redis:7 redis-server --appendonly yes
+```
+
+- **Game-server restart** does not wipe progress (data stays in Redis).
+- **Redis restart without AOF/RDB WILL wipe progress.** Always run with `--appendonly yes` (compose default). Do not disable AOF in production.
+
+Optional one-shot import from a legacy SQLite file: set `CUBEWARS_ECONOMY_DB` and either leave the Redis marker unset (auto once) or force with `CUBEWARS_SQLITE_IMPORT=1`. Runtime never opens SQLite except for that import.
+
+## Run locally
+
+Both client and server, together (Redis must already be reachable):
+
+```bash
+docker compose up -d redis
 npm run dev
 ```
 
@@ -42,9 +61,12 @@ npm run dev --workspace=client
 ## Configuration
 
 - **Server port:** `CUBEWARS_SERVER_PORT` (see `config.vars.example`). Set via your shell: `export CUBEWARS_SERVER_PORT=7777`.
-- **Economy DB:** `CUBEWARS_ECONOMY_DB` (optional). Defaults to `server/data/economy.sqlite` under the server package. SQLite persistence is **single-process only** — do not run multiple game-server processes against the same file. Profiles are keyed by normalized nickname until a real auth EPIC exists (nickname spoofing is an accepted interim risk).
+- **Economy Redis:** `CUBEWARS_REDIS_URL` (optional). Defaults to `redis://127.0.0.1:6379`. Server **fails fast** on startup if Redis is unreachable.
+- **Legacy SQLite import:** `CUBEWARS_ECONOMY_DB` (path) + optional `CUBEWARS_SQLITE_IMPORT=1` — import only; not used at runtime after Redis.
 - **Egg incubation override:** `CUBEWARS_INCUBATION_MS` (optional, EPIC 24). Positive integer milliseconds applied when an egg is granted. Default remains 24h from `shared` `INCUBATION.durationMs`. Short values are for QA/tests only.
 - **Client → server URL:** `VITE_CUBEWARS_WS_URL` (see `client/.env.example`). Copy to `client/.env` to override the default `ws://localhost:7777`. This is the one place the fixed stack's "no `.env` files" rule is relaxed — Vite conventionally loads `.env` for client-side config; no secrets ever go here.
+
+Profiles are keyed by normalized nickname until a real auth EPIC exists (nickname spoofing is an accepted interim risk).
 
 ## Type-checking and build
 
@@ -82,9 +104,16 @@ Combat is server-authoritative too: firing sends a bare "fire" event, and the se
 
 ## Current status
 
+EPIC 27 (Redis Economy Store) — see `docs/tasks/epic-27-redis-economy-store.md` and TZ §4.1.
+
+- **Redis primary store:** profiles / inventory / career / endless leaderboards via `ioredis` (`CUBEWARS_REDIS_URL`). Fail-fast if Redis is down.
+- **AOF ops:** `docker compose` Redis service defaults to `appendonly yes`. Without AOF, Redis restart wipes achievements.
+- **Optional SQLite→Redis import** behind marker / `CUBEWARS_SQLITE_IMPORT=1`; runtime path does not use SQLite.
+- Verified via `npm run regression:economy-gold` / `pets` / `gems-amulets` / `persistence` (against Redis), `npm run typecheck`, and `npm run build`.
+
 EPIC 26 (Drop Table Completion & Durable Achievements) — see `docs/tasks/epic-26-durable-achievements-drops.md` and TZ §4.1.
 
-- **Durable career / endless:** lobby PvP kills/deaths and endless personal bests (bot kills + distance km) live in SQLite (`career_stats`, `endless_career_stats`) and reload after server restart. MatchManager keeps an in-memory write-through cache.
+- **Durable career / endless:** lobby PvP kills/deaths and endless personal bests (bot kills + distance km) persist across **game-server** restart (Redis + AOF as of EPIC 27). MatchManager keeps an in-memory write-through cache.
 - **Kill-drop overflow → gold:** when a chance roll (or shard eligibility) succeeds but the item cannot be granted (cap/soft-cap), the killer receives substitute gold in `[GOLD_DROP_MIN, GOLD_DROP_MAX]` instead of a silent skip (`drop_substituted_gold` log).
 - **Still session-only:** match HP/armor/ammo/position, Tab match scoreboard, and per-match shard-from-victim grant sets reset on match/restart (not achievements).
 - Verified via `npm run regression:economy-persistence`, `npm run regression:economy-gems-amulets`, `npm run regression:economy-pets`, `npm run regression:economy-gold`, `npm run typecheck`, and `npm run build`.
@@ -108,7 +137,7 @@ EPIC 24 (Pets, Eggs, Incubation & Equip Stats) — see `docs/tasks/epic-24-pets-
 EPIC 23 (Economy Persistence Foundation) — see `docs/tasks/epic-23-economy-persistence-foundation.md` and product TZ `docs/product/emerald-wasteland-economy-tz-v2.1.md`.
 
 - **Shared economy config:** gold drop band 1–500, item caps, and drop-chance constants live in `shared/src/economy.ts`.
-- **SQLite profiles:** server opens `CUBEWARS_ECONOMY_DB` (default `server/data/economy.sqlite`) via `better-sqlite3`, keyed by nickname.
+- **Profiles:** keyed by nickname; as of EPIC 27 stored in Redis (legacy SQLite import optional).
 - **Gold on kill:** confirmed human kills (including bot victims; endless included) mint random gold into the killer's profile and push `economy_gold_update` to that connection. Fog/self deaths do not grant gold.
 - **Client readout:** lobby + HUD show server-provided gold only.
 - Verified via `npm run regression:economy-gold`, `npm run typecheck`, and `npm run build`.
@@ -118,13 +147,13 @@ EPIC 22 (Endless Single Player) — see `docs/tasks/epic-22-endless-single-playe
 - **Endless mode:** the start screen now has an **Endless** button that creates a private one-human `endless:<connectionId>` match.
 - **Server-generated maze:** the server grows an endless forward maze in chunks, including collidable walls/crates, pickups, and bot spawn points. The client renders only the `map_state` geometry/pickups the server sends; server-side movement/combat remain authoritative.
 - **Pressure wall/fog:** a translucent fog wall moves forward from behind and applies slow server-side damage while the player is inside it, forcing forward movement.
-- **Endless leaderboard:** a separate top-20 table tracks each nickname's best bot-kill count and best distance in kilometers, sorted by bot kills descending, then distance descending. As of EPIC 26 these personal bests persist in SQLite across server restart.
+- **Endless leaderboard:** a separate top-20 table tracks each nickname's best bot-kill count and best distance in kilometers, sorted by bot kills descending, then distance descending. As of EPIC 26–27 these personal bests persist in Redis across game-server restart.
 - Verified via `npm run regression:endless`, `npm run regression:lobby-nicknames`, `npm run regression:leaderboard`, `npm run typecheck`, and `npm run build`.
 
 EPIC 21 (Nickname Leaderboard) — see `docs/tasks/epic-21-nickname-leaderboard.md`. Direct user feedback (Russian): "сделай еще лидербоард, где будет написано сколько раз ник выиграл, сколько смертей. И сортировку чтобы сверху были топы. Ну и пусть будет всего 20 в списке."
 
 - **Top-20 nickname leaderboard:** the start screen now shows a leaderboard with rank, nickname, kills, and deaths. The game does not have round wins yet, so the "wins/top" metric is currently kills.
-- **Server-side accounting:** every server-confirmed kill increments the attacker's kills and the victim's deaths keyed by normalized nickname. As of EPIC 26 these career totals persist in SQLite across server restart (see Current status / EPIC 26).
+- **Server-side accounting:** every server-confirmed kill increments the attacker's kills and the victim's deaths keyed by normalized nickname. As of EPIC 26–27 these career totals persist in Redis across game-server restart (see Current status / EPIC 27).
 - **Sorting:** entries sort by kills descending, then deaths ascending, then nickname, and only the top 20 are broadcast/rendered.
 - Verified via `npm run regression:leaderboard`.
 

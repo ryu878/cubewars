@@ -18,9 +18,17 @@ import { EconomyStore } from "./economy/index.js";
 
 const PORT = Number(process.env.CUBEWARS_SERVER_PORT ?? 7777);
 
-const economyStore = EconomyStore.open();
+async function main(): Promise<void> {
+  let economyStore: EconomyStore;
+  try {
+    economyStore = await EconomyStore.open();
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+    return;
+  }
 
-// Flood guard: bound the total number of ANY client messages (input, fire,
+  // Flood guard: bound the total number of ANY client messages (input, fire,
 // join, binary, oversized, non-JSON, unrecognized-type — literally anything
 // arriving on the socket) accepted per connection within a trailing window,
 // independent of what the client claims its own send rate is
@@ -91,6 +99,7 @@ const matchManager = new MatchManager({
   onEndlessLeaderboardChanged: () => broadcastLobbyEndlessLeaderboard(),
   economy: economyStore,
 });
+await matchManager.hydrateFromEconomy();
 
 // Shared across EVERY message shape a connection can send (join, input,
 // fire, binary, oversized, non-JSON, unknown-type, malformed-input —
@@ -324,48 +333,56 @@ wss.on("connection", (socket: WebSocket) => {
       nickname = normalized.nickname;
       nicknameKey = normalized.key;
 
-      if (parsed.mode === "public") {
-        const requestedMatch =
-          typeof parsed.matchId === "string" && parsed.matchId.length > 0
-            ? matchManager.getPublicMatch(parsed.matchId)
-            : null;
-        const targetMatch = requestedMatch ?? (parsed.matchId ? null : matchManager.findOrCreatePublicMatch());
-        if (!targetMatch) {
-          sendJson(socket, { type: "join_rejected", reason: "match_not_found" });
-          return;
+      void (async () => {
+        if (parsed.type !== "join") return;
+        if (parsed.mode === "public") {
+          const requestedMatch =
+            typeof parsed.matchId === "string" && parsed.matchId.length > 0
+              ? matchManager.getPublicMatch(parsed.matchId)
+              : null;
+          const targetMatch = requestedMatch ?? (parsed.matchId ? null : matchManager.findOrCreatePublicMatch());
+          if (!targetMatch) {
+            sendJson(socket, { type: "join_rejected", reason: "match_not_found" });
+            return;
+          }
+          if (targetMatch.hasNicknameKey(nicknameKey)) {
+            sendJson(socket, { type: "join_rejected", reason: "nickname_taken" });
+            return;
+          }
+          if (!targetMatch.canAcceptHuman()) {
+            sendJson(socket, { type: "join_rejected", reason: "match_full" });
+            return;
+          }
+          match = targetMatch;
+        } else if (parsed.mode === "bots") {
+          if (nicknameKey === "bot 1" || nicknameKey === "bot 2") {
+            sendJson(socket, { type: "join_rejected", reason: "nickname_taken" });
+            return;
+          }
+          match = matchManager.createBotsMatch(playerId);
+        } else {
+          match = matchManager.createEndlessMatch(playerId);
         }
-        if (targetMatch.hasNicknameKey(nicknameKey)) {
-          sendJson(socket, { type: "join_rejected", reason: "nickname_taken" });
-          return;
-        }
-        if (!targetMatch.canAcceptHuman()) {
-          sendJson(socket, { type: "join_rejected", reason: "match_full" });
-          return;
-        }
-        match = targetMatch;
-      } else if (parsed.mode === "bots") {
-        if (nicknameKey === "bot 1" || nicknameKey === "bot 2") {
-          sendJson(socket, { type: "join_rejected", reason: "nickname_taken" });
-          return;
-        }
-        match = matchManager.createBotsMatch(playerId);
-      } else {
-        match = matchManager.createEndlessMatch(playerId);
-      }
 
-      lobbySockets.delete(socket);
-      match.addHuman(playerId, socket, nickname, nicknameKey);
-      const accepted: JoinAcceptedMessage = { type: "join_accepted", matchId: match.id, nickname };
-      sendJson(socket, accepted);
-      sendJson(socket, leaderboardMessage());
-      sendJson(socket, endlessLeaderboardMessage());
-      console.log(
-        `[server] player joined match "${match.id}" (mode=${parsed.mode}): ${nickname} (${playerId}) ` +
-          `(${match.humanCount()} human(s) in match)`,
-      );
-      broadcastLobbyState();
-      broadcastLobbyLeaderboard();
-      broadcastLobbyEndlessLeaderboard();
+        lobbySockets.delete(socket);
+        await match.addHuman(playerId, socket, nickname, nicknameKey);
+        const accepted: JoinAcceptedMessage = { type: "join_accepted", matchId: match.id, nickname };
+        sendJson(socket, accepted);
+        sendJson(socket, leaderboardMessage());
+        sendJson(socket, endlessLeaderboardMessage());
+        console.log(
+          `[server] player joined match "${match.id}" (mode=${parsed.mode}): ${nickname} (${playerId}) ` +
+            `(${match.humanCount()} human(s) in match)`,
+        );
+        broadcastLobbyState();
+        broadcastLobbyLeaderboard();
+        broadcastLobbyEndlessLeaderboard();
+      })().catch((err) => {
+        console.error(`[server] join failed for ${playerId}:`, err);
+        sendJson(socket, { type: "join_rejected", reason: "match_not_found" });
+        match = null;
+        lobbySockets.add(socket);
+      });
       return;
     }
 
@@ -439,7 +456,7 @@ wss.on("connection", (socket: WebSocket) => {
         malformedInputDropTracker.record(playerId, now);
         return;
       }
-      match.handleEconomyAction(playerId, nickname, "equip", {
+      void match.handleEconomyAction(playerId, nickname, "equip", {
         petId: parsed.petId,
         slot,
       });
@@ -451,7 +468,7 @@ wss.on("connection", (socket: WebSocket) => {
         malformedInputDropTracker.record(playerId, now);
         return;
       }
-      match.handleEconomyAction(playerId, nickname, "unequip", { petId: parsed.petId });
+      void match.handleEconomyAction(playerId, nickname, "unequip", { petId: parsed.petId });
       return;
     }
 
@@ -460,7 +477,7 @@ wss.on("connection", (socket: WebSocket) => {
         malformedInputDropTracker.record(playerId, now);
         return;
       }
-      match.handleEconomyAction(playerId, nickname, "hatch", { eggId: parsed.eggId });
+      void match.handleEconomyAction(playerId, nickname, "hatch", { eggId: parsed.eggId });
       return;
     }
 
@@ -469,7 +486,7 @@ wss.on("connection", (socket: WebSocket) => {
         malformedInputDropTracker.record(playerId, now);
         return;
       }
-      match.handleEconomyAction(playerId, nickname, "stimulator", { eggId: parsed.eggId });
+      void match.handleEconomyAction(playerId, nickname, "stimulator", { eggId: parsed.eggId });
       return;
     }
 
@@ -483,7 +500,7 @@ wss.on("connection", (socket: WebSocket) => {
         malformedInputDropTracker.record(playerId, now);
         return;
       }
-      match.handleEconomyAction(playerId, nickname, "socket_gem", {
+      void match.handleEconomyAction(playerId, nickname, "socket_gem", {
         gemId: parsed.gemId,
         petId: parsed.petId,
       });
@@ -495,7 +512,7 @@ wss.on("connection", (socket: WebSocket) => {
         malformedInputDropTracker.record(playerId, now);
         return;
       }
-      match.handleEconomyAction(playerId, nickname, "unsocket_gem", { gemId: parsed.gemId });
+      void match.handleEconomyAction(playerId, nickname, "unsocket_gem", { gemId: parsed.gemId });
       return;
     }
 
@@ -504,7 +521,7 @@ wss.on("connection", (socket: WebSocket) => {
         malformedInputDropTracker.record(playerId, now);
         return;
       }
-      match.handleEconomyAction(playerId, nickname, "equip_amulet", { amuletId: parsed.amuletId });
+      void match.handleEconomyAction(playerId, nickname, "equip_amulet", { amuletId: parsed.amuletId });
       return;
     }
 
@@ -513,12 +530,12 @@ wss.on("connection", (socket: WebSocket) => {
         malformedInputDropTracker.record(playerId, now);
         return;
       }
-      match.handleEconomyAction(playerId, nickname, "unequip_amulet", { amuletId: parsed.amuletId });
+      void match.handleEconomyAction(playerId, nickname, "unequip_amulet", { amuletId: parsed.amuletId });
       return;
     }
 
     if (parsed.type === "economy_craft_amulet") {
-      match.handleEconomyAction(playerId, nickname, "craft_amulet", {});
+      void match.handleEconomyAction(playerId, nickname, "craft_amulet", {});
       return;
     }
 
@@ -527,7 +544,7 @@ wss.on("connection", (socket: WebSocket) => {
         malformedInputDropTracker.record(playerId, now);
         return;
       }
-      match.handleEconomyAction(playerId, nickname, "repair_amulet", { amuletId: parsed.amuletId });
+      void match.handleEconomyAction(playerId, nickname, "repair_amulet", { amuletId: parsed.amuletId });
       return;
     }
 
@@ -574,5 +591,13 @@ wss.on("error", (err) => {
 
 process.on("SIGINT", () => {
   console.log("[server] shutting down");
-  wss.close(() => process.exit(0));
+  void economyStore.close().finally(() => {
+    wss.close(() => process.exit(0));
+  });
+});
+} // end main()
+
+main().catch((err) => {
+  console.error("[server] fatal startup error:", err);
+  process.exit(1);
 });

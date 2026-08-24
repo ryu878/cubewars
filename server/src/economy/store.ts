@@ -1,11 +1,8 @@
-// Durable player economy profiles keyed by nickname (EPIC 23–26).
-// Gold / pets / eggs / stimulators / gems / amulets / shards / repair kits /
-// career K/D / endless personal bests are transactional. Single-process
-// assumption: better-sqlite3 sync API; do not run multiple server processes
-// against the same SQLite file.
+// Durable player economy profiles keyed by nickname (EPIC 23–27).
+// Redis primary store with write-through in-process cache. Single game-server
+// process assumption; Redis AOF required for durability across Redis restarts.
 
-import path from "node:path";
-import type Database from "better-sqlite3";
+import type { Redis } from "ioredis";
 import {
   DROP_CHANCE,
   ECONOMY_CAPS,
@@ -30,8 +27,13 @@ import {
   type ProfileRatings,
   normalizeNickname,
 } from "@cubewars/shared";
-import { openEconomyDatabase, resolveEconomyDbPath } from "./db.js";
-import { runMigrations } from "./migrations.js";
+import {
+  cloneDocument,
+  createEmptyDocument,
+  type EconomyDocument,
+} from "./document.js";
+import { maybeImportSqliteToRedis } from "./importSqlite.js";
+import { connectRedis, resolveRedisUrl } from "./redis.js";
 
 export interface EconomyProfile {
   id: number;
@@ -131,9 +133,7 @@ export interface KillItemDropsResult {
   shard: boolean;
   amulet: EconomyAmulet | null;
   repairKit: boolean;
-  /** Extra gold minted when a rolled (or shard-eligible) item could not be granted. */
   substitutedGold: number;
-  /** Item kinds that overflowed into gold this kill (for logs). */
   substitutedKinds: string[];
 }
 
@@ -143,116 +143,38 @@ export interface KillDropRolls {
   gem: number;
   amulet: number;
   repairKit: number;
-  /**
-   * When set, every overflow→gold substitute uses this exact amount (tests).
-   * Otherwise each substitute rolls independently in [GOLD_DROP_MIN, GOLD_DROP_MAX].
-   */
   substituteGold?: number;
 }
 
 export interface VictimDropContext {
-  /** Victim nickname (same profile keying as killer). */
   nickname: string;
-  /** Match-level: true if this killer already received a shard from this victim. */
   alreadyGrantedShard: boolean;
 }
 
-interface ProfileRow {
-  id: number;
-  nickname_key: string;
+export interface CareerStatsEntry {
   nickname: string;
-  gold: number;
-  created_at: number;
-  updated_at: number;
+  nicknameKey: string;
+  kills: number;
+  deaths: number;
 }
 
-interface EggRow {
-  id: number;
-  profile_id: number;
-  hatch_deadline_ms: number;
-  created_at: number;
+export interface EndlessCareerEntry {
+  nickname: string;
+  nicknameKey: string;
+  botKills: number;
+  distanceKm: number;
 }
 
-interface PetRow {
-  id: number;
-  profile_id: number;
-  type: string;
-  base_value: number;
-  equip_slot: number | null;
-  created_at: number;
-}
-
-interface GemRow {
-  id: number;
-  profile_id: number;
-  type: string;
-  value: number;
-  pet_id: number | null;
-  created_at: number;
-}
-
-interface AmuletRow {
-  id: number;
-  profile_id: number;
-  durability: number;
-  equipped: number;
-  created_at: number;
-}
-
-function rowToProfile(row: ProfileRow): EconomyProfile {
-  return {
-    id: row.id,
-    nicknameKey: row.nickname_key,
-    nickname: row.nickname,
-    gold: row.gold,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
-function rowToEgg(row: EggRow): EconomyEgg {
-  return {
-    id: row.id,
-    profileId: row.profile_id,
-    hatchDeadlineMs: row.hatch_deadline_ms,
-    createdAt: row.created_at,
-  };
-}
-
-function rowToPet(row: PetRow): EconomyPet {
-  const type = row.type as PetType;
-  let equipSlot: 1 | 2 | null = null;
-  if (row.equip_slot === 1) equipSlot = 1;
-  else if (row.equip_slot === 2) equipSlot = 2;
-  return {
-    id: row.id,
-    profileId: row.profile_id,
-    type,
-    baseValue: row.base_value,
-    equipSlot,
-    createdAt: row.created_at,
-  };
-}
-
-function rowToGem(row: GemRow): EconomyGem {
-  return {
-    id: row.id,
-    profileId: row.profile_id,
-    gemType: row.type as GemType,
-    value: row.value,
-    petId: row.pet_id,
-    createdAt: row.created_at,
-  };
-}
-
-function rowToAmulet(row: AmuletRow): EconomyAmulet {
-  return {
-    id: row.id,
-    profileId: row.profile_id,
-    durability: row.durability,
-    equipped: row.equipped === 1,
-    createdAt: row.created_at,
-  };
+export interface EconomyStoreOpenOptions {
+  /** Redis URL override (tests). Default: CUBEWARS_REDIS_URL or redis://127.0.0.1:6379 */
+  redisUrl?: string;
+  /**
+   * Key namespace without trailing colon (default `cw`).
+   * Tests should pass a unique prefix e.g. `cw:test:<uuid>` and call `flushNamespace()`.
+   */
+  keyPrefix?: string;
+  /** Skip optional SQLite import (tests). */
+  skipSqliteImport?: boolean;
 }
 
 /** Resolve incubation duration; env override for QA/tests only (positive int ms). */
@@ -286,114 +208,258 @@ function defaultKillRolls(): KillDropRolls {
   };
 }
 
-/** Inclusive gold band for primary kill mint and overflow substitutes. */
 function rollGoldDropAmount(): number {
   return GOLD_DROP_MIN + Math.floor(Math.random() * (GOLD_DROP_MAX - GOLD_DROP_MIN + 1));
 }
 
-export interface CareerStatsEntry {
-  nickname: string;
-  nicknameKey: string;
-  kills: number;
-  deaths: number;
-}
-
-export interface EndlessCareerEntry {
-  nickname: string;
-  nicknameKey: string;
-  botKills: number;
-  distanceKm: number;
-}
-
 export class EconomyStore {
+  /** Display string for logs (Redis URL). Kept as `dbPath` alias for older callers. */
   readonly dbPath: string;
+  readonly redisUrl: string;
+  readonly keyPrefix: string;
 
-  constructor(
-    private db: Database.Database,
-    dbPath: string,
-  ) {
-    this.dbPath = dbPath;
+  private readonly redis: Redis;
+  /** Write-through cache: nicknameKey → document. */
+  private readonly cache = new Map<string, EconomyDocument>();
+
+  private constructor(redis: Redis, redisUrl: string, keyPrefix: string) {
+    this.redis = redis;
+    this.redisUrl = redisUrl;
+    this.keyPrefix = keyPrefix;
+    this.dbPath = redisUrl;
   }
 
-  static open(dbPath: string = resolveEconomyDbPath()): EconomyStore {
-    const resolved = path.resolve(dbPath);
-    const db = openEconomyDatabase(resolved);
-    runMigrations(db);
-    console.log(`[economy] database ready: ${resolved}`);
-    return new EconomyStore(db, resolved);
+  private economyKey(nicknameKey: string): string {
+    return `${this.keyPrefix}:economy:v1:${nicknameKey}`;
   }
 
-  /** Close the underlying SQLite handle (tests / shutdown). */
-  close(): void {
-    this.db.close();
+  private get nickIndexKey(): string {
+    return `${this.keyPrefix}:economy:v1:index`;
   }
 
-  getOrCreateProfile(nickname: string): EconomyProfile {
+  private get lbPvpKey(): string {
+    return `${this.keyPrefix}:lb:pvp:v1`;
+  }
+
+  private get lbEndlessKey(): string {
+    return `${this.keyPrefix}:lb:endless:v1`;
+  }
+
+  private get profileIdCounterKey(): string {
+    return `${this.keyPrefix}:id:profile`;
+  }
+
+  private get sqliteImportedMarkerKey(): string {
+    return `${this.keyPrefix}:meta:sqlite_imported`;
+  }
+
+  /**
+   * Connect Redis (PING required), optional SQLite→Redis import, ready for use.
+   * Throws with a clear message if Redis is down.
+   */
+  static async open(options: EconomyStoreOpenOptions | string = {}): Promise<EconomyStore> {
+    // Back-compat: older regressions passed a sqlite path string — ignore path,
+    // use Redis with an isolated prefix derived from the path basename.
+    let opts: EconomyStoreOpenOptions;
+    if (typeof options === "string") {
+      const slug = options.replace(/[^a-zA-Z0-9]+/g, "_").slice(-48);
+      opts = {
+        keyPrefix: `cw:test:${slug || "legacy"}`,
+        skipSqliteImport: true,
+      };
+    } else {
+      opts = options;
+    }
+
+    const { redis, url, keyPrefix } = await connectRedis({
+      url: opts.redisUrl ?? resolveRedisUrl(),
+      keyPrefix: opts.keyPrefix,
+    });
+    const store = new EconomyStore(redis, url, keyPrefix);
+
+    if (!opts.skipSqliteImport) {
+      await maybeImportSqliteToRedis(redis, {
+        economyKey: (k) => store.economyKey(k),
+        itemOwnerKey: (kind, id) => store.itemOwnerKey(kind, id),
+        nickIndexKey: store.nickIndexKey,
+        lbPvpKey: store.lbPvpKey,
+        lbEndlessKey: store.lbEndlessKey,
+        profileIdCounterKey: store.profileIdCounterKey,
+        sqliteImportedMarkerKey: store.sqliteImportedMarkerKey,
+      });
+    }
+
+    console.log(`[economy] redis ready: ${url} (prefix=${keyPrefix})`);
+    return store;
+  }
+
+  /** Close Redis connection (tests / shutdown). */
+  async close(): Promise<void> {
+    this.cache.clear();
+    await this.redis.quit();
+  }
+
+  /** Delete all keys under this store's prefix (tests only). */
+  async flushNamespace(): Promise<void> {
+    const pattern = `${this.keyPrefix}:*`;
+    let cursor = "0";
+    do {
+      const [next, keys] = await this.redis.scan(cursor, "MATCH", pattern, "COUNT", 200);
+      cursor = next;
+      if (keys.length > 0) {
+        await this.redis.del(...keys);
+      }
+    } while (cursor !== "0");
+    this.cache.clear();
+  }
+
+  private docToProfile(doc: EconomyDocument): EconomyProfile {
+    return {
+      id: doc.id,
+      nicknameKey: doc.nicknameKey,
+      nickname: doc.nickname,
+      gold: doc.gold,
+      createdAt: doc.createdAt,
+      updatedAt: doc.updatedAt,
+    };
+  }
+
+  private eggFromDoc(doc: EconomyDocument, egg: EconomyDocument["eggs"][number]): EconomyEgg {
+    return {
+      id: egg.id,
+      profileId: doc.id,
+      hatchDeadlineMs: egg.hatchDeadlineMs,
+      createdAt: egg.createdAt,
+    };
+  }
+
+  private petFromDoc(doc: EconomyDocument, pet: EconomyDocument["pets"][number]): EconomyPet {
+    return {
+      id: pet.id,
+      profileId: doc.id,
+      type: pet.type,
+      baseValue: pet.baseValue,
+      equipSlot: pet.equipSlot,
+      createdAt: pet.createdAt,
+    };
+  }
+
+  private gemFromDoc(doc: EconomyDocument, gem: EconomyDocument["gems"][number]): EconomyGem {
+    return {
+      id: gem.id,
+      profileId: doc.id,
+      gemType: gem.gemType,
+      value: gem.value,
+      petId: gem.petId,
+      createdAt: gem.createdAt,
+    };
+  }
+
+  private amuletFromDoc(
+    doc: EconomyDocument,
+    amulet: EconomyDocument["amulets"][number],
+  ): EconomyAmulet {
+    return {
+      id: amulet.id,
+      profileId: doc.id,
+      durability: amulet.durability,
+      equipped: amulet.equipped,
+      createdAt: amulet.createdAt,
+    };
+  }
+
+  private async loadDoc(nicknameKey: string): Promise<EconomyDocument | null> {
+    const cached = this.cache.get(nicknameKey);
+    if (cached) return cached;
+    const raw = await this.redis.get(this.economyKey(nicknameKey));
+    if (!raw) return null;
+    const doc = JSON.parse(raw) as EconomyDocument;
+    this.cache.set(nicknameKey, doc);
+    return doc;
+  }
+
+  private async saveDoc(doc: EconomyDocument): Promise<void> {
+    this.cache.set(doc.nicknameKey, doc);
+    const pipeline = this.redis.pipeline();
+    pipeline.set(this.economyKey(doc.nicknameKey), JSON.stringify(doc));
+    pipeline.sadd(this.nickIndexKey, doc.nicknameKey);
+    if (doc.career.kills > 0 || doc.career.deaths > 0) {
+      pipeline.zadd(this.lbPvpKey, doc.career.kills, doc.nicknameKey);
+    }
+    if (doc.endless.botKills > 0 || doc.endless.distanceKm > 0) {
+      pipeline.zadd(this.lbEndlessKey, doc.endless.botKills, doc.nicknameKey);
+    }
+    await pipeline.exec();
+  }
+
+  private itemOwnerKey(kind: "pet" | "egg" | "gem" | "amulet", id: number): string {
+    return `${this.keyPrefix}:item:${kind}:${id}`;
+  }
+
+  private async bindItemOwner(
+    kind: "pet" | "egg" | "gem" | "amulet",
+    id: number,
+    nicknameKey: string,
+  ): Promise<void> {
+    await this.redis.set(this.itemOwnerKey(kind, id), nicknameKey);
+  }
+
+  private async unbindItemOwner(kind: "pet" | "egg" | "gem" | "amulet", id: number): Promise<void> {
+    await this.redis.del(this.itemOwnerKey(kind, id));
+  }
+
+  private async allocProfileId(): Promise<number> {
+    return this.redis.incr(this.profileIdCounterKey);
+  }
+
+  private async assertItemOwnedOrThrow(
+    kind: "pet" | "egg" | "gem" | "amulet",
+    id: number,
+    nicknameKey: string,
+    notFoundMessage: string,
+  ): Promise<void> {
+    const owner = await this.redis.get(this.itemOwnerKey(kind, id));
+    if (owner && owner !== nicknameKey) {
+      throw new EconomyActionError("cross_profile", `${kind} belongs to another profile`);
+    }
+    if (!owner) {
+      throw new EconomyActionError("not_found", notFoundMessage);
+    }
+  }
+
+  async getOrCreateProfile(nickname: string): Promise<EconomyProfile> {
     const normalized = normalizeNickname(nickname);
     if (!normalized.ok) {
       throw new Error(`cannot create economy profile for invalid nickname: ${normalized.reason}`);
     }
-    const existing = this.getProfile(normalized.key);
+    const existing = await this.loadDoc(normalized.key);
     if (existing) {
       if (existing.nickname !== normalized.nickname) {
         const now = Date.now();
-        this.db
-          .prepare(
-            "UPDATE profiles SET nickname = @nickname, updated_at = @updated_at WHERE nickname_key = @nickname_key",
-          )
-          .run({
-            nickname: normalized.nickname,
-            updated_at: now,
-            nickname_key: normalized.key,
-          });
-        return { ...existing, nickname: normalized.nickname, updatedAt: now };
+        existing.nickname = normalized.nickname;
+        existing.updatedAt = now;
+        await this.saveDoc(existing);
       }
-      return existing;
+      return this.docToProfile(existing);
     }
 
     const now = Date.now();
-    const result = this.db
-      .prepare(
-        `INSERT INTO profiles (nickname_key, nickname, gold, created_at, updated_at)
-         VALUES (@nickname_key, @nickname, 0, @created_at, @updated_at)`,
-      )
-      .run({
-        nickname_key: normalized.key,
-        nickname: normalized.nickname,
-        created_at: now,
-        updated_at: now,
-      });
-
-    return {
-      id: Number(result.lastInsertRowid),
-      nicknameKey: normalized.key,
-      nickname: normalized.nickname,
-      gold: 0,
-      createdAt: now,
-      updatedAt: now,
-    };
+    const id = await this.allocProfileId();
+    const doc = createEmptyDocument(id, normalized.key, normalized.nickname, now);
+    await this.saveDoc(doc);
+    return this.docToProfile(doc);
   }
 
-  getProfile(nicknameKey: string): EconomyProfile | null {
-    const row = this.db
-      .prepare(
-        `SELECT id, nickname_key, nickname, gold, created_at, updated_at
-         FROM profiles WHERE nickname_key = ?`,
-      )
-      .get(nicknameKey) as ProfileRow | undefined;
-    return row ? rowToProfile(row) : null;
+  async getProfile(nicknameKey: string): Promise<EconomyProfile | null> {
+    const doc = await this.loadDoc(nicknameKey);
+    return doc ? this.docToProfile(doc) : null;
   }
 
-  getGold(nicknameKey: string): number {
-    return this.getProfile(nicknameKey)?.gold ?? 0;
+  async getGold(nicknameKey: string): Promise<number> {
+    return (await this.getProfile(nicknameKey))?.gold ?? 0;
   }
 
-  /**
-   * Add gold to a profile (creating it if needed). Rejects non-finite or
-   * negative amounts. Returns the updated profile. Gold never goes below 0
-   * (CHECK constraint + application reject of negative deltas).
-   */
-  addGold(nicknameKeyOrNickname: string, amount: number): EconomyProfile {
+  async addGold(nicknameKeyOrNickname: string, amount: number): Promise<EconomyProfile> {
     if (!Number.isFinite(amount) || amount < 0) {
       throw new Error(`addGold amount must be a non-negative finite number, got ${amount}`);
     }
@@ -403,320 +469,250 @@ export class EconomyStore {
     const key = normalized.ok ? normalized.key : nicknameKeyOrNickname.toLocaleLowerCase();
     const display = normalized.ok ? normalized.nickname : nicknameKeyOrNickname;
 
-    const run = this.db.transaction(() => {
-      if (normalized.ok) {
-        this.getOrCreateProfile(display);
-      } else if (!this.getProfile(key)) {
-        throw new Error(`addGold requires an existing profile when nickname is invalid: ${key}`);
-      }
-      const now = Date.now();
-      this.db
-        .prepare(
-          `UPDATE profiles
-           SET gold = gold + @amount, updated_at = @updated_at
-           WHERE nickname_key = @nickname_key`,
-        )
-        .run({ amount: amountInt, updated_at: now, nickname_key: key });
-      const profile = this.getProfile(key);
-      if (!profile) {
-        throw new Error(`profile missing after addGold for key=${key}`);
-      }
-      return profile;
-    });
+    if (normalized.ok) {
+      await this.getOrCreateProfile(display);
+    } else if (!(await this.getProfile(key))) {
+      throw new Error(`addGold requires an existing profile when nickname is invalid: ${key}`);
+    }
 
-    return run();
+    const doc = await this.loadDoc(key);
+    if (!doc) {
+      throw new Error(`profile missing after addGold for key=${key}`);
+    }
+    const now = Date.now();
+    doc.gold += amountInt;
+    doc.updatedAt = now;
+    await this.saveDoc(doc);
+    return this.docToProfile(doc);
   }
 
-  /**
-   * Increment attacker kills and victim deaths in one transaction (EPIC 26).
-   * Ensures both profiles exist. Returns updated career rows for cache write-through.
-   */
-  incrementCareerKillDeath(
+  async incrementCareerKillDeath(
     attackerNickname: string,
     victimNickname: string,
-  ): { attacker: CareerStatsEntry; victim: CareerStatsEntry } {
-    const run = this.db.transaction(() => {
-      const attacker = this.getOrCreateProfile(attackerNickname);
-      const victim = this.getOrCreateProfile(victimNickname);
-      const now = Date.now();
-      this.db
-        .prepare(
-          `INSERT INTO career_stats (profile_id, kills, deaths, updated_at)
-           VALUES (@profile_id, 1, 0, @updated_at)
-           ON CONFLICT(profile_id) DO UPDATE SET
-             kills = kills + 1,
-             updated_at = @updated_at`,
-        )
-        .run({ profile_id: attacker.id, updated_at: now });
-      this.db
-        .prepare(
-          `INSERT INTO career_stats (profile_id, kills, deaths, updated_at)
-           VALUES (@profile_id, 0, 1, @updated_at)
-           ON CONFLICT(profile_id) DO UPDATE SET
-             deaths = deaths + 1,
-             updated_at = @updated_at`,
-        )
-        .run({ profile_id: victim.id, updated_at: now });
-      return {
-        attacker: this.readCareerEntry(attacker.id)!,
-        victim: this.readCareerEntry(victim.id)!,
-      };
-    });
-    return run();
+  ): Promise<{ attacker: CareerStatsEntry; victim: CareerStatsEntry }> {
+    const attackerProfile = await this.getOrCreateProfile(attackerNickname);
+    const victimProfile = await this.getOrCreateProfile(victimNickname);
+    const attackerDoc = (await this.loadDoc(attackerProfile.nicknameKey))!;
+    const victimDoc = (await this.loadDoc(victimProfile.nicknameKey))!;
+    const now = Date.now();
+    attackerDoc.career.kills += 1;
+    attackerDoc.career.updatedAt = now;
+    attackerDoc.updatedAt = now;
+    victimDoc.career.deaths += 1;
+    victimDoc.career.updatedAt = now;
+    victimDoc.updatedAt = now;
+    await this.saveDoc(attackerDoc);
+    await this.saveDoc(victimDoc);
+    return {
+      attacker: {
+        nicknameKey: attackerDoc.nicknameKey,
+        nickname: attackerDoc.nickname,
+        kills: attackerDoc.career.kills,
+        deaths: attackerDoc.career.deaths,
+      },
+      victim: {
+        nicknameKey: victimDoc.nicknameKey,
+        nickname: victimDoc.nickname,
+        kills: victimDoc.career.kills,
+        deaths: victimDoc.career.deaths,
+      },
+    };
   }
 
-  listCareerLeaderboard(limit: number = LEADERBOARD_LIMIT): CareerStatsEntry[] {
-    const rows = this.db
-      .prepare(
-        `SELECT p.nickname_key AS nickname_key, p.nickname AS nickname,
-                c.kills AS kills, c.deaths AS deaths
-         FROM career_stats c
-         JOIN profiles p ON p.id = c.profile_id
-         ORDER BY c.kills DESC, c.deaths ASC, p.nickname ASC
-         LIMIT ?`,
-      )
-      .all(Math.max(0, Math.floor(limit))) as Array<{
-      nickname_key: string;
-      nickname: string;
-      kills: number;
-      deaths: number;
-    }>;
-    return rows.map((row) => ({
-      nicknameKey: row.nickname_key,
-      nickname: row.nickname,
-      kills: row.kills,
-      deaths: row.deaths,
-    }));
+  async listCareerLeaderboard(limit: number = LEADERBOARD_LIMIT): Promise<CareerStatsEntry[]> {
+    const lim = Math.max(0, Math.floor(limit));
+    if (lim === 0) return [];
+    // Fetch a generous slice then re-sort by kills DESC, deaths ASC, nickname.
+    const fetchCount =
+      lim === Number.MAX_SAFE_INTEGER ? Number.MAX_SAFE_INTEGER : Math.min(lim * 5, 10_000);
+    const members =
+      fetchCount === Number.MAX_SAFE_INTEGER
+        ? await this.redis.zrevrange(this.lbPvpKey, 0, -1)
+        : await this.redis.zrevrange(this.lbPvpKey, 0, fetchCount - 1);
+    const entries: CareerStatsEntry[] = [];
+    for (const key of members) {
+      const doc = await this.loadDoc(key);
+      if (!doc) continue;
+      if (doc.career.kills === 0 && doc.career.deaths === 0) continue;
+      entries.push({
+        nicknameKey: doc.nicknameKey,
+        nickname: doc.nickname,
+        kills: doc.career.kills,
+        deaths: doc.career.deaths,
+      });
+    }
+    entries.sort(
+      (a, b) => b.kills - a.kills || a.deaths - b.deaths || a.nickname.localeCompare(b.nickname),
+    );
+    return lim === Number.MAX_SAFE_INTEGER ? entries : entries.slice(0, lim);
   }
 
-  /** Load every career row (startup cache hydrate). */
-  listAllCareerStats(): CareerStatsEntry[] {
-    return this.listCareerLeaderboard(Number.MAX_SAFE_INTEGER);
+  async listAllCareerStats(): Promise<CareerStatsEntry[]> {
+    // Include all nicknames that have career activity (index scan for deaths-only).
+    const keys = await this.redis.smembers(this.nickIndexKey);
+    const entries: CareerStatsEntry[] = [];
+    for (const key of keys) {
+      const doc = await this.loadDoc(key);
+      if (!doc) continue;
+      if (doc.career.kills === 0 && doc.career.deaths === 0) continue;
+      entries.push({
+        nicknameKey: doc.nicknameKey,
+        nickname: doc.nickname,
+        kills: doc.career.kills,
+        deaths: doc.career.deaths,
+      });
+    }
+    entries.sort(
+      (a, b) => b.kills - a.kills || a.deaths - b.deaths || a.nickname.localeCompare(b.nickname),
+    );
+    return entries;
   }
 
-  /**
-   * Upsert endless personal bests (max bot kills / distance). Same compare rules
-   * as the former in-memory MatchManager path.
-   */
-  upsertEndlessBest(
+  async upsertEndlessBest(
     nickname: string,
     botKills: number,
     distanceKm: number,
-  ): EndlessCareerEntry {
+  ): Promise<EndlessCareerEntry> {
     if (!Number.isFinite(botKills) || botKills < 0 || !Number.isFinite(distanceKm) || distanceKm < 0) {
       throw new Error(`invalid endless best values: botKills=${botKills} distanceKm=${distanceKm}`);
     }
     const killsInt = Math.floor(botKills);
-    const run = this.db.transaction(() => {
-      const profile = this.getOrCreateProfile(nickname);
-      const now = Date.now();
-      this.db
-        .prepare(
-          `INSERT INTO endless_career_stats (profile_id, best_bot_kills, best_distance_km, updated_at)
-           VALUES (@profile_id, @bot_kills, @distance_km, @updated_at)
-           ON CONFLICT(profile_id) DO UPDATE SET
-             best_bot_kills = MAX(best_bot_kills, excluded.best_bot_kills),
-             best_distance_km = MAX(best_distance_km, excluded.best_distance_km),
-             updated_at = excluded.updated_at`,
-        )
-        .run({
-          profile_id: profile.id,
-          bot_kills: killsInt,
-          distance_km: distanceKm,
-          updated_at: now,
-        });
-      return this.readEndlessEntry(profile.id)!;
-    });
-    return run();
+    const profile = await this.getOrCreateProfile(nickname);
+    const doc = (await this.loadDoc(profile.nicknameKey))!;
+    const now = Date.now();
+    doc.endless.botKills = Math.max(doc.endless.botKills, killsInt);
+    doc.endless.distanceKm = Math.max(doc.endless.distanceKm, distanceKm);
+    doc.endless.updatedAt = now;
+    doc.updatedAt = now;
+    await this.saveDoc(doc);
+    return {
+      nicknameKey: doc.nicknameKey,
+      nickname: doc.nickname,
+      botKills: doc.endless.botKills,
+      distanceKm: doc.endless.distanceKm,
+    };
   }
 
-  listEndlessLeaderboard(limit: number = LEADERBOARD_LIMIT): EndlessCareerEntry[] {
-    const rows = this.db
-      .prepare(
-        `SELECT p.nickname_key AS nickname_key, p.nickname AS nickname,
-                e.best_bot_kills AS bot_kills, e.best_distance_km AS distance_km
-         FROM endless_career_stats e
-         JOIN profiles p ON p.id = e.profile_id
-         ORDER BY e.best_bot_kills DESC, e.best_distance_km DESC, p.nickname ASC
-         LIMIT ?`,
-      )
-      .all(Math.max(0, Math.floor(limit))) as Array<{
-      nickname_key: string;
-      nickname: string;
-      bot_kills: number;
-      distance_km: number;
-    }>;
-    return rows.map((row) => ({
-      nicknameKey: row.nickname_key,
-      nickname: row.nickname,
-      botKills: row.bot_kills,
-      distanceKm: row.distance_km,
-    }));
+  async listEndlessLeaderboard(limit: number = LEADERBOARD_LIMIT): Promise<EndlessCareerEntry[]> {
+    const lim = Math.max(0, Math.floor(limit));
+    if (lim === 0) return [];
+    const fetchCount =
+      lim === Number.MAX_SAFE_INTEGER ? Number.MAX_SAFE_INTEGER : Math.min(lim * 5, 10_000);
+    const members =
+      fetchCount === Number.MAX_SAFE_INTEGER
+        ? await this.redis.zrevrange(this.lbEndlessKey, 0, -1)
+        : await this.redis.zrevrange(this.lbEndlessKey, 0, fetchCount - 1);
+    const entries: EndlessCareerEntry[] = [];
+    for (const key of members) {
+      const doc = await this.loadDoc(key);
+      if (!doc) continue;
+      if (doc.endless.botKills === 0 && doc.endless.distanceKm === 0) continue;
+      entries.push({
+        nicknameKey: doc.nicknameKey,
+        nickname: doc.nickname,
+        botKills: doc.endless.botKills,
+        distanceKm: doc.endless.distanceKm,
+      });
+    }
+    entries.sort(
+      (a, b) =>
+        b.botKills - a.botKills ||
+        b.distanceKm - a.distanceKm ||
+        a.nickname.localeCompare(b.nickname),
+    );
+    return lim === Number.MAX_SAFE_INTEGER ? entries : entries.slice(0, lim);
   }
 
-  listAllEndlessCareerStats(): EndlessCareerEntry[] {
+  async listAllEndlessCareerStats(): Promise<EndlessCareerEntry[]> {
     return this.listEndlessLeaderboard(Number.MAX_SAFE_INTEGER);
   }
 
-  private readCareerEntry(profileId: number): CareerStatsEntry | null {
-    const row = this.db
-      .prepare(
-        `SELECT p.nickname_key AS nickname_key, p.nickname AS nickname,
-                c.kills AS kills, c.deaths AS deaths
-         FROM career_stats c
-         JOIN profiles p ON p.id = c.profile_id
-         WHERE c.profile_id = ?`,
-      )
-      .get(profileId) as
-      | { nickname_key: string; nickname: string; kills: number; deaths: number }
-      | undefined;
-    if (!row) return null;
-    return {
-      nicknameKey: row.nickname_key,
-      nickname: row.nickname,
-      kills: row.kills,
-      deaths: row.deaths,
-    };
+  async listEggs(profileId: number): Promise<EconomyEgg[]> {
+    const doc = await this.findDocByProfileId(profileId);
+    if (!doc) return [];
+    return doc.eggs.map((e) => this.eggFromDoc(doc, e));
   }
 
-  private readEndlessEntry(profileId: number): EndlessCareerEntry | null {
-    const row = this.db
-      .prepare(
-        `SELECT p.nickname_key AS nickname_key, p.nickname AS nickname,
-                e.best_bot_kills AS bot_kills, e.best_distance_km AS distance_km
-         FROM endless_career_stats e
-         JOIN profiles p ON p.id = e.profile_id
-         WHERE e.profile_id = ?`,
-      )
-      .get(profileId) as
-      | { nickname_key: string; nickname: string; bot_kills: number; distance_km: number }
-      | undefined;
-    if (!row) return null;
-    return {
-      nicknameKey: row.nickname_key,
-      nickname: row.nickname,
-      botKills: row.bot_kills,
-      distanceKm: row.distance_km,
-    };
+  async listPets(profileId: number): Promise<EconomyPet[]> {
+    const doc = await this.findDocByProfileId(profileId);
+    if (!doc) return [];
+    return doc.pets.map((p) => this.petFromDoc(doc, p));
   }
 
-  listEggs(profileId: number): EconomyEgg[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id, profile_id, hatch_deadline_ms, created_at
-         FROM eggs WHERE profile_id = ? ORDER BY id ASC`,
-      )
-      .all(profileId) as EggRow[];
-    return rows.map(rowToEgg);
+  async listGems(profileId: number): Promise<EconomyGem[]> {
+    const doc = await this.findDocByProfileId(profileId);
+    if (!doc) return [];
+    return doc.gems.map((g) => this.gemFromDoc(doc, g));
   }
 
-  listPets(profileId: number): EconomyPet[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id, profile_id, type, base_value, equip_slot, created_at
-         FROM pets WHERE profile_id = ? ORDER BY id ASC`,
-      )
-      .all(profileId) as PetRow[];
-    return rows.map(rowToPet);
+  async listAmulets(profileId: number): Promise<EconomyAmulet[]> {
+    const doc = await this.findDocByProfileId(profileId);
+    if (!doc) return [];
+    return doc.amulets.map((a) => this.amuletFromDoc(doc, a));
   }
 
-  listGems(profileId: number): EconomyGem[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id, profile_id, type, value, pet_id, created_at
-         FROM gems WHERE profile_id = ? ORDER BY id ASC`,
-      )
-      .all(profileId) as GemRow[];
-    return rows.map(rowToGem);
+  async countEggs(profileId: number): Promise<number> {
+    const doc = await this.findDocByProfileId(profileId);
+    return doc?.eggs.length ?? 0;
   }
 
-  listAmulets(profileId: number): EconomyAmulet[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id, profile_id, durability, equipped, created_at
-         FROM amulets WHERE profile_id = ? ORDER BY id ASC`,
-      )
-      .all(profileId) as AmuletRow[];
-    return rows.map(rowToAmulet);
+  async countPets(profileId: number): Promise<number> {
+    const doc = await this.findDocByProfileId(profileId);
+    return doc?.pets.length ?? 0;
   }
 
-  countEggs(profileId: number): number {
-    const row = this.db.prepare("SELECT COUNT(*) AS c FROM eggs WHERE profile_id = ?").get(profileId) as {
-      c: number;
-    };
-    return row.c;
+  async countStimulators(profileId: number): Promise<number> {
+    const doc = await this.findDocByProfileId(profileId);
+    return doc?.stimulators.length ?? 0;
   }
 
-  countPets(profileId: number): number {
-    const row = this.db.prepare("SELECT COUNT(*) AS c FROM pets WHERE profile_id = ?").get(profileId) as {
-      c: number;
-    };
-    return row.c;
+  async countGems(profileId: number): Promise<number> {
+    const doc = await this.findDocByProfileId(profileId);
+    return doc?.gems.length ?? 0;
   }
 
-  countStimulators(profileId: number): number {
-    const row = this.db
-      .prepare("SELECT COUNT(*) AS c FROM growth_stimulators WHERE profile_id = ?")
-      .get(profileId) as { c: number };
-    return row.c;
+  async countAmulets(profileId: number): Promise<number> {
+    const doc = await this.findDocByProfileId(profileId);
+    return doc?.amulets.length ?? 0;
   }
 
-  countGems(profileId: number): number {
-    const row = this.db.prepare("SELECT COUNT(*) AS c FROM gems WHERE profile_id = ?").get(profileId) as {
-      c: number;
-    };
-    return row.c;
+  async countRepairKits(profileId: number): Promise<number> {
+    const doc = await this.findDocByProfileId(profileId);
+    return doc?.repairKits.length ?? 0;
   }
 
-  countAmulets(profileId: number): number {
-    const row = this.db.prepare("SELECT COUNT(*) AS c FROM amulets WHERE profile_id = ?").get(profileId) as {
-      c: number;
-    };
-    return row.c;
+  async getShardCount(profileId: number): Promise<number> {
+    const doc = await this.findDocByProfileId(profileId);
+    return doc?.shardCount ?? 0;
   }
 
-  countRepairKits(profileId: number): number {
-    const row = this.db
-      .prepare("SELECT COUNT(*) AS c FROM repair_kits WHERE profile_id = ?")
-      .get(profileId) as { c: number };
-    return row.c;
+  async hasAnyAmulet(profileId: number): Promise<boolean> {
+    return (await this.countAmulets(profileId)) > 0;
   }
 
-  getShardCount(profileId: number): number {
-    const row = this.db.prepare("SELECT count FROM shards WHERE profile_id = ?").get(profileId) as
-      | { count: number }
-      | undefined;
-    return row?.count ?? 0;
+  isSlot2EnabledDoc(doc: EconomyDocument): boolean {
+    return doc.amulets.some((a) => a.equipped);
   }
 
-  hasAnyAmulet(profileId: number): boolean {
-    return this.countAmulets(profileId) > 0;
+  async isSlot2Enabled(profileId: number): Promise<boolean> {
+    const doc = await this.findDocByProfileId(profileId);
+    return doc ? this.isSlot2EnabledDoc(doc) : false;
   }
 
-  isSlot2Enabled(profileId: number): boolean {
-    const row = this.db
-      .prepare("SELECT id FROM amulets WHERE profile_id = ? AND equipped = 1 LIMIT 1")
-      .get(profileId) as { id: number } | undefined;
-    return Boolean(row);
+  async listGemsOnEquippedPets(profileId: number): Promise<EconomyGem[]> {
+    const doc = await this.findDocByProfileId(profileId);
+    if (!doc) return [];
+    const equippedPetIds = new Set(
+      doc.pets.filter((p) => p.equipSlot === 1 || p.equipSlot === 2).map((p) => p.id),
+    );
+    return doc.gems
+      .filter((g) => g.petId !== null && equippedPetIds.has(g.petId))
+      .map((g) => this.gemFromDoc(doc, g));
   }
 
-  /** Gems socketed on pets that are currently equipped (slot 1 or 2). */
-  listGemsOnEquippedPets(profileId: number): EconomyGem[] {
-    const rows = this.db
-      .prepare(
-        `SELECT g.id, g.profile_id, g.type, g.value, g.pet_id, g.created_at
-         FROM gems g
-         INNER JOIN pets p ON p.id = g.pet_id
-         WHERE g.profile_id = ? AND p.profile_id = ? AND p.equip_slot IN (1, 2)
-         ORDER BY g.id ASC`,
-      )
-      .all(profileId, profileId) as GemRow[];
-    return rows.map(rowToGem);
-  }
-
-  private gemBonusesByPet(profileId: number): Map<number, PetGemBonuses> {
+  private gemBonusesByPet(doc: EconomyDocument): Map<number, PetGemBonuses> {
     const map = new Map<number, PetGemBonuses>();
-    for (const gem of this.listGems(profileId)) {
+    for (const gem of doc.gems) {
       if (gem.petId === null) continue;
       const existing = map.get(gem.petId) ?? {};
       existing[gem.gemType] = gem.value;
@@ -725,12 +721,11 @@ export class EconomyStore {
     return map;
   }
 
-  private computeRatings(profileId: number): ProfileRatings {
-    const pets = this.listPets(profileId);
-    const gemMap = this.gemBonusesByPet(profileId);
-    const slot2Enabled = this.isSlot2Enabled(profileId);
+  private computeRatings(doc: EconomyDocument): ProfileRatings {
+    const gemMap = this.gemBonusesByPet(doc);
+    const slot2Enabled = this.isSlot2EnabledDoc(doc);
     return aggregateEquippedRatings(
-      pets.map((p) => ({
+      doc.pets.map((p) => ({
         type: p.type,
         baseValue: p.baseValue,
         equipSlot: p.equipSlot,
@@ -740,99 +735,81 @@ export class EconomyStore {
     );
   }
 
-  getFullProfile(nickname: string): FullEconomyProfile {
-    const base = this.getOrCreateProfile(nickname);
-    const pets = this.listPets(base.id);
-    const eggs = this.listEggs(base.id);
-    const gems = this.listGems(base.id);
-    const amulets = this.listAmulets(base.id);
-    const stimulatorCount = this.countStimulators(base.id);
-    const shardCount = this.getShardCount(base.id);
-    const repairKitCount = this.countRepairKits(base.id);
-    const slot2Enabled = this.isSlot2Enabled(base.id);
-    const ratings = this.computeRatings(base.id);
+  private async findDocByProfileId(profileId: number): Promise<EconomyDocument | null> {
+    for (const doc of this.cache.values()) {
+      if (doc.id === profileId) return doc;
+    }
+    const keys = await this.redis.smembers(this.nickIndexKey);
+    for (const key of keys) {
+      const doc = await this.loadDoc(key);
+      if (doc && doc.id === profileId) return doc;
+    }
+    return null;
+  }
+
+  async getFullProfile(nickname: string): Promise<FullEconomyProfile> {
+    const base = await this.getOrCreateProfile(nickname);
+    const doc = (await this.loadDoc(base.nicknameKey))!;
     return {
-      id: base.id,
-      nicknameKey: base.nicknameKey,
-      nickname: base.nickname,
-      gold: base.gold,
-      pets,
-      eggs,
-      stimulatorCount,
-      gems,
-      amulets,
-      shardCount,
-      repairKitCount,
-      ratings,
-      slot2Enabled,
+      id: doc.id,
+      nicknameKey: doc.nicknameKey,
+      nickname: doc.nickname,
+      gold: doc.gold,
+      pets: doc.pets.map((p) => this.petFromDoc(doc, p)),
+      eggs: doc.eggs.map((e) => this.eggFromDoc(doc, e)),
+      stimulatorCount: doc.stimulators.length,
+      gems: doc.gems.map((g) => this.gemFromDoc(doc, g)),
+      amulets: doc.amulets.map((a) => this.amuletFromDoc(doc, a)),
+      shardCount: doc.shardCount,
+      repairKitCount: doc.repairKits.length,
+      ratings: this.computeRatings(doc),
+      slot2Enabled: this.isSlot2EnabledDoc(doc),
     };
   }
 
-  /**
-   * Grant an egg with hatch deadline = now + incubation duration.
-   * Duration from `CUBEWARS_INCUBATION_MS` (positive int) or INCUBATION.durationMs.
-   */
-  grantEgg(
+  async grantEgg(
     nickname: string,
     nowMs: number = Date.now(),
     durationMs: number = resolveIncubationDurationMs(),
-  ): EconomyEgg {
-    const profile = this.getOrCreateProfile(nickname);
-    if (this.countEggs(profile.id) >= ECONOMY_CAPS.eggs) {
+  ): Promise<EconomyEgg> {
+    const profile = await this.getOrCreateProfile(nickname);
+    const doc = (await this.loadDoc(profile.nicknameKey))!;
+    if (doc.eggs.length >= ECONOMY_CAPS.eggs) {
       throw new EconomyActionError("egg_cap", "egg cap reached");
     }
-    if (this.countPets(profile.id) >= ECONOMY_CAPS.pets) {
+    if (doc.pets.length >= ECONOMY_CAPS.pets) {
       throw new EconomyActionError("pet_cap", "pet cap reached (cannot grant egg)");
     }
     const hatchDeadlineMs = nowMs + durationMs;
-    const result = this.db
-      .prepare(
-        `INSERT INTO eggs (profile_id, hatch_deadline_ms, created_at)
-         VALUES (@profile_id, @hatch_deadline_ms, @created_at)`,
-      )
-      .run({
-        profile_id: profile.id,
-        hatch_deadline_ms: hatchDeadlineMs,
-        created_at: nowMs,
-      });
-    this.touchProfile(profile.id, nowMs);
-    return {
-      id: Number(result.lastInsertRowid),
-      profileId: profile.id,
-      hatchDeadlineMs,
-      createdAt: nowMs,
-    };
+    const id = doc.nextEggId++;
+    const egg = { id, hatchDeadlineMs, createdAt: nowMs };
+    doc.eggs.push(egg);
+    doc.updatedAt = nowMs;
+    await this.saveDoc(doc);
+    await this.bindItemOwner("egg", id, doc.nicknameKey);
+    return this.eggFromDoc(doc, egg);
   }
 
-  /** Grant one stimulator row; rejects when soft-cap reached. */
-  grantStimulator(nickname: string, nowMs: number = Date.now()): { id: number } {
-    const profile = this.getOrCreateProfile(nickname);
-    if (this.countStimulators(profile.id) >= STIMULATOR_SOFT_CAP) {
+  async grantStimulator(nickname: string, nowMs: number = Date.now()): Promise<{ id: number }> {
+    const profile = await this.getOrCreateProfile(nickname);
+    const doc = (await this.loadDoc(profile.nicknameKey))!;
+    if (doc.stimulators.length >= STIMULATOR_SOFT_CAP) {
       throw new EconomyActionError("stimulator_cap", "stimulator soft-cap reached");
     }
-    const result = this.db
-      .prepare(
-        `INSERT INTO growth_stimulators (profile_id, created_at)
-         VALUES (@profile_id, @created_at)`,
-      )
-      .run({ profile_id: profile.id, created_at: nowMs });
-    this.touchProfile(profile.id, nowMs);
-    return { id: Number(result.lastInsertRowid) };
+    const id = doc.nextStimId++;
+    doc.stimulators.push({ id, createdAt: nowMs });
+    doc.updatedAt = nowMs;
+    await this.saveDoc(doc);
+    return { id };
   }
 
-  /**
-   * Grant a gem into the bag.
-   * - Default (mint): value must be in [GEM_VALUE_MIN, GEM_VALUE_MAX] (5–100).
-   * - `allowExistingValue` (loot copy): allows decayed values down to 1 (schema min)
-   *   so kill loot never rejects post-death gems (Critic F-001).
-   */
-  grantGem(
+  async grantGem(
     nickname: string,
     gemType: GemType,
     value: number,
     nowMs: number = Date.now(),
     opts?: { allowExistingValue?: boolean },
-  ): EconomyGem {
+  ): Promise<EconomyGem> {
     const minValue = opts?.allowExistingValue ? 1 : GEM_VALUE_MIN;
     if (
       !GEM_TYPES.includes(gemType) ||
@@ -842,129 +819,88 @@ export class EconomyStore {
     ) {
       throw new Error(`invalid gem type/value: ${gemType}/${value}`);
     }
-    const profile = this.getOrCreateProfile(nickname);
-    if (this.countGems(profile.id) >= ECONOMY_CAPS.gems) {
+    const profile = await this.getOrCreateProfile(nickname);
+    const doc = (await this.loadDoc(profile.nicknameKey))!;
+    if (doc.gems.length >= ECONOMY_CAPS.gems) {
       throw new EconomyActionError("gem_cap", "gem cap reached");
     }
-    const result = this.db
-      .prepare(
-        `INSERT INTO gems (profile_id, type, value, pet_id, created_at)
-         VALUES (@profile_id, @type, @value, NULL, @created_at)`,
-      )
-      .run({
-        profile_id: profile.id,
-        type: gemType,
-        value,
-        created_at: nowMs,
-      });
-    this.touchProfile(profile.id, nowMs);
-    return {
-      id: Number(result.lastInsertRowid),
-      profileId: profile.id,
-      gemType,
-      value,
-      petId: null,
-      createdAt: nowMs,
-    };
+    const id = doc.nextGemId++;
+    const gem = { id, gemType, value, petId: null as number | null, createdAt: nowMs };
+    doc.gems.push(gem);
+    doc.updatedAt = nowMs;
+    await this.saveDoc(doc);
+    await this.bindItemOwner("gem", id, doc.nicknameKey);
+    return this.gemFromDoc(doc, gem);
   }
 
-  grantAmulet(
+  async grantAmulet(
     nickname: string,
     durability: number = ECONOMY_CAPS.amuletDurabilityMax,
     nowMs: number = Date.now(),
-  ): EconomyAmulet {
+  ): Promise<EconomyAmulet> {
     const dur = Math.max(0, Math.min(ECONOMY_CAPS.amuletDurabilityMax, Math.floor(durability)));
     if (dur <= 0) {
       throw new Error("cannot grant amulet with durability <= 0");
     }
-    const profile = this.getOrCreateProfile(nickname);
-    if (this.countAmulets(profile.id) >= ECONOMY_CAPS.amulets) {
+    const profile = await this.getOrCreateProfile(nickname);
+    const doc = (await this.loadDoc(profile.nicknameKey))!;
+    if (doc.amulets.length >= ECONOMY_CAPS.amulets) {
       throw new EconomyActionError("amulet_cap", "amulet cap reached");
     }
-    const result = this.db
-      .prepare(
-        `INSERT INTO amulets (profile_id, durability, equipped, created_at)
-         VALUES (@profile_id, @durability, 0, @created_at)`,
-      )
-      .run({
-        profile_id: profile.id,
-        durability: dur,
-        created_at: nowMs,
-      });
-    this.touchProfile(profile.id, nowMs);
-    return {
-      id: Number(result.lastInsertRowid),
-      profileId: profile.id,
-      durability: dur,
-      equipped: false,
-      createdAt: nowMs,
-    };
+    const id = doc.nextAmuletId++;
+    const amulet = { id, durability: dur, equipped: false, createdAt: nowMs };
+    doc.amulets.push(amulet);
+    doc.updatedAt = nowMs;
+    await this.saveDoc(doc);
+    await this.bindItemOwner("amulet", id, doc.nicknameKey);
+    return this.amuletFromDoc(doc, amulet);
   }
 
-  grantRepairKit(nickname: string, nowMs: number = Date.now()): { id: number } {
-    const profile = this.getOrCreateProfile(nickname);
-    if (this.countRepairKits(profile.id) >= REPAIR_KIT_SOFT_CAP) {
+  async grantRepairKit(nickname: string, nowMs: number = Date.now()): Promise<{ id: number }> {
+    const profile = await this.getOrCreateProfile(nickname);
+    const doc = (await this.loadDoc(profile.nicknameKey))!;
+    if (doc.repairKits.length >= REPAIR_KIT_SOFT_CAP) {
       throw new EconomyActionError("repair_kit_cap", "repair kit soft-cap reached");
     }
-    const result = this.db
-      .prepare(
-        `INSERT INTO repair_kits (profile_id, created_at)
-         VALUES (@profile_id, @created_at)`,
-      )
-      .run({ profile_id: profile.id, created_at: nowMs });
-    this.touchProfile(profile.id, nowMs);
-    return { id: Number(result.lastInsertRowid) };
+    const id = doc.nextRepairKitId++;
+    doc.repairKits.push({ id, createdAt: nowMs });
+    doc.updatedAt = nowMs;
+    await this.saveDoc(doc);
+    return { id };
   }
 
-  addShard(nickname: string, amount: number = 1, nowMs: number = Date.now()): number {
+  async addShard(nickname: string, amount: number = 1, nowMs: number = Date.now()): Promise<number> {
     if (!Number.isInteger(amount) || amount <= 0) {
       throw new Error(`addShard amount must be a positive integer, got ${amount}`);
     }
-    const profile = this.getOrCreateProfile(nickname);
-    const run = this.db.transaction(() => {
-      const current = this.getShardCount(profile.id);
-      if (current >= ECONOMY_CAPS.shards) {
-        throw new EconomyActionError("shard_cap", "shard cap reached");
-      }
-      const next = Math.min(ECONOMY_CAPS.shards, current + amount);
-      this.db
-        .prepare(
-          `INSERT INTO shards (profile_id, count) VALUES (@profile_id, @count)
-           ON CONFLICT(profile_id) DO UPDATE SET count = @count`,
-        )
-        .run({ profile_id: profile.id, count: next });
-      this.touchProfile(profile.id, nowMs);
-      return next;
-    });
-    return run();
+    const profile = await this.getOrCreateProfile(nickname);
+    const doc = (await this.loadDoc(profile.nicknameKey))!;
+    if (doc.shardCount >= ECONOMY_CAPS.shards) {
+      throw new EconomyActionError("shard_cap", "shard cap reached");
+    }
+    doc.shardCount = Math.min(ECONOMY_CAPS.shards, doc.shardCount + amount);
+    doc.updatedAt = nowMs;
+    await this.saveDoc(doc);
+    return doc.shardCount;
   }
 
-  /**
-   * Human-only kill item drops (egg/stim + gem/shard/amulet/repair).
-   * Gold primary mint is handled separately in Match.
-   * Chance rolls are independent of caps; when a rolled (or shard-eligible)
-   * item cannot be granted, mint substitute gold in [GOLD_DROP_MIN, GOLD_DROP_MAX]
-   * and log via returned substitutedKinds (Match logs `drop_substituted_gold`).
-   * Gem/amulet drops are **loot copies** (victim keeps items).
-   */
-  tryKillItemDrops(
+  async tryKillItemDrops(
     nickname: string,
     victimIsHuman: boolean,
     rolls: Partial<KillDropRolls> = {},
     nowMs: number = Date.now(),
     victim?: VictimDropContext,
-  ): KillItemDropsResult {
+  ): Promise<KillItemDropsResult> {
     return this.resolveKillDrops(nickname, victimIsHuman, rolls, nowMs, victim);
   }
 
-  /** Alias for the unified kill-drop resolver (EPIC 26). */
-  resolveKillDrops(
+  async resolveKillDrops(
     nickname: string,
     victimIsHuman: boolean,
     rolls: Partial<KillDropRolls> = {},
     nowMs: number = Date.now(),
     victim?: VictimDropContext,
-  ): KillItemDropsResult {
+  ): Promise<KillItemDropsResult> {
     const merged: KillDropRolls = { ...defaultKillRolls(), ...rolls };
     const empty: KillItemDropsResult = {
       egg: null,
@@ -979,7 +915,7 @@ export class EconomyStore {
     if (!victimIsHuman) {
       return empty;
     }
-    this.getOrCreateProfile(nickname);
+    await this.getOrCreateProfile(nickname);
     let egg: EconomyEgg | null = null;
     let stimulator = false;
     let gem: EconomyGem | null = null;
@@ -989,13 +925,13 @@ export class EconomyStore {
     let substitutedGold = 0;
     const substitutedKinds: string[] = [];
 
-    const substitute = (kind: string): void => {
+    const substitute = async (kind: string): Promise<void> => {
       const amount =
         merged.substituteGold !== undefined && Number.isFinite(merged.substituteGold)
           ? Math.floor(merged.substituteGold)
           : rollGoldDropAmount();
       const clamped = Math.max(GOLD_DROP_MIN, Math.min(GOLD_DROP_MAX, amount));
-      this.addGold(nickname, clamped);
+      await this.addGold(nickname, clamped);
       substitutedGold += clamped;
       substitutedKinds.push(kind);
       console.log(
@@ -1005,38 +941,40 @@ export class EconomyStore {
 
     if (merged.egg < DROP_CHANCE.egg) {
       try {
-        egg = this.grantEgg(nickname, nowMs);
+        egg = await this.grantEgg(nickname, nowMs);
       } catch (err) {
-        if (err instanceof EconomyActionError) substitute("egg");
+        if (err instanceof EconomyActionError) await substitute("egg");
         else throw err;
       }
     }
 
     if (merged.stimulator < DROP_CHANCE.growthStimulator) {
       try {
-        this.grantStimulator(nickname, nowMs);
+        await this.grantStimulator(nickname, nowMs);
         stimulator = true;
       } catch (err) {
-        if (err instanceof EconomyActionError) substitute("stimulator");
+        if (err instanceof EconomyActionError) await substitute("stimulator");
         else throw err;
       }
     }
 
     if (victim) {
-      const victimProfile = this.getOrCreateProfile(victim.nickname);
-      const victimHasAmulet = this.hasAnyAmulet(victimProfile.id);
-      const victimEquippedGems = this.listGemsOnEquippedPets(victimProfile.id);
-      const killerProfile = this.getOrCreateProfile(nickname);
+      const victimProfile = await this.getOrCreateProfile(victim.nickname);
+      const victimDoc = (await this.loadDoc(victimProfile.nicknameKey))!;
+      const victimHasAmulet = victimDoc.amulets.length > 0;
+      const victimEquippedGems = await this.listGemsOnEquippedPets(victimProfile.id);
+      const killerProfile = await this.getOrCreateProfile(nickname);
+      const killerDoc = (await this.loadDoc(killerProfile.nicknameKey))!;
 
       if (victimEquippedGems.length > 0 && merged.gem < DROP_CHANCE.gem) {
         const source = victimEquippedGems[Math.floor(Math.random() * victimEquippedGems.length)]!;
         try {
-          gem = this.grantGem(nickname, source.gemType, source.value, nowMs, {
+          gem = await this.grantGem(nickname, source.gemType, source.value, nowMs, {
             allowExistingValue: true,
           });
         } catch (err) {
           if (err instanceof EconomyActionError) {
-            substitute("gem");
+            await substitute("gem");
           } else {
             console.warn(
               `[economy] gem loot copy skipped for ${nickname}: ${err instanceof Error ? err.message : String(err)}`,
@@ -1045,32 +983,29 @@ export class EconomyStore {
         }
       }
 
-      // Shard eligibility: victim has amulet, once-per-match, killer under amulet cap.
-      // Shard stack full → substitute gold (EPIC 26).
       if (
         victimHasAmulet &&
         !victim.alreadyGrantedShard &&
-        this.countAmulets(killerProfile.id) < ECONOMY_CAPS.amulets
+        killerDoc.amulets.length < ECONOMY_CAPS.amulets
       ) {
         try {
-          this.addShard(nickname, 1, nowMs);
+          await this.addShard(nickname, 1, nowMs);
           shard = true;
         } catch (err) {
-          if (err instanceof EconomyActionError) substitute("shard");
+          if (err instanceof EconomyActionError) await substitute("shard");
           else throw err;
         }
       }
 
       if (victimHasAmulet && merged.amulet < DROP_CHANCE.amulet) {
-        const victimAmulets = this.listAmulets(victimProfile.id);
-        const equipped = victimAmulets.find((a) => a.equipped);
+        const equipped = victimDoc.amulets.find((a) => a.equipped);
         const source =
-          equipped ?? victimAmulets[Math.floor(Math.random() * victimAmulets.length)];
+          equipped ?? victimDoc.amulets[Math.floor(Math.random() * victimDoc.amulets.length)];
         if (source) {
           try {
-            amulet = this.grantAmulet(nickname, source.durability, nowMs);
+            amulet = await this.grantAmulet(nickname, source.durability, nowMs);
           } catch (err) {
-            if (err instanceof EconomyActionError) substitute("amulet");
+            if (err instanceof EconomyActionError) await substitute("amulet");
             else throw err;
           }
         }
@@ -1078,10 +1013,10 @@ export class EconomyStore {
 
       if (merged.repairKit < DROP_CHANCE.repairKit) {
         try {
-          this.grantRepairKit(nickname, nowMs);
+          await this.grantRepairKit(nickname, nowMs);
           repairKit = true;
         } catch (err) {
-          if (err instanceof EconomyActionError) substitute("repairKit");
+          if (err instanceof EconomyActionError) await substitute("repairKit");
           else throw err;
         }
       }
@@ -1099,468 +1034,344 @@ export class EconomyStore {
     };
   }
 
-  applyStimulator(nickname: string, eggId: number, nowMs: number = Date.now()): EconomyEgg {
-    const profile = this.getOrCreateProfile(nickname);
-    const run = this.db.transaction(() => {
-      const eggRow = this.db
-        .prepare(
-          `SELECT id, profile_id, hatch_deadline_ms, created_at FROM eggs WHERE id = ?`,
-        )
-        .get(eggId) as EggRow | undefined;
-      if (!eggRow) {
-        throw new EconomyActionError("not_found", `egg ${eggId} not found`);
-      }
-      if (eggRow.profile_id !== profile.id) {
-        throw new EconomyActionError("cross_profile", "egg belongs to another profile");
-      }
-      if (isEggReady(eggRow.hatch_deadline_ms, nowMs)) {
-        throw new EconomyActionError("already_ready", "egg is already ready to hatch");
-      }
-      const stim = this.db
-        .prepare(
-          `SELECT id FROM growth_stimulators WHERE profile_id = ? ORDER BY id ASC LIMIT 1`,
-        )
-        .get(profile.id) as { id: number } | undefined;
-      if (!stim) {
-        throw new EconomyActionError("no_stimulator", "no growth stimulator available");
-      }
-      const newDeadline = applyStimulatorDeadline(eggRow.hatch_deadline_ms, nowMs);
-      this.db.prepare("DELETE FROM growth_stimulators WHERE id = ?").run(stim.id);
-      this.db
-        .prepare("UPDATE eggs SET hatch_deadline_ms = @deadline WHERE id = @id")
-        .run({ deadline: newDeadline, id: eggId });
-      this.touchProfile(profile.id, nowMs);
-      return {
-        id: eggRow.id,
-        profileId: eggRow.profile_id,
-        hatchDeadlineMs: newDeadline,
-        createdAt: eggRow.created_at,
-      };
-    });
-    return run();
+  async applyStimulator(nickname: string, eggId: number, nowMs: number = Date.now()): Promise<EconomyEgg> {
+    const profile = await this.getOrCreateProfile(nickname);
+    const doc = (await this.loadDoc(profile.nicknameKey))!;
+    const egg = doc.eggs.find((e) => e.id === eggId);
+    if (!egg) {
+      await this.assertItemOwnedOrThrow("egg", eggId, doc.nicknameKey, `egg ${eggId} not found`);
+      throw new EconomyActionError("not_found", `egg ${eggId} not found`);
+    }
+    if (isEggReady(egg.hatchDeadlineMs, nowMs)) {
+      throw new EconomyActionError("already_ready", "egg is already ready to hatch");
+    }
+    const stim = doc.stimulators[0];
+    if (!stim) {
+      throw new EconomyActionError("no_stimulator", "no growth stimulator available");
+    }
+    const newDeadline = applyStimulatorDeadline(egg.hatchDeadlineMs, nowMs);
+    doc.stimulators = doc.stimulators.slice(1);
+    egg.hatchDeadlineMs = newDeadline;
+    doc.updatedAt = nowMs;
+    await this.saveDoc(doc);
+    return this.eggFromDoc(doc, egg);
   }
 
-  hatchEgg(
+  async hatchEgg(
     nickname: string,
     eggId: number,
     nowMs: number = Date.now(),
     opts?: { type?: PetType; baseValue?: number },
-  ): EconomyPet {
-    const profile = this.getOrCreateProfile(nickname);
-    const run = this.db.transaction(() => {
-      const eggRow = this.db
-        .prepare(
-          `SELECT id, profile_id, hatch_deadline_ms, created_at FROM eggs WHERE id = ?`,
-        )
-        .get(eggId) as EggRow | undefined;
-      if (!eggRow) {
-        throw new EconomyActionError("not_found", `egg ${eggId} not found`);
-      }
-      if (eggRow.profile_id !== profile.id) {
-        throw new EconomyActionError("cross_profile", "egg belongs to another profile");
-      }
-      if (!isEggReady(eggRow.hatch_deadline_ms, nowMs)) {
-        throw new EconomyActionError("not_ready", "egg is still incubating");
-      }
-      if (this.countPets(profile.id) >= ECONOMY_CAPS.pets) {
-        throw new EconomyActionError("pet_cap", "pet cap reached");
-      }
-      const type = opts?.type ?? randomPetType();
-      const baseValue = opts?.baseValue ?? randomBaseValue();
-      if (!PET_TYPES.includes(type) || baseValue < 1 || baseValue > 200) {
-        throw new Error(`invalid hatch pet type/value: ${type}/${baseValue}`);
-      }
-      this.db.prepare("DELETE FROM eggs WHERE id = ?").run(eggId);
-      const result = this.db
-        .prepare(
-          `INSERT INTO pets (profile_id, type, base_value, equip_slot, created_at)
-           VALUES (@profile_id, @type, @base_value, NULL, @created_at)`,
-        )
-        .run({
-          profile_id: profile.id,
-          type,
-          base_value: baseValue,
-          created_at: nowMs,
-        });
-      this.touchProfile(profile.id, nowMs);
-      return {
-        id: Number(result.lastInsertRowid),
-        profileId: profile.id,
-        type,
-        baseValue,
-        equipSlot: null as 1 | 2 | null,
-        createdAt: nowMs,
-      };
-    });
-    return run();
+  ): Promise<EconomyPet> {
+    const profile = await this.getOrCreateProfile(nickname);
+    const doc = (await this.loadDoc(profile.nicknameKey))!;
+    const eggIndex = doc.eggs.findIndex((e) => e.id === eggId);
+    if (eggIndex < 0) {
+      await this.assertItemOwnedOrThrow("egg", eggId, doc.nicknameKey, `egg ${eggId} not found`);
+      throw new EconomyActionError("not_found", `egg ${eggId} not found`);
+    }
+    const egg = doc.eggs[eggIndex]!;
+    if (!isEggReady(egg.hatchDeadlineMs, nowMs)) {
+      throw new EconomyActionError("not_ready", "egg is still incubating");
+    }
+    if (doc.pets.length >= ECONOMY_CAPS.pets) {
+      throw new EconomyActionError("pet_cap", "pet cap reached");
+    }
+    const type = opts?.type ?? randomPetType();
+    const baseValue = opts?.baseValue ?? randomBaseValue();
+    if (!PET_TYPES.includes(type) || baseValue < 1 || baseValue > 200) {
+      throw new Error(`invalid hatch pet type/value: ${type}/${baseValue}`);
+    }
+    doc.eggs.splice(eggIndex, 1);
+    await this.unbindItemOwner("egg", eggId);
+    const id = doc.nextPetId++;
+    const pet = {
+      id,
+      type,
+      baseValue,
+      equipSlot: null as 1 | 2 | null,
+      createdAt: nowMs,
+    };
+    doc.pets.push(pet);
+    doc.updatedAt = nowMs;
+    await this.saveDoc(doc);
+    await this.bindItemOwner("pet", id, doc.nicknameKey);
+    return this.petFromDoc(doc, pet);
   }
 
-  equipPet(nickname: string, petId: number, slot: number, nowMs: number = Date.now()): EconomyPet {
+  async equipPet(
+    nickname: string,
+    petId: number,
+    slot: number,
+    nowMs: number = Date.now(),
+  ): Promise<EconomyPet> {
     if (slot !== 1 && slot !== 2) {
       throw new EconomyActionError("invalid_slot", `invalid equip slot ${slot}`);
     }
-    const profile = this.getOrCreateProfile(nickname);
-    if (slot === 2 && !this.isSlot2Enabled(profile.id)) {
+    const profile = await this.getOrCreateProfile(nickname);
+    const doc = (await this.loadDoc(profile.nicknameKey))!;
+    if (slot === 2 && !this.isSlot2EnabledDoc(doc)) {
       throw new EconomyActionError("slot2_disabled", "pet slot 2 requires an equipped amulet");
     }
-    const run = this.db.transaction(() => {
-      const petRow = this.db
-        .prepare(
-          `SELECT id, profile_id, type, base_value, equip_slot, created_at FROM pets WHERE id = ?`,
-        )
-        .get(petId) as PetRow | undefined;
-      if (!petRow) {
-        throw new EconomyActionError("not_found", `pet ${petId} not found`);
-      }
-      if (petRow.profile_id !== profile.id) {
-        throw new EconomyActionError("cross_profile", "pet belongs to another profile");
-      }
-      this.db
-        .prepare("UPDATE pets SET equip_slot = NULL WHERE profile_id = ? AND equip_slot = ?")
-        .run(profile.id, slot);
-      this.db.prepare("UPDATE pets SET equip_slot = ? WHERE id = ?").run(slot, petId);
-      this.touchProfile(profile.id, nowMs);
-      return rowToPet({ ...petRow, equip_slot: slot });
-    });
-    return run();
+    const pet = doc.pets.find((p) => p.id === petId);
+    if (!pet) {
+      await this.assertItemOwnedOrThrow("pet", petId, doc.nicknameKey, `pet ${petId} not found`);
+      throw new EconomyActionError("not_found", `pet ${petId} not found`);
+    }
+    for (const p of doc.pets) {
+      if (p.equipSlot === slot) p.equipSlot = null;
+    }
+    pet.equipSlot = slot;
+    doc.updatedAt = nowMs;
+    await this.saveDoc(doc);
+    return this.petFromDoc(doc, pet);
   }
 
-  unequipPet(nickname: string, petId: number, nowMs: number = Date.now()): EconomyPet {
-    const profile = this.getOrCreateProfile(nickname);
-    const run = this.db.transaction(() => {
-      const petRow = this.db
-        .prepare(
-          `SELECT id, profile_id, type, base_value, equip_slot, created_at FROM pets WHERE id = ?`,
-        )
-        .get(petId) as PetRow | undefined;
-      if (!petRow) {
-        throw new EconomyActionError("not_found", `pet ${petId} not found`);
-      }
-      if (petRow.profile_id !== profile.id) {
-        throw new EconomyActionError("cross_profile", "pet belongs to another profile");
-      }
-      this.db.prepare("UPDATE pets SET equip_slot = NULL WHERE id = ?").run(petId);
-      this.touchProfile(profile.id, nowMs);
-      return rowToPet({ ...petRow, equip_slot: null });
-    });
-    return run();
+  async unequipPet(nickname: string, petId: number, nowMs: number = Date.now()): Promise<EconomyPet> {
+    const profile = await this.getOrCreateProfile(nickname);
+    const doc = (await this.loadDoc(profile.nicknameKey))!;
+    const pet = doc.pets.find((p) => p.id === petId);
+    if (!pet) {
+      await this.assertItemOwnedOrThrow("pet", petId, doc.nicknameKey, `pet ${petId} not found`);
+      throw new EconomyActionError("not_found", `pet ${petId} not found`);
+    }
+    pet.equipSlot = null;
+    doc.updatedAt = nowMs;
+    await this.saveDoc(doc);
+    return this.petFromDoc(doc, pet);
   }
 
-  socketGem(nickname: string, gemId: number, petId: number, nowMs: number = Date.now()): EconomyGem {
-    const profile = this.getOrCreateProfile(nickname);
-    const run = this.db.transaction(() => {
-      const gemRow = this.db
-        .prepare(
-          `SELECT id, profile_id, type, value, pet_id, created_at FROM gems WHERE id = ?`,
-        )
-        .get(gemId) as GemRow | undefined;
-      if (!gemRow) {
-        throw new EconomyActionError("not_found", `gem ${gemId} not found`);
-      }
-      if (gemRow.profile_id !== profile.id) {
-        throw new EconomyActionError("cross_profile", "gem belongs to another profile");
-      }
-      if (gemRow.pet_id !== null) {
-        throw new EconomyActionError("already_socketed", "gem is already socketed");
-      }
-      const petRow = this.db
-        .prepare(
-          `SELECT id, profile_id, type, base_value, equip_slot, created_at FROM pets WHERE id = ?`,
-        )
-        .get(petId) as PetRow | undefined;
-      if (!petRow) {
-        throw new EconomyActionError("not_found", `pet ${petId} not found`);
-      }
-      if (petRow.profile_id !== profile.id) {
-        throw new EconomyActionError("cross_profile", "pet belongs to another profile");
-      }
-      const occupied = this.db
-        .prepare("SELECT id FROM gems WHERE pet_id = ? AND type = ?")
-        .get(petId, gemRow.type) as { id: number } | undefined;
-      if (occupied) {
-        throw new EconomyActionError("type_occupied", `pet already has a ${gemRow.type} gem`);
-      }
-      this.db.prepare("UPDATE gems SET pet_id = ? WHERE id = ?").run(petId, gemId);
-      this.touchProfile(profile.id, nowMs);
-      return rowToGem({ ...gemRow, pet_id: petId });
-    });
-    return run();
+  async socketGem(
+    nickname: string,
+    gemId: number,
+    petId: number,
+    nowMs: number = Date.now(),
+  ): Promise<EconomyGem> {
+    const profile = await this.getOrCreateProfile(nickname);
+    const doc = (await this.loadDoc(profile.nicknameKey))!;
+    const gem = doc.gems.find((g) => g.id === gemId);
+    if (!gem) {
+      await this.assertItemOwnedOrThrow("gem", gemId, doc.nicknameKey, `gem ${gemId} not found`);
+      throw new EconomyActionError("not_found", `gem ${gemId} not found`);
+    }
+    if (gem.petId !== null) {
+      throw new EconomyActionError("already_socketed", "gem is already socketed");
+    }
+    const pet = doc.pets.find((p) => p.id === petId);
+    if (!pet) {
+      await this.assertItemOwnedOrThrow("pet", petId, doc.nicknameKey, `pet ${petId} not found`);
+      throw new EconomyActionError("not_found", `pet ${petId} not found`);
+    }
+    if (doc.gems.some((g) => g.petId === petId && g.gemType === gem.gemType)) {
+      throw new EconomyActionError("type_occupied", `pet already has a ${gem.gemType} gem`);
+    }
+    gem.petId = petId;
+    doc.updatedAt = nowMs;
+    await this.saveDoc(doc);
+    return this.gemFromDoc(doc, gem);
   }
 
-  unsocketGem(nickname: string, gemId: number, nowMs: number = Date.now()): EconomyGem {
-    const profile = this.getOrCreateProfile(nickname);
-    const run = this.db.transaction(() => {
-      const gemRow = this.db
-        .prepare(
-          `SELECT id, profile_id, type, value, pet_id, created_at FROM gems WHERE id = ?`,
-        )
-        .get(gemId) as GemRow | undefined;
-      if (!gemRow) {
-        throw new EconomyActionError("not_found", `gem ${gemId} not found`);
-      }
-      if (gemRow.profile_id !== profile.id) {
-        throw new EconomyActionError("cross_profile", "gem belongs to another profile");
-      }
-      if (gemRow.pet_id === null) {
-        throw new EconomyActionError("not_socketed", "gem is not socketed");
-      }
-      // Cap check on remove: always true when moving to bag (same profile gem count).
-      if (this.countGems(profile.id) > ECONOMY_CAPS.gems) {
-        throw new EconomyActionError("gem_cap", "gem cap exceeded");
-      }
-      this.db.prepare("UPDATE gems SET pet_id = NULL WHERE id = ?").run(gemId);
-      this.touchProfile(profile.id, nowMs);
-      return rowToGem({ ...gemRow, pet_id: null });
-    });
-    return run();
+  async unsocketGem(nickname: string, gemId: number, nowMs: number = Date.now()): Promise<EconomyGem> {
+    const profile = await this.getOrCreateProfile(nickname);
+    const doc = (await this.loadDoc(profile.nicknameKey))!;
+    const gem = doc.gems.find((g) => g.id === gemId);
+    if (!gem) {
+      await this.assertItemOwnedOrThrow("gem", gemId, doc.nicknameKey, `gem ${gemId} not found`);
+      throw new EconomyActionError("not_found", `gem ${gemId} not found`);
+    }
+    if (gem.petId === null) {
+      throw new EconomyActionError("not_socketed", "gem is not socketed");
+    }
+    if (doc.gems.length > ECONOMY_CAPS.gems) {
+      throw new EconomyActionError("gem_cap", "gem cap exceeded");
+    }
+    gem.petId = null;
+    doc.updatedAt = nowMs;
+    await this.saveDoc(doc);
+    return this.gemFromDoc(doc, gem);
   }
 
-  equipAmulet(nickname: string, amuletId: number, nowMs: number = Date.now()): EconomyAmulet {
-    const profile = this.getOrCreateProfile(nickname);
-    const run = this.db.transaction(() => {
-      const row = this.db
-        .prepare(
-          `SELECT id, profile_id, durability, equipped, created_at FROM amulets WHERE id = ?`,
-        )
-        .get(amuletId) as AmuletRow | undefined;
-      if (!row) {
-        throw new EconomyActionError("not_found", `amulet ${amuletId} not found`);
-      }
-      if (row.profile_id !== profile.id) {
-        throw new EconomyActionError("cross_profile", "amulet belongs to another profile");
-      }
-      if (row.equipped === 1) {
-        throw new EconomyActionError("already_equipped", "amulet already equipped");
-      }
-      this.db
-        .prepare("UPDATE amulets SET equipped = 0 WHERE profile_id = ? AND equipped = 1")
-        .run(profile.id);
-      this.db.prepare("UPDATE amulets SET equipped = 1 WHERE id = ?").run(amuletId);
-      this.touchProfile(profile.id, nowMs);
-      return rowToAmulet({ ...row, equipped: 1 });
-    });
-    return run();
+  async equipAmulet(
+    nickname: string,
+    amuletId: number,
+    nowMs: number = Date.now(),
+  ): Promise<EconomyAmulet> {
+    const profile = await this.getOrCreateProfile(nickname);
+    const doc = (await this.loadDoc(profile.nicknameKey))!;
+    const amulet = doc.amulets.find((a) => a.id === amuletId);
+    if (!amulet) {
+      await this.assertItemOwnedOrThrow("amulet", amuletId, doc.nicknameKey, `amulet ${amuletId} not found`);
+      throw new EconomyActionError("not_found", `amulet ${amuletId} not found`);
+    }
+    if (amulet.equipped) {
+      throw new EconomyActionError("already_equipped", "amulet already equipped");
+    }
+    for (const a of doc.amulets) a.equipped = false;
+    amulet.equipped = true;
+    doc.updatedAt = nowMs;
+    await this.saveDoc(doc);
+    return this.amuletFromDoc(doc, amulet);
   }
 
-  unequipAmulet(nickname: string, amuletId: number, nowMs: number = Date.now()): EconomyAmulet {
-    const profile = this.getOrCreateProfile(nickname);
-    const run = this.db.transaction(() => {
-      const row = this.db
-        .prepare(
-          `SELECT id, profile_id, durability, equipped, created_at FROM amulets WHERE id = ?`,
-        )
-        .get(amuletId) as AmuletRow | undefined;
-      if (!row) {
-        throw new EconomyActionError("not_found", `amulet ${amuletId} not found`);
-      }
-      if (row.profile_id !== profile.id) {
-        throw new EconomyActionError("cross_profile", "amulet belongs to another profile");
-      }
-      if (row.equipped !== 1) {
-        throw new EconomyActionError("not_equipped", "amulet is not equipped");
-      }
-      this.db.prepare("UPDATE amulets SET equipped = 0 WHERE id = ?").run(amuletId);
-      // Force unequip pet in slot 2 when amulet removed.
-      this.db
-        .prepare("UPDATE pets SET equip_slot = NULL WHERE profile_id = ? AND equip_slot = 2")
-        .run(profile.id);
-      this.touchProfile(profile.id, nowMs);
-      return rowToAmulet({ ...row, equipped: 0 });
-    });
-    return run();
+  async unequipAmulet(
+    nickname: string,
+    amuletId: number,
+    nowMs: number = Date.now(),
+  ): Promise<EconomyAmulet> {
+    const profile = await this.getOrCreateProfile(nickname);
+    const doc = (await this.loadDoc(profile.nicknameKey))!;
+    const amulet = doc.amulets.find((a) => a.id === amuletId);
+    if (!amulet) {
+      await this.assertItemOwnedOrThrow("amulet", amuletId, doc.nicknameKey, `amulet ${amuletId} not found`);
+      throw new EconomyActionError("not_found", `amulet ${amuletId} not found`);
+    }
+    if (!amulet.equipped) {
+      throw new EconomyActionError("not_equipped", "amulet is not equipped");
+    }
+    amulet.equipped = false;
+    for (const p of doc.pets) {
+      if (p.equipSlot === 2) p.equipSlot = null;
+    }
+    doc.updatedAt = nowMs;
+    await this.saveDoc(doc);
+    return this.amuletFromDoc(doc, amulet);
   }
 
-  craftAmulet(nickname: string, nowMs: number = Date.now()): EconomyAmulet {
-    const profile = this.getOrCreateProfile(nickname);
-    const run = this.db.transaction(() => {
-      if (this.countAmulets(profile.id) >= ECONOMY_CAPS.amulets) {
-        throw new EconomyActionError("amulet_cap", "amulet cap reached");
-      }
-      const shards = this.getShardCount(profile.id);
-      if (shards < ECONOMY_CAPS.amuletCraftShards) {
-        throw new EconomyActionError("insufficient_shards", "need 10 shards to craft an amulet");
-      }
-      const next = shards - ECONOMY_CAPS.amuletCraftShards;
-      this.db
-        .prepare(
-          `INSERT INTO shards (profile_id, count) VALUES (@profile_id, @count)
-           ON CONFLICT(profile_id) DO UPDATE SET count = @count`,
-        )
-        .run({ profile_id: profile.id, count: next });
-      const result = this.db
-        .prepare(
-          `INSERT INTO amulets (profile_id, durability, equipped, created_at)
-           VALUES (@profile_id, @durability, 0, @created_at)`,
-        )
-        .run({
-          profile_id: profile.id,
-          durability: ECONOMY_CAPS.amuletDurabilityMax,
-          created_at: nowMs,
-        });
-      this.touchProfile(profile.id, nowMs);
-      return {
-        id: Number(result.lastInsertRowid),
-        profileId: profile.id,
-        durability: ECONOMY_CAPS.amuletDurabilityMax,
-        equipped: false,
-        createdAt: nowMs,
-      };
-    });
-    return run();
+  async craftAmulet(nickname: string, nowMs: number = Date.now()): Promise<EconomyAmulet> {
+    const profile = await this.getOrCreateProfile(nickname);
+    const doc = (await this.loadDoc(profile.nicknameKey))!;
+    if (doc.amulets.length >= ECONOMY_CAPS.amulets) {
+      throw new EconomyActionError("amulet_cap", "amulet cap reached");
+    }
+    if (doc.shardCount < ECONOMY_CAPS.amuletCraftShards) {
+      throw new EconomyActionError("insufficient_shards", "need 10 shards to craft an amulet");
+    }
+    doc.shardCount -= ECONOMY_CAPS.amuletCraftShards;
+    const id = doc.nextAmuletId++;
+    const amulet = {
+      id,
+      durability: ECONOMY_CAPS.amuletDurabilityMax,
+      equipped: false,
+      createdAt: nowMs,
+    };
+    doc.amulets.push(amulet);
+    doc.updatedAt = nowMs;
+    await this.saveDoc(doc);
+    await this.bindItemOwner("amulet", id, doc.nicknameKey);
+    return this.amuletFromDoc(doc, amulet);
   }
 
-  repairAmulet(nickname: string, amuletId: number, nowMs: number = Date.now()): EconomyAmulet {
-    const profile = this.getOrCreateProfile(nickname);
-    const run = this.db.transaction(() => {
-      const row = this.db
-        .prepare(
-          `SELECT id, profile_id, durability, equipped, created_at FROM amulets WHERE id = ?`,
-        )
-        .get(amuletId) as AmuletRow | undefined;
-      if (!row) {
-        throw new EconomyActionError("not_found", `amulet ${amuletId} not found`);
-      }
-      if (row.profile_id !== profile.id) {
-        throw new EconomyActionError("cross_profile", "amulet belongs to another profile");
-      }
-      const kit = this.db
-        .prepare("SELECT id FROM repair_kits WHERE profile_id = ? ORDER BY id ASC LIMIT 1")
-        .get(profile.id) as { id: number } | undefined;
-      if (!kit) {
-        throw new EconomyActionError("no_repair_kit", "no repair kit available");
-      }
-      const nextDur = Math.min(ECONOMY_CAPS.amuletDurabilityMax, row.durability + 1);
-      this.db.prepare("DELETE FROM repair_kits WHERE id = ?").run(kit.id);
-      this.db.prepare("UPDATE amulets SET durability = ? WHERE id = ?").run(nextDur, amuletId);
-      this.touchProfile(profile.id, nowMs);
-      return rowToAmulet({ ...row, durability: nextDur });
-    });
-    return run();
+  async repairAmulet(
+    nickname: string,
+    amuletId: number,
+    nowMs: number = Date.now(),
+  ): Promise<EconomyAmulet> {
+    const profile = await this.getOrCreateProfile(nickname);
+    const doc = (await this.loadDoc(profile.nicknameKey))!;
+    const amulet = doc.amulets.find((a) => a.id === amuletId);
+    if (!amulet) {
+      await this.assertItemOwnedOrThrow("amulet", amuletId, doc.nicknameKey, `amulet ${amuletId} not found`);
+      throw new EconomyActionError("not_found", `amulet ${amuletId} not found`);
+    }
+    const kit = doc.repairKits[0];
+    if (!kit) {
+      throw new EconomyActionError("no_repair_kit", "no repair kit available");
+    }
+    doc.repairKits = doc.repairKits.slice(1);
+    amulet.durability = Math.min(ECONOMY_CAPS.amuletDurabilityMax, amulet.durability + 1);
+    doc.updatedAt = nowMs;
+    await this.saveDoc(doc);
+    return this.amuletFromDoc(doc, amulet);
   }
 
-  /**
-   * Human death penalties (EPIC 25 §2.4): equipped amulet durability −1
-   * (destroy at 0); each pet that was active at death (slot 1 or 2) and its
-   * socketed gems lose 10% effectiveness (floor, min 1). Slot-2 unequip runs
-   * AFTER decay so a destroyed amulet does not skip the slot-2 pet (Critic F-002).
-   * Bots must not call this.
-   */
-  applyHumanDeathPenalties(
+  async applyHumanDeathPenalties(
     nickname: string,
     nowMs: number = Date.now(),
-  ): {
+  ): Promise<{
     amuletDestroyed: boolean;
     durabilityAfter: number | null;
     petsDecayed: number;
     gemsDecayed: number;
-  } {
-    const profile = this.getOrCreateProfile(nickname);
-    const run = this.db.transaction(() => {
-      let amuletDestroyed = false;
-      let durabilityAfter: number | null = null;
-      let petsDecayed = 0;
-      let gemsDecayed = 0;
+  }> {
+    const profile = await this.getOrCreateProfile(nickname);
+    const doc = cloneDocument((await this.loadDoc(profile.nicknameKey))!);
 
-      // Snapshot active pets before amulet destroy / slot2 unequip (F-002).
-      const activePets = this.db
-        .prepare(
-          `SELECT id, profile_id, type, base_value, equip_slot, created_at FROM pets
-           WHERE profile_id = ? AND equip_slot IN (1, 2)`,
-        )
-        .all(profile.id) as PetRow[];
+    let amuletDestroyed = false;
+    let durabilityAfter: number | null = null;
+    let petsDecayed = 0;
+    let gemsDecayed = 0;
 
-      const equipped = this.db
-        .prepare(
-          `SELECT id, profile_id, durability, equipped, created_at FROM amulets
-           WHERE profile_id = ? AND equipped = 1 LIMIT 1`,
-        )
-        .get(profile.id) as AmuletRow | undefined;
-      if (equipped) {
-        const next = equipped.durability - 1;
-        if (next <= 0) {
-          this.db.prepare("DELETE FROM amulets WHERE id = ?").run(equipped.id);
-          amuletDestroyed = true;
-          durabilityAfter = 0;
-        } else {
-          this.db.prepare("UPDATE amulets SET durability = ? WHERE id = ?").run(next, equipped.id);
-          durabilityAfter = next;
+    const activePets = doc.pets.filter((p) => p.equipSlot === 1 || p.equipSlot === 2);
+
+    const equipped = doc.amulets.find((a) => a.equipped);
+    if (equipped) {
+      const next = equipped.durability - 1;
+      if (next <= 0) {
+        doc.amulets = doc.amulets.filter((a) => a.id !== equipped.id);
+        amuletDestroyed = true;
+        durabilityAfter = 0;
+        await this.unbindItemOwner("amulet", equipped.id);
+      } else {
+        equipped.durability = next;
+        durabilityAfter = next;
+      }
+    }
+
+    for (const pet of activePets) {
+      const nextBase = applyDeathEffectivenessDecay(pet.baseValue);
+      if (nextBase !== pet.baseValue) {
+        pet.baseValue = nextBase;
+        petsDecayed += 1;
+      }
+      for (const gem of doc.gems.filter((g) => g.petId === pet.id)) {
+        const nextVal = applyDeathEffectivenessDecay(gem.value);
+        if (nextVal !== gem.value) {
+          gem.value = nextVal;
+          gemsDecayed += 1;
         }
       }
+    }
 
-      for (const pet of activePets) {
-        const nextBase = applyDeathEffectivenessDecay(pet.base_value);
-        if (nextBase !== pet.base_value) {
-          this.db.prepare("UPDATE pets SET base_value = ? WHERE id = ?").run(nextBase, pet.id);
-          petsDecayed += 1;
-        }
-        const gems = this.db
-          .prepare(
-            `SELECT id, profile_id, type, value, pet_id, created_at FROM gems WHERE pet_id = ?`,
-          )
-          .all(pet.id) as GemRow[];
-        for (const gem of gems) {
-          const nextVal = applyDeathEffectivenessDecay(gem.value);
-          if (nextVal !== gem.value) {
-            this.db.prepare("UPDATE gems SET value = ? WHERE id = ?").run(nextVal, gem.id);
-            gemsDecayed += 1;
-          }
-        }
+    if (amuletDestroyed) {
+      for (const p of doc.pets) {
+        if (p.equipSlot === 2) p.equipSlot = null;
       }
+    }
 
-      // Unequip slot 2 only after decay so the former slot-2 pet still loses 10%.
-      if (amuletDestroyed) {
-        this.db
-          .prepare("UPDATE pets SET equip_slot = NULL WHERE profile_id = ? AND equip_slot = 2")
-          .run(profile.id);
-      }
-
-      this.touchProfile(profile.id, nowMs);
-      return { amuletDestroyed, durabilityAfter, petsDecayed, gemsDecayed };
-    });
-    return run();
+    doc.updatedAt = nowMs;
+    await this.saveDoc(doc);
+    return { amuletDestroyed, durabilityAfter, petsDecayed, gemsDecayed };
   }
 
-  /** Ratings for an already-known nickname key (no create). */
-  getRatingsForKey(nicknameKey: string): ProfileRatings {
-    const profile = this.getProfile(nicknameKey);
-    if (!profile) return emptyRatings();
-    return this.computeRatings(profile.id);
+  async getRatingsForKey(nicknameKey: string): Promise<ProfileRatings> {
+    const doc = await this.loadDoc(nicknameKey);
+    if (!doc) return emptyRatings();
+    return this.computeRatings(doc);
   }
 
-  /** Test helper: grant a pet directly without egg. */
-  grantPetForTests(
+  async grantPetForTests(
     nickname: string,
     type: PetType,
     baseValue: number,
     nowMs: number = Date.now(),
-  ): EconomyPet {
-    const profile = this.getOrCreateProfile(nickname);
-    if (this.countPets(profile.id) >= ECONOMY_CAPS.pets) {
+  ): Promise<EconomyPet> {
+    const profile = await this.getOrCreateProfile(nickname);
+    const doc = (await this.loadDoc(profile.nicknameKey))!;
+    if (doc.pets.length >= ECONOMY_CAPS.pets) {
       throw new EconomyActionError("pet_cap", "pet cap reached");
     }
-    const result = this.db
-      .prepare(
-        `INSERT INTO pets (profile_id, type, base_value, equip_slot, created_at)
-         VALUES (@profile_id, @type, @base_value, NULL, @created_at)`,
-      )
-      .run({
-        profile_id: profile.id,
-        type,
-        base_value: baseValue,
-        created_at: nowMs,
-      });
-    this.touchProfile(profile.id, nowMs);
-    return {
-      id: Number(result.lastInsertRowid),
-      profileId: profile.id,
+    const id = doc.nextPetId++;
+    const pet = {
+      id,
       type,
       baseValue,
-      equipSlot: null,
+      equipSlot: null as 1 | 2 | null,
       createdAt: nowMs,
     };
-  }
-
-  private touchProfile(profileId: number, nowMs: number): void {
-    this.db.prepare("UPDATE profiles SET updated_at = ? WHERE id = ?").run(nowMs, profileId);
+    doc.pets.push(pet);
+    doc.updatedAt = nowMs;
+    await this.saveDoc(doc);
+    await this.bindItemOwner("pet", id, doc.nicknameKey);
+    return this.petFromDoc(doc, pet);
   }
 }

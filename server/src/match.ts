@@ -185,14 +185,14 @@ export class Match {
     return this.registry.hasNicknameKey(nicknameKey);
   }
 
-  addHuman(connectionId: string, socket: WebSocket, nickname: string, nicknameKey: string): void {
+  async addHuman(connectionId: string, socket: WebSocket, nickname: string, nicknameKey: string): Promise<void> {
     this.sockets.set(connectionId, socket);
     if (this.mode === "endless") this.endlessHumanId = connectionId;
     this.registry.spawn(connectionId, nickname, nicknameKey);
-    this.applyEconomyCombatToPlayer(connectionId, nickname);
+    await this.applyEconomyCombatToPlayer(connectionId, nickname);
     this.sendMapState();
     this.sendLoadout(connectionId);
-    this.sendEconomyProfile(connectionId, nickname);
+    await this.sendEconomyProfile(connectionId, nickname);
     this.broadcastScoreboard();
     this.broadcastPickupState();
     this.sendEndlessState();
@@ -274,12 +274,12 @@ export class Match {
   }
 
   /** Send durable economy snapshot to the owning human socket only (EPIC 23–25). */
-  sendEconomyProfile(playerId: string, nickname: string): void {
+  async sendEconomyProfile(playerId: string, nickname: string): Promise<void> {
     const economy = this.options.economy;
     if (!economy) return;
     const socket = this.sockets.get(playerId);
     if (!socket || socket.readyState !== socket.OPEN) return;
-    const profile = economy.getFullProfile(nickname);
+    const profile = await economy.getFullProfile(nickname);
     const message: EconomyProfileMessage = {
       type: "economy_profile",
       nickname: profile.nickname,
@@ -334,10 +334,10 @@ export class Match {
   }
 
   /** Push equipped pet ratings into the live PlayerRecord (EPIC 24). */
-  applyEconomyCombatToPlayer(playerId: string, nickname: string): void {
+  async applyEconomyCombatToPlayer(playerId: string, nickname: string): Promise<void> {
     const economy = this.options.economy;
     if (!economy) return;
-    const full = economy.getFullProfile(nickname);
+    const full = await economy.getFullProfile(nickname);
     this.registry.applyPetRatings(playerId, full.ratings);
   }
 
@@ -345,7 +345,7 @@ export class Match {
    * Handle an economy action from the owning connection. Validates ownership
    * server-side; rejects cross-profile ids and slot 2 without an amulet.
    */
-  handleEconomyAction(
+  async handleEconomyAction(
     playerId: string,
     nickname: string,
     action: EconomyActionResultMessage["action"],
@@ -356,7 +356,7 @@ export class Match {
       gemId?: number;
       amuletId?: number;
     },
-  ): void {
+  ): Promise<void> {
     const economy = this.options.economy;
     if (!economy) {
       this.sendEconomyActionResult(playerId, action, false, "not_found");
@@ -369,25 +369,25 @@ export class Match {
           return;
         }
         const slot = payload.slot ?? 1;
-        economy.equipPet(nickname, payload.petId, slot);
+        await economy.equipPet(nickname, payload.petId, slot);
       } else if (action === "unequip") {
         if (typeof payload.petId !== "number" || !Number.isInteger(payload.petId)) {
           this.sendEconomyActionResult(playerId, action, false, "not_found");
           return;
         }
-        economy.unequipPet(nickname, payload.petId);
+        await economy.unequipPet(nickname, payload.petId);
       } else if (action === "hatch") {
         if (typeof payload.eggId !== "number" || !Number.isInteger(payload.eggId)) {
           this.sendEconomyActionResult(playerId, action, false, "not_found");
           return;
         }
-        economy.hatchEgg(nickname, payload.eggId);
+        await economy.hatchEgg(nickname, payload.eggId);
       } else if (action === "stimulator") {
         if (typeof payload.eggId !== "number" || !Number.isInteger(payload.eggId)) {
           this.sendEconomyActionResult(playerId, action, false, "not_found");
           return;
         }
-        economy.applyStimulator(nickname, payload.eggId);
+        await economy.applyStimulator(nickname, payload.eggId);
       } else if (action === "socket_gem") {
         if (
           typeof payload.gemId !== "number" ||
@@ -398,37 +398,37 @@ export class Match {
           this.sendEconomyActionResult(playerId, action, false, "not_found");
           return;
         }
-        economy.socketGem(nickname, payload.gemId, payload.petId);
+        await economy.socketGem(nickname, payload.gemId, payload.petId);
       } else if (action === "unsocket_gem") {
         if (typeof payload.gemId !== "number" || !Number.isInteger(payload.gemId)) {
           this.sendEconomyActionResult(playerId, action, false, "not_found");
           return;
         }
-        economy.unsocketGem(nickname, payload.gemId);
+        await economy.unsocketGem(nickname, payload.gemId);
       } else if (action === "equip_amulet") {
         if (typeof payload.amuletId !== "number" || !Number.isInteger(payload.amuletId)) {
           this.sendEconomyActionResult(playerId, action, false, "not_found");
           return;
         }
-        economy.equipAmulet(nickname, payload.amuletId);
+        await economy.equipAmulet(nickname, payload.amuletId);
       } else if (action === "unequip_amulet") {
         if (typeof payload.amuletId !== "number" || !Number.isInteger(payload.amuletId)) {
           this.sendEconomyActionResult(playerId, action, false, "not_found");
           return;
         }
-        economy.unequipAmulet(nickname, payload.amuletId);
+        await economy.unequipAmulet(nickname, payload.amuletId);
       } else if (action === "craft_amulet") {
-        economy.craftAmulet(nickname);
+        await economy.craftAmulet(nickname);
       } else if (action === "repair_amulet") {
         if (typeof payload.amuletId !== "number" || !Number.isInteger(payload.amuletId)) {
           this.sendEconomyActionResult(playerId, action, false, "not_found");
           return;
         }
-        economy.repairAmulet(nickname, payload.amuletId);
+        await economy.repairAmulet(nickname, payload.amuletId);
       }
-      this.applyEconomyCombatToPlayer(playerId, nickname);
+      await this.applyEconomyCombatToPlayer(playerId, nickname);
       this.sendEconomyActionResult(playerId, action, true);
-      this.sendEconomyProfile(playerId, nickname);
+      await this.sendEconomyProfile(playerId, nickname);
       console.log(`[economy] ${action} ok for ${nickname} [match=${this.id}]`);
     } catch (err) {
       const code =
@@ -445,16 +445,16 @@ export class Match {
    * apply amulet durability loss + 10% active-pet/gem effectiveness decay.
    * Never applied to bots.
    */
-  private applyHumanDeathEconomyPenalties(victimId: string): void {
+  private async applyHumanDeathEconomyPenalties(victimId: string): Promise<void> {
     const economy = this.options.economy;
     if (!economy) return;
     if (!this.sockets.has(victimId)) return;
     if (this.botAI?.isBot(victimId)) return;
     const victim = this.registry.getPlayer(victimId);
     if (!victim) return;
-    const result = economy.applyHumanDeathPenalties(victim.nickname);
-    this.applyEconomyCombatToPlayer(victimId, victim.nickname);
-    this.sendEconomyProfile(victimId, victim.nickname);
+    const result = await economy.applyHumanDeathPenalties(victim.nickname);
+    await this.applyEconomyCombatToPlayer(victimId, victim.nickname);
+    await this.sendEconomyProfile(victimId, victim.nickname);
     console.log(
       `[economy] death penalties -> ${victim.nickname}` +
         ` amuletDestroyed=${result.amuletDestroyed}` +
@@ -471,7 +471,7 @@ export class Match {
    * Overflow (rolled item cannot grant) substitutes additional gold.
    * Skips fog deaths, self-kills, and non-human shooters (bots have no socket).
    */
-  private grantKillGold(shooterId: string, victimId: string): void {
+  private async grantKillGold(shooterId: string, victimId: string): Promise<void> {
     const economy = this.options.economy;
     if (!economy) return;
     if (shooterId === "fog" || shooterId === victimId) return;
@@ -482,7 +482,7 @@ export class Match {
     if (!killer) return;
 
     const primaryGained = randomInt(GOLD_DROP_MIN, GOLD_DROP_MAX + 1);
-    economy.addGold(killer.nickname, primaryGained);
+    await economy.addGold(killer.nickname, primaryGained);
     console.log(
       `[economy] gold minted: +${primaryGained} -> ${killer.nickname} ` +
         `[match=${this.id} kill ${shooterId} -> ${victimId}]`,
@@ -492,13 +492,13 @@ export class Match {
     const victimIsHuman = this.sockets.has(victimId) && !this.botAI?.isBot(victimId);
     const victimPlayer = victimIsHuman ? this.registry.getPlayer(victimId) : null;
     let alreadyGrantedShard = false;
-    const killerProfile = economy.getOrCreateProfile(killer.nickname);
+    const killerProfile = await economy.getOrCreateProfile(killer.nickname);
     if (victimPlayer) {
       const killerKey = killerProfile.nicknameKey;
-      const victimKey = economy.getOrCreateProfile(victimPlayer.nickname).nicknameKey;
+      const victimKey = (await economy.getOrCreateProfile(victimPlayer.nickname)).nicknameKey;
       alreadyGrantedShard = this.matchShardGrants.get(killerKey)?.has(victimKey) ?? false;
     }
-    const drops = economy.resolveKillDrops(
+    const drops = await economy.resolveKillDrops(
       killer.nickname,
       victimIsHuman,
       {},
@@ -516,7 +516,7 @@ export class Match {
       drops.shard || drops.substitutedKinds.includes("shard");
     if (shardOpportunityConsumed && victimPlayer) {
       const killerKey = killerProfile.nicknameKey;
-      const victimKey = economy.getOrCreateProfile(victimPlayer.nickname).nicknameKey;
+      const victimKey = (await economy.getOrCreateProfile(victimPlayer.nickname)).nicknameKey;
       let set = this.matchShardGrants.get(killerKey);
       if (!set) {
         set = new Set();
@@ -525,12 +525,12 @@ export class Match {
       set.add(victimKey);
     }
 
-    const profile = economy.getOrCreateProfile(killer.nickname);
+    const profile = await economy.getOrCreateProfile(killer.nickname);
     const totalGained = primaryGained + drops.substitutedGold;
     this.sendEconomyGoldUpdate(shooterId, profile.gold, totalGained);
 
     if (drops.egg || drops.stimulator || drops.gem || drops.shard || drops.amulet || drops.repairKit) {
-      this.sendEconomyProfile(shooterId, killer.nickname);
+      await this.sendEconomyProfile(shooterId, killer.nickname);
       console.log(
         `[economy] kill item drops -> ${killer.nickname}` +
           `${drops.egg ? ` egg#${drops.egg.id}` : ""}` +
@@ -543,7 +543,7 @@ export class Match {
       );
     }
     if (drops.substitutedGold > 0) {
-      this.sendEconomyProfile(shooterId, killer.nickname);
+      await this.sendEconomyProfile(shooterId, killer.nickname);
       console.log(
         `[economy] drop_substituted_gold total=+${drops.substitutedGold}` +
           ` kinds=${drops.substitutedKinds.join(",")}` +
@@ -675,7 +675,9 @@ export class Match {
         };
         this.broadcast(deathMessage);
         console.log(`[server] [${this.id}] death: ${event.targetId} killed by ${shooterId}`);
-        this.applyHumanDeathEconomyPenalties(event.targetId);
+        void this.applyHumanDeathEconomyPenalties(event.targetId).catch((err) => {
+          console.error(`[economy] death penalties failed:`, err);
+        });
 
         const killMessage: KillEvent = {
           type: "kill",
@@ -685,7 +687,9 @@ export class Match {
           victimNickname: this.registry.getNickname(event.targetId),
         };
         this.broadcast(killMessage);
-        this.grantKillGold(shooterId, event.targetId);
+        void this.grantKillGold(shooterId, event.targetId).catch((err) => {
+          console.error(`[economy] grantKillGold failed:`, err);
+        });
         if (this.mode === "endless") {
           if (this.endlessHumanId && shooterId === this.endlessHumanId && this.botAI?.isBot(event.targetId)) {
             this.endlessBotKills += 1;

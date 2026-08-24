@@ -1,0 +1,17 @@
+# EPIC 27: Redis economy store (AOF on by default).
+# Game server restart does not wipe progress when Redis stays up.
+# Redis restart WITHOUT AOF/RDB WILL wipe progress — keep appendonly yes.
+
+services:
+  redis:
+    image: redis:7
+    container_name: cubewars-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - cubewars-redis-data:/data
+    restart: unless-stopped
+
+volumes:
+  cubewars-redis-data:

@@ -2,9 +2,6 @@
 // shard craft, repair kits, death penalties, kill loot copies, rating math.
 
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import {
   DEATH_EFFECTIVENESS_FACTOR,
   ECONOMY_CAPS,
@@ -19,9 +16,7 @@ import {
   shouldGrantShard,
 } from "@cubewars/shared";
 import { EconomyActionError, EconomyStore } from "../server/src/economy/index.js";
-
-const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cubewars-economy-gems-"));
-const dbPath = path.join(tmpDir, "economy.sqlite");
+import { openTestEconomyStore } from "./economy-test-helpers.js";
 
 // --- Shared math ---
 assert.equal(DEATH_EFFECTIVENESS_FACTOR, 0.9);
@@ -93,90 +88,93 @@ assert.equal(shouldGrantShard(0, 0, true, false), true);
 assert.equal(shouldGrantShard(0, 0, true, true), false);
 assert.equal(shouldGrantShard(ECONOMY_CAPS.amulets, 0, true, false), false);
 
-const store = EconomyStore.open(dbPath);
-const now = 2_000_000;
+
+async function main(): Promise<void> {
+  const store = await openTestEconomyStore();
+  const now = 2_000_000;
+
 
 // --- Socket uniqueness per type ---
-const pet = store.grantPetForTests("GemOwner", "dog", 100, now);
-const gemArmor = store.grantGem("GemOwner", "armor", 40, now);
-const gemArmor2 = store.grantGem("GemOwner", "armor", 50, now);
-const gemHealth = store.grantGem("GemOwner", "health", 25, now);
-store.socketGem("GemOwner", gemArmor.id, pet.id, now);
-assert.throws(() => store.socketGem("GemOwner", gemArmor2.id, pet.id, now), (err: unknown) => {
+const pet = await store.grantPetForTests("GemOwner", "dog", 100, now);
+const gemArmor = await store.grantGem("GemOwner", "armor", 40, now);
+const gemArmor2 = await store.grantGem("GemOwner", "armor", 50, now);
+const gemHealth = await store.grantGem("GemOwner", "health", 25, now);
+await store.socketGem("GemOwner", gemArmor.id, pet.id, now);
+await assert.rejects(async () => store.socketGem("GemOwner", gemArmor2.id, pet.id, now), (err: unknown) => {
   assert.ok(err instanceof EconomyActionError);
   assert.equal(err.code, "type_occupied");
   return true;
 });
-store.socketGem("GemOwner", gemHealth.id, pet.id, now);
-store.equipPet("GemOwner", pet.id, 1, now);
-let full = store.getFullProfile("GemOwner");
+await store.socketGem("GemOwner", gemHealth.id, pet.id, now);
+await store.equipPet("GemOwner", pet.id, 1, now);
+let full = await store.getFullProfile("GemOwner");
 assert.equal(full.ratings.armorRating, 140);
 assert.equal(full.ratings.healthRating, 25);
 assert.equal(full.slot2Enabled, false);
 
 // Cross-profile socket reject.
-store.getOrCreateProfile("OtherGem");
-assert.throws(() => store.socketGem("OtherGem", gemArmor2.id, pet.id, now), (err: unknown) => {
+await store.getOrCreateProfile("OtherGem");
+await assert.rejects(async () => store.socketGem("OtherGem", gemArmor2.id, pet.id, now), (err: unknown) => {
   assert.ok(err instanceof EconomyActionError);
   assert.equal(err.code, "cross_profile");
   return true;
 });
 
 // --- Amulet enables slot2; 40% second pet ---
-const amulet = store.grantAmulet("GemOwner", 10, now);
-store.equipAmulet("GemOwner", amulet.id, now);
-full = store.getFullProfile("GemOwner");
+const amulet = await store.grantAmulet("GemOwner", 10, now);
+await store.equipAmulet("GemOwner", amulet.id, now);
+full = await store.getFullProfile("GemOwner");
 assert.equal(full.slot2Enabled, true);
 
-const pet2 = store.grantPetForTests("GemOwner", "lion", 100, now);
-store.equipPet("GemOwner", pet2.id, 2, now);
-full = store.getFullProfile("GemOwner");
+const pet2 = await store.grantPetForTests("GemOwner", "lion", 100, now);
+await store.equipPet("GemOwner", pet2.id, 2, now);
+full = await store.getFullProfile("GemOwner");
 assert.equal(full.ratings.damageRating, 40);
 assert.equal(full.ratings.armorRating, 140);
 
 // Unequip amulet forces slot2 unequip.
-store.unequipAmulet("GemOwner", amulet.id, now);
-full = store.getFullProfile("GemOwner");
+await store.unequipAmulet("GemOwner", amulet.id, now);
+full = await store.getFullProfile("GemOwner");
 assert.equal(full.slot2Enabled, false);
 assert.ok(full.pets.every((p) => p.equipSlot !== 2));
-assert.throws(() => store.equipPet("GemOwner", pet2.id, 2, now), (err: unknown) => {
+await assert.rejects(async () => store.equipPet("GemOwner", pet2.id, 2, now), (err: unknown) => {
   assert.ok(err instanceof EconomyActionError);
   assert.equal(err.code, "slot2_disabled");
   return true;
 });
 
 // Re-equip amulet + slot2 for death tests.
-store.equipAmulet("GemOwner", amulet.id, now);
-store.equipPet("GemOwner", pet2.id, 2, now);
+await store.equipAmulet("GemOwner", amulet.id, now);
+await store.equipPet("GemOwner", pet2.id, 2, now);
 
 // --- Craft 10 shards → amulet ---
-store.getOrCreateProfile("Crafter");
-for (let i = 0; i < 10; i++) store.addShard("Crafter", 1, now);
-assert.equal(store.getFullProfile("Crafter").shardCount, 10);
-const crafted = store.craftAmulet("Crafter", now);
+await store.getOrCreateProfile("Crafter");
+for (let i = 0; i < 10; i++) await store.addShard("Crafter", 1, now);
+assert.equal((await store.getFullProfile("Crafter")).shardCount, 10);
+const crafted = await store.craftAmulet("Crafter", now);
 assert.equal(crafted.durability, 10);
-assert.equal(store.getFullProfile("Crafter").shardCount, 0);
-assert.throws(() => store.craftAmulet("Crafter", now), (err: unknown) => {
+assert.equal((await store.getFullProfile("Crafter")).shardCount, 0);
+await assert.rejects(async () => store.craftAmulet("Crafter", now), (err: unknown) => {
   assert.ok(err instanceof EconomyActionError);
   assert.equal(err.code, "insufficient_shards");
   return true;
 });
 
 // --- Repair kit ---
-store.grantRepairKit("GemOwner", now);
-const beforeDur = store.getFullProfile("GemOwner").amulets.find((a) => a.id === amulet.id)!.durability;
+await store.grantRepairKit("GemOwner", now);
+const beforeDur = (await store.getFullProfile("GemOwner")).amulets.find((a) => a.id === amulet.id)!.durability;
 // Damage durability via death once first? Or set by repairing from lower.
 // Equip amulet already at 10 — repair should stay at 10 and still consume kit.
-store.repairAmulet("GemOwner", amulet.id, now);
+await store.repairAmulet("GemOwner", amulet.id, now);
 assert.equal(
-  store.getFullProfile("GemOwner").amulets.find((a) => a.id === amulet.id)!.durability,
+  (await store.getFullProfile("GemOwner")).amulets.find((a) => a.id === amulet.id)!.durability,
   beforeDur,
 );
-assert.equal(store.getFullProfile("GemOwner").repairKitCount, 0);
+assert.equal((await store.getFullProfile("GemOwner")).repairKitCount, 0);
 
 // Lower durability by applying death once, then repair.
-store.applyHumanDeathPenalties("GemOwner", now);
-full = store.getFullProfile("GemOwner");
+await store.applyHumanDeathPenalties("GemOwner", now);
+full = await store.getFullProfile("GemOwner");
 const afterDeathAmulet = full.amulets.find((a) => a.equipped);
 assert.ok(afterDeathAmulet);
 assert.equal(afterDeathAmulet!.durability, 9);
@@ -189,33 +187,33 @@ const gems = full.gems.filter((g) => g.petId === pet.id);
 assert.equal(gems.find((g) => g.gemType === "armor")!.value, 36);
 assert.equal(gems.find((g) => g.gemType === "health")!.value, 22);
 
-store.grantRepairKit("GemOwner", now);
-store.repairAmulet("GemOwner", amulet.id, now);
+await store.grantRepairKit("GemOwner", now);
+await store.repairAmulet("GemOwner", amulet.id, now);
 assert.equal(
-  store.getFullProfile("GemOwner").amulets.find((a) => a.id === amulet.id)!.durability,
+  (await store.getFullProfile("GemOwner")).amulets.find((a) => a.id === amulet.id)!.durability,
   10,
 );
 
 // Destroy amulet at durability 0 after 10 deaths from 10.
 for (let i = 0; i < 10; i++) {
-  store.applyHumanDeathPenalties("GemOwner", now + i);
+  await store.applyHumanDeathPenalties("GemOwner", now + i);
 }
-full = store.getFullProfile("GemOwner");
+full = await store.getFullProfile("GemOwner");
 assert.equal(full.amulets.length, 0);
 assert.equal(full.slot2Enabled, false);
 assert.ok(full.pets.every((p) => p.equipSlot !== 2));
 
 // --- Kill loot copies (victim keeps gems/amulets) ---
-const victim = store.getOrCreateProfile("LootVictim");
-const vPet = store.grantPetForTests("LootVictim", "cat", 80, now);
-const vGem = store.grantGem("LootVictim", "health", 60, now);
-store.socketGem("LootVictim", vGem.id, vPet.id, now);
-store.equipPet("LootVictim", vPet.id, 1, now);
-const vAmulet = store.grantAmulet("LootVictim", 7, now);
-store.equipAmulet("LootVictim", vAmulet.id, now);
+const victim = await store.getOrCreateProfile("LootVictim");
+const vPet = await store.grantPetForTests("LootVictim", "cat", 80, now);
+const vGem = await store.grantGem("LootVictim", "health", 60, now);
+await store.socketGem("LootVictim", vGem.id, vPet.id, now);
+await store.equipPet("LootVictim", vPet.id, 1, now);
+const vAmulet = await store.grantAmulet("LootVictim", 7, now);
+await store.equipAmulet("LootVictim", vAmulet.id, now);
 
-store.getOrCreateProfile("LootKiller");
-const drops = store.tryKillItemDrops(
+await store.getOrCreateProfile("LootKiller");
+const drops = await store.tryKillItemDrops(
   "LootKiller",
   true,
   { egg: 1, stimulator: 1, gem: 0, amulet: 0, repairKit: 0 },
@@ -231,13 +229,13 @@ assert.equal(drops.amulet!.durability, 7);
 assert.equal(drops.repairKit, true);
 
 // Victim still has original gem + amulet (copy, not steal).
-const victimFull = store.getFullProfile("LootVictim");
+const victimFull = await store.getFullProfile("LootVictim");
 assert.equal(victimFull.gems.length, 1);
 assert.equal(victimFull.amulets.length, 1);
 assert.equal(victimFull.amulets[0]!.durability, 7);
 
 // Shard once-per-victim: alreadyGrantedShard blocks second grant.
-const drops2 = store.tryKillItemDrops(
+const drops2 = await store.tryKillItemDrops(
   "LootKiller",
   true,
   { egg: 1, stimulator: 1, gem: 1, amulet: 1, repairKit: 1 },
@@ -248,21 +246,22 @@ assert.equal(drops2.shard, false);
 
 // Loot gem is a bag copy (not socketed); socket then unsocket.
 assert.equal(drops.gem!.petId, null);
-store.socketGem("LootKiller", drops.gem!.id, store.grantPetForTests("LootKiller", "bird", 10, now).id, now);
-store.unsocketGem("LootKiller", drops.gem!.id, now);
-assert.equal(store.getFullProfile("LootKiller").gems.find((g) => g.id === drops.gem!.id)!.petId, null);
+const killerPet = await store.grantPetForTests("LootKiller", "bird", 10, now);
+await store.socketGem("LootKiller", drops.gem!.id, killerPet.id, now);
+await store.unsocketGem("LootKiller", drops.gem!.id, now);
+assert.equal((await store.getFullProfile("LootKiller")).gems.find((g) => g.id === drops.gem!.id)!.petId, null);
 
 // --- Critic F-001: loot copy of death-decayed gem value (< 5) must not throw ---
-store.getOrCreateProfile("DecayedVictim");
-store.getOrCreateProfile("DecayedKiller");
-const dPet = store.grantPetForTests("DecayedVictim", "dog", 50, now);
-const dGem = store.grantGem("DecayedVictim", "armor", 5, now);
-store.socketGem("DecayedVictim", dGem.id, dPet.id, now);
-store.equipPet("DecayedVictim", dPet.id, 1, now);
-store.applyHumanDeathPenalties("DecayedVictim", now);
-const decayedGem = store.getFullProfile("DecayedVictim").gems.find((g) => g.id === dGem.id)!;
+await store.getOrCreateProfile("DecayedVictim");
+await store.getOrCreateProfile("DecayedKiller");
+const dPet = await store.grantPetForTests("DecayedVictim", "dog", 50, now);
+const dGem = await store.grantGem("DecayedVictim", "armor", 5, now);
+await store.socketGem("DecayedVictim", dGem.id, dPet.id, now);
+await store.equipPet("DecayedVictim", dPet.id, 1, now);
+await store.applyHumanDeathPenalties("DecayedVictim", now);
+const decayedGem = (await store.getFullProfile("DecayedVictim")).gems.find((g) => g.id === dGem.id)!;
 assert.equal(decayedGem.value, 4, "floor(5*0.9)=4 below mint min");
-const decayedDrops = store.tryKillItemDrops(
+const decayedDrops = await store.tryKillItemDrops(
   "DecayedKiller",
   true,
   { egg: 1, stimulator: 1, gem: 0, amulet: 1, repairKit: 1 },
@@ -271,40 +270,47 @@ const decayedDrops = store.tryKillItemDrops(
 );
 assert.ok(decayedDrops.gem, "F-001: loot copy of value 4 must succeed");
 assert.equal(decayedDrops.gem!.value, 4);
-assert.doesNotThrow(() => {
-  store.grantGem("DecayedKiller", "speed", 3, now, { allowExistingValue: true });
+await assert.doesNotReject(async () => {
+  await store.grantGem("DecayedKiller", "speed", 3, now, { allowExistingValue: true });
 });
-assert.throws(() => store.grantGem("DecayedKiller", "speed", 3, now), (err: unknown) => {
+await assert.rejects(async () => store.grantGem("DecayedKiller", "speed", 3, now), (err: unknown) => {
   assert.ok(err instanceof Error);
   assert.match(err.message, /invalid gem type\/value/);
   return true;
 });
 
 // --- Critic F-002: slot2 pet decays even when amulet destroyed on same death ---
-store.getOrCreateProfile("Slot2Decay");
-const s1 = store.grantPetForTests("Slot2Decay", "cat", 100, now);
-const s2 = store.grantPetForTests("Slot2Decay", "lion", 100, now);
-const sAmulet = store.grantAmulet("Slot2Decay", 1, now);
-store.equipAmulet("Slot2Decay", sAmulet.id, now);
-store.equipPet("Slot2Decay", s1.id, 1, now);
-store.equipPet("Slot2Decay", s2.id, 2, now);
-const deathResult = store.applyHumanDeathPenalties("Slot2Decay", now);
+await store.getOrCreateProfile("Slot2Decay");
+const s1 = await store.grantPetForTests("Slot2Decay", "cat", 100, now);
+const s2 = await store.grantPetForTests("Slot2Decay", "lion", 100, now);
+const sAmulet = await store.grantAmulet("Slot2Decay", 1, now);
+await store.equipAmulet("Slot2Decay", sAmulet.id, now);
+await store.equipPet("Slot2Decay", s1.id, 1, now);
+await store.equipPet("Slot2Decay", s2.id, 2, now);
+const deathResult = await store.applyHumanDeathPenalties("Slot2Decay", now);
 assert.equal(deathResult.amuletDestroyed, true);
 assert.equal(deathResult.petsDecayed, 2, "F-002: both slot1 and former slot2 must decay");
-const afterSlot2 = store.getFullProfile("Slot2Decay");
+const afterSlot2 = await store.getFullProfile("Slot2Decay");
 assert.equal(afterSlot2.amulets.length, 0);
 assert.equal(afterSlot2.slot2Enabled, false);
 assert.equal(afterSlot2.pets.find((p) => p.id === s1.id)!.baseValue, 90);
 assert.equal(afterSlot2.pets.find((p) => p.id === s2.id)!.baseValue, 90);
 assert.equal(afterSlot2.pets.find((p) => p.id === s2.id)!.equipSlot, null);
 
-store.close();
-const reopened = EconomyStore.open(dbPath);
-const restored = reopened.getFullProfile("LootKiller");
-assert.ok(restored.gems.length >= 1);
-assert.ok(restored.shardCount >= 1);
-reopened.close();
+const redisUrl = store.redisUrl;
+  const keyPrefix = store.keyPrefix;
+  await store.close();
+  const reopened = await EconomyStore.open({ redisUrl, keyPrefix, skipSqliteImport: true });
+  const restored = await reopened.getFullProfile("LootKiller");
+  assert.ok(restored.gems.length >= 1);
+  assert.ok(restored.shardCount >= 1);
+  await reopened.flushNamespace();
+  await reopened.close();
+  console.log("[economy-gems-amulets] PASS");
 
-fs.rmSync(tmpDir, { recursive: true, force: true });
+}
 
-console.log("[economy-gems-amulets] PASS");
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

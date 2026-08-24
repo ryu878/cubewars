@@ -1,5 +1,6 @@
 export { openEconomyDatabase, resolveEconomyDbPath } from "./db.js";
 export { runMigrations } from "./migrations.js";
+export { connectRedis, resolveRedisUrl, DEFAULT_REDIS_URL } from "./redis.js";
 export {
   EconomyStore,
   EconomyActionError,
@@ -16,4 +17,5 @@ export {
   type VictimDropContext,
   type CareerStatsEntry,
   type EndlessCareerEntry,
+  type EconomyStoreOpenOptions,
 } from "./store.js";
