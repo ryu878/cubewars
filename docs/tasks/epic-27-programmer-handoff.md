@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-24 |
 | Author (Pusya) | Pusya |
 | Task / Story / EPIC | EPIC 27 — Redis Economy Store (`docs/tasks/epic-27-redis-economy-store.md`) |
-| Branch / commit / PR | `task/epic-27-redis-economy-store` @ `625ae90` |
+| Branch / commit / PR | `task/epic-27-redis-economy-store` @ `fddd34e` (impl `625ae90`) |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
