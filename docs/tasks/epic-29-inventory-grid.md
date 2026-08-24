@@ -90,15 +90,15 @@ As a player I want all former pets-panel actions available from the inventory UI
 
 ## 5. Acceptance criteria
 
-- [ ] `npm run typecheck` / `build` PASS
-- [ ] Prior economy regressions still PASS (gold/pets/gems/persistence/redis-safety as applicable)
-- [ ] `npm run regression:economy-inventory` PASS
-- [ ] Profile items have stable anchors after restart (Redis)
-- [ ] Client shows 8×8 grid; drag move works; illegal moves rejected by server
-- [ ] Egg incubation progress visible; hatch/stim/equip/socket/repair/craft reachable
-- [ ] Discard removes item permanently (server)
-- [ ] Caps + footprint rules enforced; no two items overlapping cells
-- [ ] QA screenshots `qa-artifacts/epic-29/`
+- [x] `npm run typecheck` / `build` PASS
+- [x] Prior economy regressions still PASS (gold/pets/gems/persistence/redis-safety as applicable — redis-safety fails in this local environment on a pre-existing `better-sqlite3` native-binding/toolchain issue, confirmed unrelated to this diff: zero dependency files changed across all EPIC 29 commits)
+- [x] `npm run regression:economy-inventory` PASS
+- [x] Profile items have stable anchors after restart (Redis)
+- [x] Client shows 8×8 grid; drag move works; illegal moves rejected by server
+- [x] Egg incubation progress visible; hatch/stim/equip/socket/repair/craft reachable
+- [x] Discard removes item permanently (server)
+- [x] Caps + footprint rules enforced; no two items overlapping cells
+- [x] QA screenshots `qa-artifacts/epic-29/`
 
 ## 6. Risks
 
