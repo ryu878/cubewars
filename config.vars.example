@@ -11,9 +11,14 @@ CUBEWARS_SERVER_PORT=7777
 # Default: <server package>/data/economy.sqlite
 # CUBEWARS_ECONOMY_DB=server/data/economy.sqlite
 
-# One-shot SQLite → Redis import (EPIC 27). Set to 1 to force re-import even if
-# the Redis marker key cw:meta:sqlite_imported is already set. Auto-import also
-# runs once when the marker is missing and the SQLite file exists.
+# One-shot SQLite → Redis import (EPIC 27).
+# Auto-import (marker missing + SQLite file present): imports ONLY nicknames that
+# do not already have a Redis economy key — never clobbers live Redis progress.
+# Marker cw:meta:sqlite_imported is also set when the SQLite file is missing, so a
+# later file cannot surprise-import.
+# CUBEWARS_SQLITE_IMPORT=1 FORCE-overwrites existing Redis keys for nicknames in
+# SQLite — DESTROYS overlapping live Redis progress. Use only for deliberate
+# re-import; server logs a loud warning. Default is 0 (no clobber).
 # CUBEWARS_SQLITE_IMPORT=0
 
 # Egg incubation duration override in milliseconds (EPIC 24). Positive integer

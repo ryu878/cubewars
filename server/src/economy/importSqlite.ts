@@ -1,5 +1,8 @@
 // One-shot SQLite → Redis import for legacy local economy.sqlite (EPIC 27).
 // Runtime path never opens SQLite except behind this import.
+// Default: never clobber existing Redis economy keys; force overwrite only with
+// CUBEWARS_SQLITE_IMPORT=1 (loud warn). Marker is set even when SQLite is missing
+// so a later file cannot surprise-import.
 
 import fs from "node:fs";
 import type { Redis } from "ioredis";
@@ -20,6 +23,7 @@ export interface SqliteImportResult {
   imported: boolean;
   profiles: number;
   reason?: string;
+  skippedExisting?: number;
 }
 
 interface ImportKeys {
@@ -30,6 +34,18 @@ interface ImportKeys {
   lbEndlessKey: string;
   profileIdCounterKey: string;
   sqliteImportedMarkerKey: string;
+}
+
+async function assertPipelineOk(
+  results: [Error | null, unknown][] | null,
+  context: string,
+): Promise<void> {
+  if (!results) {
+    throw new Error(`Redis pipeline discarded during ${context}`);
+  }
+  for (const [err] of results) {
+    if (err) throw err;
+  }
 }
 
 /**
@@ -51,6 +67,9 @@ export async function maybeImportSqliteToRedis(
     if (force) {
       console.warn(`[economy] CUBEWARS_SQLITE_IMPORT=1 but SQLite file missing: ${dbPath}`);
     }
+    // Durable marker even when SQLite is absent — prevents a later file from
+    // surprise-clobbering live Redis progress via auto-import.
+    await redis.set(keys.sqliteImportedMarkerKey, String(Date.now()));
     return { imported: false, profiles: 0, reason: "sqlite_missing" };
   }
 
@@ -78,11 +97,28 @@ export async function maybeImportSqliteToRedis(
       return { imported: true, profiles: 0, reason: "empty_sqlite" };
     }
 
-    let maxProfileId = 0;
+    if (force) {
+      console.warn(
+        `[economy] CUBEWARS_SQLITE_IMPORT=1: FORCE overwrite — existing Redis economy keys ` +
+          `will be replaced from ${dbPath}. Live Redis progress for overlapping nicknames will be destroyed.`,
+      );
+    }
+
+    let maxImportedProfileId = 0;
+    let importedCount = 0;
+    let skippedExisting = 0;
     const pipeline = redis.pipeline();
 
     for (const row of profiles) {
-      maxProfileId = Math.max(maxProfileId, row.id);
+      if (!force) {
+        const exists = await redis.exists(keys.economyKey(row.nickname_key));
+        if (exists) {
+          skippedExisting += 1;
+          continue;
+        }
+      }
+
+      maxImportedProfileId = Math.max(maxImportedProfileId, row.id);
       const doc = createEmptyDocument(row.id, row.nickname_key, row.nickname, row.created_at);
       doc.gold = row.gold;
       doc.updatedAt = row.updated_at;
@@ -235,18 +271,37 @@ export async function maybeImportSqliteToRedis(
       if (doc.endless.botKills > 0 || doc.endless.distanceKm > 0) {
         pipeline.zadd(keys.lbEndlessKey, doc.endless.botKills, row.nickname_key);
       }
+      importedCount += 1;
     }
 
-    if (maxProfileId > 0) {
-      pipeline.set(keys.profileIdCounterKey, String(maxProfileId));
+    if (maxImportedProfileId > 0) {
+      if (force) {
+        pipeline.set(keys.profileIdCounterKey, String(maxImportedProfileId));
+      } else {
+        const currentRaw = await redis.get(keys.profileIdCounterKey);
+        const current = currentRaw ? Number(currentRaw) : 0;
+        const next = Math.max(
+          Number.isFinite(current) ? current : 0,
+          maxImportedProfileId,
+        );
+        if (next > (Number.isFinite(current) ? current : 0)) {
+          pipeline.set(keys.profileIdCounterKey, String(next));
+        }
+      }
     }
     pipeline.set(keys.sqliteImportedMarkerKey, String(Date.now()));
-    await pipeline.exec();
+    await assertPipelineOk(await pipeline.exec(), "sqlite import");
 
     console.log(
-      `[economy] sqlite import complete: profiles=${profiles.length} from ${dbPath}`,
+      `[economy] sqlite import complete: imported=${importedCount} skipped_existing=${skippedExisting} ` +
+        `force=${force ? 1 : 0} from ${dbPath}`,
     );
-    return { imported: true, profiles: profiles.length };
+    return {
+      imported: importedCount > 0,
+      profiles: importedCount,
+      skippedExisting,
+      reason: importedCount === 0 && skippedExisting > 0 ? "all_existing" : undefined,
+    };
   } finally {
     db.close();
   }

@@ -378,18 +378,44 @@ export class EconomyStore {
     return doc;
   }
 
+  /**
+   * Persist document to Redis first; only then update the write-through cache.
+   * On Redis failure: invalidate cache for this key and throw so callers do not
+   * treat the mutation as durable (F-002).
+   */
   private async saveDoc(doc: EconomyDocument): Promise<void> {
-    this.cache.set(doc.nicknameKey, doc);
-    const pipeline = this.redis.pipeline();
-    pipeline.set(this.economyKey(doc.nicknameKey), JSON.stringify(doc));
-    pipeline.sadd(this.nickIndexKey, doc.nicknameKey);
+    const multi = this.redis.multi();
+    multi.set(this.economyKey(doc.nicknameKey), JSON.stringify(doc));
+    multi.sadd(this.nickIndexKey, doc.nicknameKey);
     if (doc.career.kills > 0 || doc.career.deaths > 0) {
-      pipeline.zadd(this.lbPvpKey, doc.career.kills, doc.nicknameKey);
+      multi.zadd(this.lbPvpKey, doc.career.kills, doc.nicknameKey);
     }
     if (doc.endless.botKills > 0 || doc.endless.distanceKm > 0) {
-      pipeline.zadd(this.lbEndlessKey, doc.endless.botKills, doc.nicknameKey);
+      multi.zadd(this.lbEndlessKey, doc.endless.botKills, doc.nicknameKey);
     }
-    await pipeline.exec();
+
+    let results: [Error | null, unknown][] | null;
+    try {
+      results = await multi.exec();
+    } catch (err) {
+      this.cache.delete(doc.nicknameKey);
+      throw err instanceof Error ? err : new Error(String(err));
+    }
+
+    if (!results) {
+      this.cache.delete(doc.nicknameKey);
+      throw new Error(
+        `Redis MULTI/EXEC discarded while saving economy doc for ${doc.nicknameKey}`,
+      );
+    }
+    for (const [err] of results) {
+      if (err) {
+        this.cache.delete(doc.nicknameKey);
+        throw err;
+      }
+    }
+
+    this.cache.set(doc.nicknameKey, doc);
   }
 
   private itemOwnerKey(kind: "pet" | "egg" | "gem" | "amulet", id: number): string {

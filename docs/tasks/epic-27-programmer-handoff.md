@@ -9,40 +9,37 @@
 | Date / time (UTC optional) | 2026-08-24 |
 | Author (Pusya) | Pusya |
 | Task / Story / EPIC | EPIC 27 — Redis Economy Store (`docs/tasks/epic-27-redis-economy-store.md`) |
-| Branch / commit / PR | `task/epic-27-redis-economy-store` @ `fb30105` |
-| Revision round (if this is a Critic/Judge fix, not first pass) | no |
+| Branch / commit / PR | `task/epic-27-redis-economy-store` (tip after this commit) |
+| Revision round (if this is a Critic/Judge fix, not first pass) | yes — finding IDs: F-001, F-002 |
 | Compare URL (gh unavailable) | https://github.com/ryu878/cubewars/compare/task/epic-26-durable-achievements-drops...task/epic-27-redis-economy-store |
 
 ## What was done (brief)
 
-1. Replaced runtime SQLite `EconomyStore` with Redis (`ioredis`): one JSON document per nickname (`cw:economy:v1:{key}`), ZSETs for PvP/endless leaderboards, write-through in-process cache, fail-fast PING on open.
-2. Optional SQLite→Redis import (`CUBEWARS_SQLITE_IMPORT` / marker `cw:meta:sqlite_imported`); `better-sqlite3` retained for import only.
-3. Added `docker-compose.yml` Redis service with AOF; documented `CUBEWARS_REDIS_URL`, AOF warning, and Docker start commands in README / `config.vars.example`.
-4. Updated Match / MatchManager / server bootstrap for async store; regressions open isolated Redis key prefixes and prove reopen persistence.
+1. **F-001:** SQLite→Redis auto-import no longer clobbers existing Redis economy keys (skip-if-exists). Marker `cw:meta:sqlite_imported` is set even when the SQLite file is missing. `CUBEWARS_SQLITE_IMPORT=1` may overwrite only with a loud warn; documented in README / `config.vars.example`.
+2. **F-002:** `saveDoc` writes Redis via `MULTI/EXEC` first, checks per-command errors, updates cache only on success; on failure invalidates cache and throws so callers do not treat gold as saved.
+3. Added `npm run regression:economy-redis-safety` covering 999→stays 999, missing-SQLite marker, and write-failure throw with Redis unchanged at 100.
 
 ## Changed files / areas
 
-- `server/src/economy/` — `store.ts`, `redis.ts`, `document.ts`, `importSqlite.ts`, `db.ts`, `index.ts`
-- `server/src/index.ts`, `match.ts`, `matchManager.ts`
-- `scripts/regression-economy-*.ts`, `scripts/economy-test-helpers.ts`
-- `docker-compose.yml`, `README.md`, `config.vars.example`
-- `docs/product/emerald-wasteland-economy-tz-v2.1.md` (§4.1 Redis), `docs/tasks/epic-27-redis-economy-store.md`
+- `server/src/economy/importSqlite.ts` — no-clobber auto-import, marker on missing SQLite, force warn
+- `server/src/economy/store.ts` — Redis-first `saveDoc` with exec error checks + cache invalidate on failure
+- `scripts/regression-economy-redis-safety.ts`, `package.json`
+- `README.md`, `config.vars.example`
 
 ## How to verify (steps for Trusya)
 
-1. Start Redis with AOF: `docker compose up -d redis` (or `docker run -d --name cubewars-redis -p 6379:6379 redis:7 redis-server --appendonly yes`). Host has Docker; `redis-server` package may be absent.
+1. Start Redis with AOF: `docker compose up -d redis` (scripts auto-start Docker Redis if needed).
 2. `npm run typecheck` && `npm run build`
-3. `npm run regression:economy-gold` ; `npm run regression:economy-pets` ; `npm run regression:economy-gems-amulets` ; `npm run regression:economy-persistence` — all must PASS against Redis (scripts auto-start Docker Redis if port 6379 is down).
-4. Optional live: with Redis up, `npm run dev` — join bots match, confirm gold/profile; stop **game server** only and restart — progress still present. Confirm server exits with a clear error if Redis is stopped.
-5. Optional import: point `CUBEWARS_ECONOMY_DB` at a legacy sqlite, clear Redis / use fresh DB, start once (marker or `CUBEWARS_SQLITE_IMPORT=1`), confirm profiles appear in Redis.
+3. `npm run regression:economy-gold` ; `npm run regression:economy-pets` ; `npm run regression:economy-gems-amulets` ; `npm run regression:economy-persistence` ; `npm run regression:economy-redis-safety` — all must PASS.
+4. Re-verify Critic scenarios: (a) Redis gold 999 + stale SQLite gold 1 auto-import → stays 999; (b) boot with missing SQLite → marker set → later SQLite does not clobber; (c) dead Redis connection → `addGold` throws → reopen shows pre-mutation gold.
 
 ## Build and run
 
 - Build command: `npm run typecheck` ; `npm run build`
-- Run command: `docker compose up -d redis` then `npm run dev` (or `CUBEWARS_REDIS_URL=redis://127.0.0.1:6379 npm run dev --workspace=server`)
-- Expected smoke result: `[economy] redis ready: …` then `[server] cubewars game server listening on ws://localhost:7777`
+- Run command: `docker compose up -d redis` then `npm run dev`
+- Expected smoke result: `[economy] redis ready: …` then server listening
 
-## Local checks (Pusya, 2026-08-24)
+## Local checks (Pusya, 2026-08-24 revision F-001/F-002)
 
 | Check | Result |
 |-------|--------|
@@ -52,33 +49,30 @@
 | `npm run regression:economy-pets` | PASS |
 | `npm run regression:economy-gems-amulets` | PASS |
 | `npm run regression:economy-persistence` | PASS |
-
-Feature commit: `625ae90` — `feat(economy): replace runtime SQLite with Redis store (EPIC 27)`.
+| `npm run regression:economy-redis-safety` | PASS (F-001, F-002) |
 
 ## Configuration
 
-- New environment variables: yes → `CUBEWARS_REDIS_URL` (default `redis://127.0.0.1:6379`), `CUBEWARS_SQLITE_IMPORT` (0\|1); `CUBEWARS_ECONOMY_DB` now import-only. See `config.vars.example` / README.
+- New environment variables: no new vars; clarified `CUBEWARS_SQLITE_IMPORT=1` force-overwrite danger in `config.vars.example` / README
 - Secrets in the repository: no
 
 ## Logs / observability
 
 - Where to look at logs: server stdout
-- Key success messages: `[economy] redis ready: …`, `[economy] leaderboards hydrated: …`, `[economy] sqlite import complete: …` (if importing), existing gold/drop logs unchanged
+- Key success / warn messages: `[economy] sqlite import complete: imported=… skipped_existing=…`, `[economy] CUBEWARS_SQLITE_IMPORT=1: FORCE overwrite — …`, Redis write failures throw to callers (kill paths `.catch` log)
 
 ## Server-authority note (if gameplay-relevant state is touched)
 
-- What is validated/computed server-side: all economy mutations (gold, pets, drops, career, endless) still only via server `EconomyStore` / Match paths; Redis is the durable backend, not a client trust surface.
+- What is validated/computed server-side: economy mutations still only via server `EconomyStore`; Redis write failure now surfaces as throw (no silent cache-ahead gold)
 - What the client is allowed to predict/render only: HUD/lobby from server messages only
 
 ## Risks / known limitations
 
-- Extra ops dependency: Redis must run beside the game server.
-- Misconfigured Redis without AOF → silent wipe on Redis restart (mitigated by compose AOF default + README warnings).
-- Kill/death economy paths are async (fire-and-forget with error logs); extremely rapid successive kills could interleave Redis writes (single-process Node still serializes awaits per path).
-- Out of scope: inventory UI, auction, OBS, drop math changes.
-- `gh` cannot resolve `ryu878/cubewars` — use compare URL above; no PR opened from this handoff.
+- Force import (`CUBEWARS_SQLITE_IMPORT=1`) still destroys overlapping Redis nicknames by design — ops must not leave it set.
+- Item-owner key binding remains a separate round-trip after `saveDoc` (Critic note; out of scope for this revision).
+- Out of scope: inventory UI, auction, OBS, auth, drop math, multi-process Redis concurrency.
 
 ## Status
 
-- [x] Ready for QA (Trusya)
+- [x] Ready for QA (Trusya) — re-verify F-001 / F-002
 - [ ] Draft / WIP (do not take into QA)

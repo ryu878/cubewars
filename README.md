@@ -37,7 +37,7 @@ docker run -d --name cubewars-redis -p 6379:6379 redis:7 redis-server --appendon
 - **Game-server restart** does not wipe progress (data stays in Redis).
 - **Redis restart without AOF/RDB WILL wipe progress.** Always run with `--appendonly yes` (compose default). Do not disable AOF in production.
 
-Optional one-shot import from a legacy SQLite file: set `CUBEWARS_ECONOMY_DB` and either leave the Redis marker unset (auto once) or force with `CUBEWARS_SQLITE_IMPORT=1`. Runtime never opens SQLite except for that import.
+Optional one-shot import from a legacy SQLite file: set `CUBEWARS_ECONOMY_DB`. Auto-import (marker missing) copies **only missing** Redis nicknames — it never overwrites existing Redis economy keys. The import marker is also set when the SQLite file is absent, so a later file cannot surprise-clobber live progress. `CUBEWARS_SQLITE_IMPORT=1` force-overwrites overlapping Redis keys and logs a loud warning — use only for deliberate re-import. Runtime never opens SQLite except for that import.
 
 ## Run locally
 
@@ -62,7 +62,7 @@ npm run dev --workspace=client
 
 - **Server port:** `CUBEWARS_SERVER_PORT` (see `config.vars.example`). Set via your shell: `export CUBEWARS_SERVER_PORT=7777`.
 - **Economy Redis:** `CUBEWARS_REDIS_URL` (optional). Defaults to `redis://127.0.0.1:6379`. Server **fails fast** on startup if Redis is unreachable.
-- **Legacy SQLite import:** `CUBEWARS_ECONOMY_DB` (path) + optional `CUBEWARS_SQLITE_IMPORT=1` — import only; not used at runtime after Redis.
+- **Legacy SQLite import:** `CUBEWARS_ECONOMY_DB` (path) + optional `CUBEWARS_SQLITE_IMPORT=1` (force overwrite — destroys overlapping Redis progress). Auto-import never clobbers existing Redis keys; marker set even if SQLite is missing.
 - **Egg incubation override:** `CUBEWARS_INCUBATION_MS` (optional, EPIC 24). Positive integer milliseconds applied when an egg is granted. Default remains 24h from `shared` `INCUBATION.durationMs`. Short values are for QA/tests only.
 - **Client → server URL:** `VITE_CUBEWARS_WS_URL` (see `client/.env.example`). Copy to `client/.env` to override the default `ws://localhost:7777`. This is the one place the fixed stack's "no `.env` files" rule is relaxed — Vite conventionally loads `.env` for client-side config; no secrets ever go here.
 
@@ -108,8 +108,8 @@ EPIC 27 (Redis Economy Store) — see `docs/tasks/epic-27-redis-economy-store.md
 
 - **Redis primary store:** profiles / inventory / career / endless leaderboards via `ioredis` (`CUBEWARS_REDIS_URL`). Fail-fast if Redis is down.
 - **AOF ops:** `docker compose` Redis service defaults to `appendonly yes`. Without AOF, Redis restart wipes achievements.
-- **Optional SQLite→Redis import** behind marker / `CUBEWARS_SQLITE_IMPORT=1`; runtime path does not use SQLite.
-- Verified via `npm run regression:economy-gold` / `pets` / `gems-amulets` / `persistence` (against Redis), `npm run typecheck`, and `npm run build`.
+- **Optional SQLite→Redis import** behind marker / `CUBEWARS_SQLITE_IMPORT=1` (force overwrite only); auto-import skips existing Redis keys; runtime path does not use SQLite.
+- Verified via `npm run regression:economy-gold` / `pets` / `gems-amulets` / `persistence` / `redis-safety` (against Redis), `npm run typecheck`, and `npm run build`.
 
 EPIC 26 (Drop Table Completion & Durable Achievements) — see `docs/tasks/epic-26-durable-achievements-drops.md` and TZ §4.1.
 
