@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-24 |
 | Author (Pusya) | Programmer (Pusya) |
 | Task / Story / EPIC | EPIC 23 foundation slice — Tasks 23.1–23.4 |
-| Branch / commit / PR | `task/epic-23-economy-foundation` (see PR; base = `task/epic-21-nickname-leaderboard`) |
+| Branch / commit / PR | `task/epic-23-economy-foundation` @ `85e4dcb`; PR open via GitHub UI if `gh` lacks repo access — base **`task/epic-21-nickname-leaderboard`** (not master). Push URL: https://github.com/ryu878/cubewars/compare/task/epic-21-nickname-leaderboard...task/epic-23-economy-foundation |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
