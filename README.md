@@ -95,7 +95,7 @@ On connecting, pick a mode first: **vs Bots** (a private match against 2 AI oppo
 - **Space** — jump; press it again while still airborne (a genuine second press, not held) for a one-time bunny-hop boost — farther and higher, once per air-time
 - **E** — switch weapon (cycles forward through weapons you own, in tier order)
 - **Tab** (hold) — show the live scoreboard
-- **P** — toggle the pets / eggs panel (hatch, stimulator, equip; server-authored)
+- **I** — toggle the inventory overlay: an 8×8 grid (drag-move, egg timers, hatch/stimulator/equip/socket/repair/craft/discard) plus an equip rail for pet slot 1/2 and amulet, all server-authoritative (**P** still works as an alias, EPIC 24-vintage keybind)
 - **Esc** — release pointer lock
 
 Movement/look is predicted locally for responsiveness, but the **server is authoritative**: it computes and broadcasts every player's real position, and no client's self-reported position is ever trusted or relayed to other players directly (see `ai-office/global/security-baseline.mdc`). Every other connected player is rendered as a capsule avatar; you don't see your own (first-person).
@@ -103,6 +103,14 @@ Movement/look is predicted locally for responsiveness, but the **server is autho
 Combat is server-authoritative too: firing sends a bare "fire" event, and the server resolves the actual hitscan raycast from its own tracked position/yaw/pitch **and equipped weapon** for that player — the client never states an aim origin/direction, a weapon, or a hit, of its own. See "Current status" below for the exact model.
 
 ## Current status
+
+EPIC 29 (Inventory Grid UI) — see `docs/tasks/epic-29-inventory-grid.md`.
+
+- **8×8 grid, server-authoritative:** every bag item (gem, egg, stimulator, repair kit, shard stack — 1 cell; pet, amulet — 2 contiguous cells in the same row) carries a `slotAnchor` (0-63) persisted in the Redis economy document (same profile store as EPIC 27). Legacy profiles without anchors are auto-packed once on load and saved.
+- **Move/discard:** `economy_move_item` and `economy_discard_item` are the only client intents for rearranging/removing bag contents; the server validates ownership, footprint geometry, and cell-overlap before applying either, and discard permanently destroys the item (no ground drop yet — deferred to EPIC 30). Existing hatch/stimulator/equip/unequip/socket/unsocket/craft/repair actions are unchanged and reachable from the new UI.
+- **Equip rail:** pet slot 1, pet slot 2 (when an amulet is equipped), and the amulet slot render outside the 64-cell grid, matching the EPIC 25 slot-2 rules; only unequipped items live on the grid itself.
+- **Client:** the old vertical pets/eggs list panel is retired and replaced by a full inventory overlay — grid cells with drag-and-drop move, egg incubation countdown (`hatchDeadlineMs`, client clock for display only, readiness gated server-side), and action buttons per selected item. Toggled with **I**; **P** is kept as an alias for muscle memory from EPIC 24.
+- Verified via `npm run regression:economy-inventory`, `npm run regression:economy-pets`, `npm run regression:economy-gems-amulets`, `npm run regression:economy-gold`, `npm run regression:economy-persistence`, `npm run typecheck`, and `npm run build`.
 
 EPIC 28 (Lobby Emerald Lore) — see `docs/tasks/epic-28-lobby-emerald-lore.md`.
 
@@ -128,14 +136,14 @@ EPIC 25 (Gems, Amulets, Shards & Death Penalties) — see `docs/tasks/epic-25-ge
 - **Amulets:** equip enables pet slot 2 at 40% contribution; unequip forces slot-2 unequip. Craft from 10 shards. Repair kits +1 durability (cap 10).
 - **Death (humans only):** equipped amulet durability −1 (destroy at 0); each active pet and its socketed gems lose 10% effectiveness (`floor`, min 1).
 - **Shards:** +1 on killing a human who has any amulet, once per victim per match (in-memory), if killer amulets &lt; 4.
-- **Client:** pets panel (P) lists gems/amulets/shards/kits; slot 2 when amulet equipped.
+- **Client:** pets panel (P) listed gems/amulets/shards/kits; slot 2 when amulet equipped. As of EPIC 29 this list UI is retired in favor of the 8×8 inventory grid overlay (**I**, **P** kept as alias) — see Current status / EPIC 29.
 - Verified via `npm run regression:economy-gems-amulets`, `npm run regression:economy-pets`, `npm run regression:economy-gold`, `npm run typecheck`, and `npm run build`.
 
 EPIC 24 (Pets, Eggs, Incubation & Equip Stats) — see `docs/tasks/epic-24-pets-eggs-equip.md`.
 
 - **Pets loop:** human kills can drop eggs (15%) and growth stimulators (8%, soft-cap 20). Eggs incubate (24h, overridable via `CUBEWARS_INCUBATION_MS`), hatch into pets (type + base_value 1–200), and one pet can be equipped in slot 1.
 - **Combat modifiers:** equipped pet ratings adjust max HP, %DR (before EPIC 7 armor), move speed, and weapon damage on the server. Slot 2 stays disabled until amulets (EPIC 25).
-- **Client:** press **P** for a minimal pets/eggs panel; HUD shows gold + ratings from server `economy_profile`.
+- **Client:** press **P** for a minimal pets/eggs panel; HUD shows gold + ratings from server `economy_profile`. As of EPIC 29 the panel is retired in favor of the 8×8 inventory grid overlay (**I**, **P** kept as alias) — see Current status / EPIC 29.
 - Verified via `npm run regression:economy-pets`, `npm run regression:economy-gold`, `npm run typecheck`, and `npm run build`.
 
 EPIC 23 (Economy Persistence Foundation) — see `docs/tasks/epic-23-economy-persistence-foundation.md` and product TZ `docs/product/emerald-wasteland-economy-tz-v2.1.md`.
