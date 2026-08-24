@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-24 |
 | Author (Pusya) | Pusya (Programmer) |
 | Task / Story / EPIC | EPIC 28 — Lobby Emerald Lore (`docs/tasks/epic-28-lobby-emerald-lore.md`) |
-| Branch / commit / PR | `task/epic-28-lobby-emerald-lore` @ `7e56b48` (base: `task/epic-27-redis-economy-store`); PR not opened yet |
+| Branch / commit / PR | `task/epic-28-lobby-emerald-lore` @ `bec79101d383167bd8b1032d96deca83d0e86349` (base: `task/epic-27-redis-economy-store`); PR not opened yet |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
