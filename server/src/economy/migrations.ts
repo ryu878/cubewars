@@ -1,5 +1,6 @@
 // Schema migrations for the economy SQLite DB.
 // EPIC 23: profiles. EPIC 24: eggs, pets, growth_stimulators.
+// EPIC 25: gems, amulets, shards, repair_kits; pets.equip_slot allows 2.
 
 import type Database from "better-sqlite3";
 
@@ -54,6 +55,65 @@ const MIGRATIONS: readonly Migration[] = [
         created_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_stimulators_profile ON growth_stimulators(profile_id);
+    `,
+  },
+  {
+    id: "20260824_003_gems_amulets_shards_repair",
+    sql: `
+      -- Allow pet equip_slot = 2 (amulet-gated). SQLite cannot ALTER CHECK;
+      -- rebuild pets table while preserving rows.
+      CREATE TABLE pets_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+        type TEXT NOT NULL CHECK (type IN ('dog', 'cat', 'bird', 'lion')),
+        base_value INTEGER NOT NULL CHECK (base_value >= 1 AND base_value <= 200),
+        equip_slot INTEGER CHECK (equip_slot IS NULL OR equip_slot IN (1, 2)),
+        created_at INTEGER NOT NULL
+      );
+      INSERT INTO pets_new (id, profile_id, type, base_value, equip_slot, created_at)
+        SELECT id, profile_id, type, base_value, equip_slot, created_at FROM pets;
+      DROP TABLE pets;
+      ALTER TABLE pets_new RENAME TO pets;
+      CREATE INDEX IF NOT EXISTS idx_pets_profile ON pets(profile_id);
+
+      CREATE TABLE IF NOT EXISTS gems (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+        type TEXT NOT NULL CHECK (type IN ('health', 'armor', 'speed', 'damage')),
+        -- Create band is 5–100; death decay may floor down to 1 (EPIC 25 §2.4).
+        value INTEGER NOT NULL CHECK (value >= 1 AND value <= 100),
+        pet_id INTEGER REFERENCES pets(id) ON DELETE SET NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_gems_profile ON gems(profile_id);
+      CREATE INDEX IF NOT EXISTS idx_gems_pet ON gems(pet_id);
+      -- One gem per type per pet when socketed.
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_gems_pet_type
+        ON gems(pet_id, type) WHERE pet_id IS NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS amulets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+        durability INTEGER NOT NULL CHECK (durability >= 0 AND durability <= 10),
+        equipped INTEGER NOT NULL DEFAULT 0 CHECK (equipped IN (0, 1)),
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_amulets_profile ON amulets(profile_id);
+      -- At most one equipped amulet per profile.
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_amulets_equipped
+        ON amulets(profile_id) WHERE equipped = 1;
+
+      CREATE TABLE IF NOT EXISTS shards (
+        profile_id INTEGER PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
+        count INTEGER NOT NULL DEFAULT 0 CHECK (count >= 0 AND count <= 10)
+      );
+
+      CREATE TABLE IF NOT EXISTS repair_kits (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_repair_kits_profile ON repair_kits(profile_id);
     `,
   },
 ];

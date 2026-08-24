@@ -26,9 +26,13 @@ export const ECONOMY_CAPS = {
  */
 export const STIMULATOR_SOFT_CAP = 20;
 
+/** Soft cap on repair kit rows (EPIC 25 anti-bloat), same idea as stimulators. */
+export const REPAIR_KIT_SOFT_CAP = 20;
+
 /**
  * Independent kill-drop chances (0–1) from TZ §2.10.
- * Egg + growthStimulator used in EPIC 24; gem/amulet/repairKit reserved.
+ * Egg + growthStimulator (EPIC 24); gem / amulet / repairKit (EPIC 25).
+ * Shard is not rolled — granted at 100% when victim has an amulet (see helpers).
  */
 export const DROP_CHANCE = {
   egg: 0.15,
@@ -62,6 +66,21 @@ export const PET_TYPES: readonly PetType[] = ["dog", "cat", "bird", "lion"] as c
 
 export type RatingKind = "armor" | "health" | "speed" | "damage";
 
+/** Gem type matches a rating axis (EPIC 25). */
+export type GemType = RatingKind;
+
+export const GEM_TYPES: readonly GemType[] = ["health", "armor", "speed", "damage"] as const;
+
+/** Inclusive gem value band (TZ §2.5 / EPIC 25). */
+export const GEM_VALUE_MIN = 5;
+export const GEM_VALUE_MAX = 100;
+
+/**
+ * On human death: multiply each active pet base_value and each socketed gem
+ * value by this factor, then floor, min 1 (TZ §2.6 / EPIC 25 §2.4).
+ */
+export const DEATH_EFFECTIVENESS_FACTOR = 0.9;
+
 /** Pet type → primary profile rating (TZ §2.2). */
 export const PET_TYPE_RATING: Record<PetType, RatingKind> = {
   dog: "armor",
@@ -87,7 +106,7 @@ export const PET_COMBAT = {
   DAMAGE_PER_POINT: 0.001,
   /** Slot 1 contributes 100% of pet rating. */
   SLOT1_FRACTION: 1,
-  /** Slot 2 (amulet-gated, EPIC 25) would contribute 40%; unused while slot2Enabled=false. */
+  /** Slot 2 (amulet-gated) contributes 40% of the pet's full rating vector. */
   SLOT2_FRACTION: 0.4,
 } as const;
 
@@ -102,15 +121,25 @@ export function emptyRatings(): ProfileRatings {
   return { healthRating: 0, armorRating: 0, speedRating: 0, damageRating: 0 };
 }
 
+/** Per-axis gem values socketed on a pet (missing key = 0). */
+export type PetGemBonuses = Partial<Record<GemType, number>>;
+
 export interface EquippedPetInput {
   type: PetType;
   baseValue: number;
-  /** Only slot 1 is functional in EPIC 24; slot 2 ignored unless slot2Enabled. */
+  /** Slot 2 only counts when slot2Enabled (amulet equipped). */
   equipSlot: 1 | 2 | null;
+  /** Socketed gem values by type (EPIC 25). */
+  gems?: PetGemBonuses;
 }
 
 /**
- * Aggregate integer ratings from equipped pets (no gems in EPIC 24).
+ * Aggregate integer ratings from equipped pets + socketed gems.
+ *
+ * Per pet, after gems:
+ * - Primary axis (species) = base_value + matching gem (if any)
+ * - Off-axis = gem value only
+ * Then multiply the pet's full vector by slot fraction (1.0 / 0.4) and floor.
  * Slot 2 is ignored when `slot2Enabled` is false.
  */
 export function aggregateEquippedRatings(
@@ -122,15 +151,27 @@ export function aggregateEquippedRatings(
     if (pet.equipSlot !== 1 && pet.equipSlot !== 2) continue;
     if (pet.equipSlot === 2 && !slot2Enabled) continue;
     const fraction = pet.equipSlot === 1 ? PET_COMBAT.SLOT1_FRACTION : PET_COMBAT.SLOT2_FRACTION;
-    const contribution = Math.floor(Math.max(0, pet.baseValue) * fraction);
-    if (contribution <= 0) continue;
-    const kind = PET_TYPE_RATING[pet.type];
-    if (kind === "health") ratings.healthRating += contribution;
-    else if (kind === "armor") ratings.armorRating += contribution;
-    else if (kind === "speed") ratings.speedRating += contribution;
-    else ratings.damageRating += contribution;
+    const primary = PET_TYPE_RATING[pet.type];
+    const gems = pet.gems ?? {};
+
+    for (const kind of GEM_TYPES) {
+      const base = kind === primary ? Math.max(0, pet.baseValue) : 0;
+      const gemBonus = Math.max(0, gems[kind] ?? 0);
+      const contribution = Math.floor((base + gemBonus) * fraction);
+      if (contribution <= 0) continue;
+      if (kind === "health") ratings.healthRating += contribution;
+      else if (kind === "armor") ratings.armorRating += contribution;
+      else if (kind === "speed") ratings.speedRating += contribution;
+      else ratings.damageRating += contribution;
+    }
   }
   return ratings;
+}
+
+/** Apply death effectiveness decay: max(1, floor(value * 0.9)). */
+export function applyDeathEffectivenessDecay(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 1;
+  return Math.max(1, Math.floor(value * DEATH_EFFECTIVENESS_FACTOR));
 }
 
 /** Effective max HP = COMBAT.maxHealth + floor(healthRating * HP_PER_POINT). */
@@ -171,6 +212,40 @@ export function shouldGrantEggDrop(eggs: number, pets: number, roll: number): bo
 /** Pure drop gate: stimulator on human kill when under soft-cap. */
 export function shouldGrantStimulatorDrop(stimulators: number, roll: number): boolean {
   return stimulators < STIMULATOR_SOFT_CAP && roll < DROP_CHANCE.growthStimulator;
+}
+
+/** Gem loot copy when killer under gem cap and victim has a gem on an equipped pet. */
+export function shouldGrantGemDrop(killerGems: number, victimHasEquippedGem: boolean, roll: number): boolean {
+  return killerGems < ECONOMY_CAPS.gems && victimHasEquippedGem && roll < DROP_CHANCE.gem;
+}
+
+/** Amulet loot copy when victim has an amulet and killer under amulet cap. */
+export function shouldGrantAmuletDrop(killerAmulets: number, victimHasAmulet: boolean, roll: number): boolean {
+  return victimHasAmulet && killerAmulets < ECONOMY_CAPS.amulets && roll < DROP_CHANCE.amulet;
+}
+
+/** Repair kit when under soft-cap. */
+export function shouldGrantRepairKitDrop(kits: number, roll: number): boolean {
+  return kits < REPAIR_KIT_SOFT_CAP && roll < DROP_CHANCE.repairKit;
+}
+
+/**
+ * Shard grant (not a random roll): victim has any amulet, killer amulets &lt; 4,
+ * shards under cap, and match has not already granted a shard from this victim
+ * to this killer.
+ */
+export function shouldGrantShard(
+  killerAmulets: number,
+  killerShards: number,
+  victimHasAmulet: boolean,
+  alreadyGrantedThisMatch: boolean,
+): boolean {
+  return (
+    victimHasAmulet &&
+    killerAmulets < ECONOMY_CAPS.amulets &&
+    killerShards < ECONOMY_CAPS.shards &&
+    !alreadyGrantedThisMatch
+  );
 }
 
 /** Clamp stimulator: hatch_deadline = min(hatch_deadline, now + stimulatorMaxRemainingMs). Never extends a ready egg. */

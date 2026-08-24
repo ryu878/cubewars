@@ -8,7 +8,7 @@ import type { WeaponType } from "./weapons.js";
 import type { PickupStatus } from "./pickups.js";
 import type { DamageKind, DamageZone } from "./combat.js";
 import type { MapBox } from "./mapData.js";
-import type { PetType, ProfileRatings } from "./economy.js";
+import type { GemType, PetType, ProfileRatings } from "./economy.js";
 // EPIC 3 "The Arena": the single source of truth for map geometry, spawn
 // points, and their collision resolution — see mapData.ts / collision.ts
 // doc comments. Re-exported here so both client and server keep importing
@@ -208,13 +208,13 @@ export interface JoinMessage {
 }
 
 /**
- * Client -> server: equip a pet into slot 1 (EPIC 24). Server validates
- * ownership, unequips any other slot-1 pet first, and rejects slot 2.
+ * Client -> server: equip a pet into slot 1 or 2 (EPIC 24/25). Server validates
+ * ownership; slot 2 only when an amulet is equipped (`slot2Enabled`).
  */
 export interface EconomyEquipPetMessage {
   type: "economy_equip_pet";
   petId: number;
-  slot: 1;
+  slot: 1 | 2;
 }
 
 /** Client -> server: unequip a pet the connection owns (EPIC 24). */
@@ -235,6 +235,42 @@ export interface EconomyApplyStimulatorMessage {
   eggId: number;
 }
 
+/** Client -> server: socket an owned unequipped gem into an owned pet (EPIC 25). */
+export interface EconomySocketGemMessage {
+  type: "economy_socket_gem";
+  gemId: number;
+  petId: number;
+}
+
+/** Client -> server: unsocket an owned gem from its pet (EPIC 25). */
+export interface EconomyUnsocketGemMessage {
+  type: "economy_unsocket_gem";
+  gemId: number;
+}
+
+/** Client -> server: equip an owned amulet (enables pet slot 2) (EPIC 25). */
+export interface EconomyEquipAmuletMessage {
+  type: "economy_equip_amulet";
+  amuletId: number;
+}
+
+/** Client -> server: unequip an owned amulet (forces slot-2 pet unequip) (EPIC 25). */
+export interface EconomyUnequipAmuletMessage {
+  type: "economy_unequip_amulet";
+  amuletId: number;
+}
+
+/** Client -> server: craft an amulet from 10 shards (EPIC 25). */
+export interface EconomyCraftAmuletMessage {
+  type: "economy_craft_amulet";
+}
+
+/** Client -> server: consume one repair kit to +1 durability on an owned amulet (EPIC 25). */
+export interface EconomyRepairAmuletMessage {
+  type: "economy_repair_amulet";
+  amuletId: number;
+}
+
 export type ClientMessage =
   | PlayerInputMessage
   | FireEvent
@@ -243,7 +279,13 @@ export type ClientMessage =
   | EconomyEquipPetMessage
   | EconomyUnequipPetMessage
   | EconomyHatchEggMessage
-  | EconomyApplyStimulatorMessage;
+  | EconomyApplyStimulatorMessage
+  | EconomySocketGemMessage
+  | EconomyUnsocketGemMessage
+  | EconomyEquipAmuletMessage
+  | EconomyUnequipAmuletMessage
+  | EconomyCraftAmuletMessage
+  | EconomyRepairAmuletMessage;
 
 /** A single player's authoritative, server-computed state as broadcast to all clients. */
 export interface PlayerState {
@@ -491,13 +533,13 @@ export interface ProjectileImpactEvent {
   point: Vector3;
 }
 
-/** Wire DTO for a durable pet row (EPIC 24). */
+/** Wire DTO for a durable pet row (EPIC 24/25). */
 export interface EconomyPetDto {
   id: number;
   type: PetType;
   baseValue: number;
-  /** Only slot 1 is used in EPIC 24; null when unequipped. */
-  equipSlot: 1 | null;
+  /** Slot 1 default; slot 2 only when amulet equipped; null when unequipped. */
+  equipSlot: 1 | 2 | null;
 }
 
 /** Wire DTO for an incubating egg (EPIC 24). */
@@ -506,10 +548,25 @@ export interface EconomyEggDto {
   hatchDeadlineMs: number;
 }
 
+/** Wire DTO for a gem (EPIC 25). `petId` null when unequipped / in bag. */
+export interface EconomyGemDto {
+  id: number;
+  gemType: GemType;
+  value: number;
+  petId: number | null;
+}
+
+/** Wire DTO for an amulet (EPIC 25). */
+export interface EconomyAmuletDto {
+  id: number;
+  durability: number;
+  equipped: boolean;
+}
+
 /**
- * Server -> owning connection only (EPIC 23/24): full economy profile
+ * Server -> owning connection only (EPIC 23/24/25): full economy profile
  * snapshot for the player's nickname key. Sent on join and after equip /
- * hatch / stim / item drops. All fields are server-authoritative.
+ * hatch / stim / gem / amulet / item drops. All fields are server-authoritative.
  */
 export interface EconomyProfileMessage {
   type: "economy_profile";
@@ -518,9 +575,13 @@ export interface EconomyProfileMessage {
   pets: EconomyPetDto[];
   eggs: EconomyEggDto[];
   stimulatorCount: number;
+  gems: EconomyGemDto[];
+  amulets: EconomyAmuletDto[];
+  shardCount: number;
+  repairKitCount: number;
   ratings: ProfileRatings;
-  /** Always false in EPIC 24 (amulet-gated slot 2 deferred to EPIC 25). */
-  slot2Enabled: false;
+  /** True when an amulet is equipped (enables pet slot 2 at 40%). */
+  slot2Enabled: boolean;
 }
 
 /**
@@ -535,13 +596,23 @@ export interface EconomyGoldUpdateMessage {
 }
 
 /**
- * Server -> owning connection only (EPIC 24): result of an economy action
- * (equip/unequip/hatch/stimulator). On success the server also pushes a
- * fresh `economy_profile`. On failure `ok` is false and `code` explains why.
+ * Server -> owning connection only (EPIC 24/25): result of an economy action.
+ * On success the server also pushes a fresh `economy_profile`.
+ * On failure `ok` is false and `code` explains why.
  */
 export interface EconomyActionResultMessage {
   type: "economy_action_result";
-  action: "equip" | "unequip" | "hatch" | "stimulator";
+  action:
+    | "equip"
+    | "unequip"
+    | "hatch"
+    | "stimulator"
+    | "socket_gem"
+    | "unsocket_gem"
+    | "equip_amulet"
+    | "unequip_amulet"
+    | "craft_amulet"
+    | "repair_amulet";
   ok: boolean;
   code?: string;
 }

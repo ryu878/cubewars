@@ -121,6 +121,11 @@ export class Match {
   private lastMapVersion = -1;
   private lastEndlessProgressAtMs = 0;
   private skipRestOfTickAfterEndlessRestart = false;
+  /**
+   * EPIC 25: in-match shard grants — killer nickname_key → set of victim
+   * nickname_keys already granted. Not durable across match teardown.
+   */
+  private matchShardGrants = new Map<string, Set<string>>();
 
   constructor(private options: MatchOptions) {
     this.id = options.id;
@@ -268,7 +273,7 @@ export class Match {
     socket.send(JSON.stringify(message));
   }
 
-  /** Send durable economy snapshot to the owning human socket only (EPIC 23/24). */
+  /** Send durable economy snapshot to the owning human socket only (EPIC 23–25). */
   sendEconomyProfile(playerId: string, nickname: string): void {
     const economy = this.options.economy;
     if (!economy) return;
@@ -290,8 +295,21 @@ export class Match {
         hatchDeadlineMs: e.hatchDeadlineMs,
       })),
       stimulatorCount: profile.stimulatorCount,
+      gems: profile.gems.map((g) => ({
+        id: g.id,
+        gemType: g.gemType,
+        value: g.value,
+        petId: g.petId,
+      })),
+      amulets: profile.amulets.map((a) => ({
+        id: a.id,
+        durability: a.durability,
+        equipped: a.equipped,
+      })),
+      shardCount: profile.shardCount,
+      repairKitCount: profile.repairKitCount,
       ratings: profile.ratings,
-      slot2Enabled: false,
+      slot2Enabled: profile.slot2Enabled,
     };
     socket.send(JSON.stringify(message));
   }
@@ -325,13 +343,19 @@ export class Match {
 
   /**
    * Handle an economy action from the owning connection. Validates ownership
-   * server-side; rejects slot 2 and cross-profile ids.
+   * server-side; rejects cross-profile ids and slot 2 without an amulet.
    */
   handleEconomyAction(
     playerId: string,
     nickname: string,
-    action: "equip" | "unequip" | "hatch" | "stimulator",
-    payload: { petId?: number; eggId?: number; slot?: number },
+    action: EconomyActionResultMessage["action"],
+    payload: {
+      petId?: number;
+      eggId?: number;
+      slot?: number;
+      gemId?: number;
+      amuletId?: number;
+    },
   ): void {
     const economy = this.options.economy;
     if (!economy) {
@@ -364,6 +388,43 @@ export class Match {
           return;
         }
         economy.applyStimulator(nickname, payload.eggId);
+      } else if (action === "socket_gem") {
+        if (
+          typeof payload.gemId !== "number" ||
+          !Number.isInteger(payload.gemId) ||
+          typeof payload.petId !== "number" ||
+          !Number.isInteger(payload.petId)
+        ) {
+          this.sendEconomyActionResult(playerId, action, false, "not_found");
+          return;
+        }
+        economy.socketGem(nickname, payload.gemId, payload.petId);
+      } else if (action === "unsocket_gem") {
+        if (typeof payload.gemId !== "number" || !Number.isInteger(payload.gemId)) {
+          this.sendEconomyActionResult(playerId, action, false, "not_found");
+          return;
+        }
+        economy.unsocketGem(nickname, payload.gemId);
+      } else if (action === "equip_amulet") {
+        if (typeof payload.amuletId !== "number" || !Number.isInteger(payload.amuletId)) {
+          this.sendEconomyActionResult(playerId, action, false, "not_found");
+          return;
+        }
+        economy.equipAmulet(nickname, payload.amuletId);
+      } else if (action === "unequip_amulet") {
+        if (typeof payload.amuletId !== "number" || !Number.isInteger(payload.amuletId)) {
+          this.sendEconomyActionResult(playerId, action, false, "not_found");
+          return;
+        }
+        economy.unequipAmulet(nickname, payload.amuletId);
+      } else if (action === "craft_amulet") {
+        economy.craftAmulet(nickname);
+      } else if (action === "repair_amulet") {
+        if (typeof payload.amuletId !== "number" || !Number.isInteger(payload.amuletId)) {
+          this.sendEconomyActionResult(playerId, action, false, "not_found");
+          return;
+        }
+        economy.repairAmulet(nickname, payload.amuletId);
       }
       this.applyEconomyCombatToPlayer(playerId, nickname);
       this.sendEconomyActionResult(playerId, action, true);
@@ -380,9 +441,34 @@ export class Match {
   }
 
   /**
-   * EPIC 23/24: mint kill gold into the human killer's nickname profile, and
-   * on human victims only roll egg + stimulator drops. Skips fog deaths,
-   * self-kills, and non-human shooters (bots have no socket).
+   * EPIC 25 §2.4: on confirmed human death (any killer including bots/fog),
+   * apply amulet durability loss + 10% active-pet/gem effectiveness decay.
+   * Never applied to bots.
+   */
+  private applyHumanDeathEconomyPenalties(victimId: string): void {
+    const economy = this.options.economy;
+    if (!economy) return;
+    if (!this.sockets.has(victimId)) return;
+    if (this.botAI?.isBot(victimId)) return;
+    const victim = this.registry.getPlayer(victimId);
+    if (!victim) return;
+    const result = economy.applyHumanDeathPenalties(victim.nickname);
+    this.applyEconomyCombatToPlayer(victimId, victim.nickname);
+    this.sendEconomyProfile(victimId, victim.nickname);
+    console.log(
+      `[economy] death penalties -> ${victim.nickname}` +
+        ` amuletDestroyed=${result.amuletDestroyed}` +
+        ` durabilityAfter=${result.durabilityAfter}` +
+        ` petsDecayed=${result.petsDecayed}` +
+        ` gemsDecayed=${result.gemsDecayed}` +
+        ` [match=${this.id}]`,
+    );
+  }
+
+  /**
+   * EPIC 23–25: mint kill gold into the human killer's nickname profile, and
+   * on human victims only roll egg/stim/gem/shard/amulet/repair drops.
+   * Skips fog deaths, self-kills, and non-human shooters (bots have no socket).
    */
   private grantKillGold(shooterId: string, victimId: string): void {
     const economy = this.options.economy;
@@ -404,13 +490,45 @@ export class Match {
 
     // Item drops: human victims only (bots remain gold-only for items).
     const victimIsHuman = this.sockets.has(victimId) && !this.botAI?.isBot(victimId);
-    const drops = economy.tryKillItemDrops(killer.nickname, victimIsHuman);
-    if (drops.egg || drops.stimulator) {
+    const victimPlayer = victimIsHuman ? this.registry.getPlayer(victimId) : null;
+    let alreadyGrantedShard = false;
+    if (victimPlayer) {
+      const killerKey = profile.nicknameKey;
+      const victimKey = economy.getOrCreateProfile(victimPlayer.nickname).nicknameKey;
+      alreadyGrantedShard = this.matchShardGrants.get(killerKey)?.has(victimKey) ?? false;
+    }
+    const drops = economy.tryKillItemDrops(
+      killer.nickname,
+      victimIsHuman,
+      {},
+      Date.now(),
+      victimPlayer
+        ? {
+            nickname: victimPlayer.nickname,
+            alreadyGrantedShard,
+          }
+        : undefined,
+    );
+    if (drops.shard && victimPlayer) {
+      const killerKey = profile.nicknameKey;
+      const victimKey = economy.getOrCreateProfile(victimPlayer.nickname).nicknameKey;
+      let set = this.matchShardGrants.get(killerKey);
+      if (!set) {
+        set = new Set();
+        this.matchShardGrants.set(killerKey, set);
+      }
+      set.add(victimKey);
+    }
+    if (drops.egg || drops.stimulator || drops.gem || drops.shard || drops.amulet || drops.repairKit) {
       this.sendEconomyProfile(shooterId, killer.nickname);
       console.log(
         `[economy] kill item drops -> ${killer.nickname}` +
           `${drops.egg ? ` egg#${drops.egg.id}` : ""}` +
           `${drops.stimulator ? " stimulator" : ""}` +
+          `${drops.gem ? ` gem#${drops.gem.id}` : ""}` +
+          `${drops.shard ? " shard" : ""}` +
+          `${drops.amulet ? ` amulet#${drops.amulet.id}` : ""}` +
+          `${drops.repairKit ? " repairKit" : ""}` +
           ` [match=${this.id}]`,
       );
     }
@@ -539,6 +657,7 @@ export class Match {
         };
         this.broadcast(deathMessage);
         console.log(`[server] [${this.id}] death: ${event.targetId} killed by ${shooterId}`);
+        this.applyHumanDeathEconomyPenalties(event.targetId);
 
         const killMessage: KillEvent = {
           type: "kill",

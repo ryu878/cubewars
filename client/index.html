@@ -629,14 +629,14 @@
         font-variant-numeric: tabular-nums;
       }
 
-      /* EPIC 24: minimal pets / eggs panel (not full inventory grid). */
+      /* EPIC 24/25: minimal pets / eggs / gems / amulets panel (not full inventory grid). */
       #petsPanel {
         position: fixed;
         top: 50%;
         left: 50%;
         transform: translate(-50%, -50%);
-        width: min(420px, calc(100vw - 32px));
-        max-height: min(70vh, 560px);
+        width: min(480px, calc(100vw - 32px));
+        max-height: min(80vh, 640px);
         overflow: auto;
         padding: 16px 18px 18px;
         background: rgba(12, 18, 14, 0.94);
@@ -746,9 +746,11 @@
     </div>
     <div id="petsPanel" aria-hidden="true">
       <button id="petsCloseBtn" type="button">Close</button>
-      <h2>Pets &amp; Eggs</h2>
+      <h2>Pets &amp; Gear</h2>
       <p class="pets-meta">
-        Gold: <span id="petsGold">—</span> · Stimulators: <span id="petsStimCount">0</span>
+        Gold: <span id="petsGold">—</span> · Stim: <span id="petsStimCount">0</span>
+        · Shards: <span id="petsShardCount">0</span>
+        · Kits: <span id="petsKitCount">0</span>
         · Press P to toggle
       </p>
       <div id="petsRatings" class="pets-meta"></div>
@@ -756,6 +758,13 @@
       <div id="petsEggsList"></div>
       <div class="pets-section-title">Pets</div>
       <div id="petsPetsList"></div>
+      <div class="pets-section-title">Gems</div>
+      <div id="petsGemsList"></div>
+      <div class="pets-section-title">Amulets</div>
+      <div id="petsAmuletsList"></div>
+      <p class="pets-meta">
+        <button id="petsCraftAmuletBtn" type="button">Craft amulet (10 shards)</button>
+      </p>
       <div id="petsStatus"></div>
     </div>
     <div id="healthHud" data-low="false">

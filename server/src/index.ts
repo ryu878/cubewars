@@ -434,9 +434,14 @@ wss.on("connection", (socket: WebSocket) => {
         malformedInputDropTracker.record(playerId, now);
         return;
       }
+      const slot = parsed.slot === 2 ? 2 : parsed.slot === 1 ? 1 : undefined;
+      if (slot === undefined) {
+        malformedInputDropTracker.record(playerId, now);
+        return;
+      }
       match.handleEconomyAction(playerId, nickname, "equip", {
         petId: parsed.petId,
-        slot: parsed.slot === 1 ? 1 : parsed.slot,
+        slot,
       });
       return;
     }
@@ -465,6 +470,64 @@ wss.on("connection", (socket: WebSocket) => {
         return;
       }
       match.handleEconomyAction(playerId, nickname, "stimulator", { eggId: parsed.eggId });
+      return;
+    }
+
+    if (parsed.type === "economy_socket_gem") {
+      if (
+        typeof parsed.gemId !== "number" ||
+        !Number.isInteger(parsed.gemId) ||
+        typeof parsed.petId !== "number" ||
+        !Number.isInteger(parsed.petId)
+      ) {
+        malformedInputDropTracker.record(playerId, now);
+        return;
+      }
+      match.handleEconomyAction(playerId, nickname, "socket_gem", {
+        gemId: parsed.gemId,
+        petId: parsed.petId,
+      });
+      return;
+    }
+
+    if (parsed.type === "economy_unsocket_gem") {
+      if (typeof parsed.gemId !== "number" || !Number.isInteger(parsed.gemId)) {
+        malformedInputDropTracker.record(playerId, now);
+        return;
+      }
+      match.handleEconomyAction(playerId, nickname, "unsocket_gem", { gemId: parsed.gemId });
+      return;
+    }
+
+    if (parsed.type === "economy_equip_amulet") {
+      if (typeof parsed.amuletId !== "number" || !Number.isInteger(parsed.amuletId)) {
+        malformedInputDropTracker.record(playerId, now);
+        return;
+      }
+      match.handleEconomyAction(playerId, nickname, "equip_amulet", { amuletId: parsed.amuletId });
+      return;
+    }
+
+    if (parsed.type === "economy_unequip_amulet") {
+      if (typeof parsed.amuletId !== "number" || !Number.isInteger(parsed.amuletId)) {
+        malformedInputDropTracker.record(playerId, now);
+        return;
+      }
+      match.handleEconomyAction(playerId, nickname, "unequip_amulet", { amuletId: parsed.amuletId });
+      return;
+    }
+
+    if (parsed.type === "economy_craft_amulet") {
+      match.handleEconomyAction(playerId, nickname, "craft_amulet", {});
+      return;
+    }
+
+    if (parsed.type === "economy_repair_amulet") {
+      if (typeof parsed.amuletId !== "number" || !Number.isInteger(parsed.amuletId)) {
+        malformedInputDropTracker.record(playerId, now);
+        return;
+      }
+      match.handleEconomyAction(playerId, nickname, "repair_amulet", { amuletId: parsed.amuletId });
       return;
     }
 

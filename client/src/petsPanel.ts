@@ -1,11 +1,13 @@
-// Minimal pets / eggs panel (EPIC 24). Plain HTML/CSS/TS — not the EPIC 27
-// 8×8 inventory grid. All values come from server `economy_profile`; buttons
-// only send intents (equip/unequip/hatch/stimulator). Toggle with P.
+// Minimal pets / eggs / gems / amulets panel (EPIC 24–25). Plain HTML/CSS/TS —
+// not the EPIC 27 8×8 inventory grid. All values come from server
+// `economy_profile`; buttons only send intents. Toggle with P.
 
 import type {
   ClientMessage,
   EconomyActionResultMessage,
+  EconomyAmuletDto,
   EconomyEggDto,
+  EconomyGemDto,
   EconomyPetDto,
   EconomyProfileMessage,
   ProfileRatings,
@@ -31,11 +33,17 @@ export class PetsPanel {
   private ratingsEl: HTMLElement;
   private eggsEl: HTMLElement;
   private petsEl: HTMLElement;
+  private gemsEl: HTMLElement;
+  private amuletsEl: HTMLElement;
   private statusEl: HTMLElement;
   private stimEl: HTMLElement;
+  private shardsEl: HTMLElement;
+  private kitsEl: HTMLElement;
   private open = false;
   private profile: EconomyProfileMessage | null = null;
   private timer: number | null = null;
+  /** Gem currently selected for socketing onto a pet. */
+  private selectedGemId: number | null = null;
 
   constructor(private send: SendFn) {
     this.panelEl = document.getElementById("petsPanel") as HTMLElement;
@@ -43,18 +51,26 @@ export class PetsPanel {
     this.ratingsEl = document.getElementById("petsRatings") as HTMLElement;
     this.eggsEl = document.getElementById("petsEggsList") as HTMLElement;
     this.petsEl = document.getElementById("petsPetsList") as HTMLElement;
+    this.gemsEl = document.getElementById("petsGemsList") as HTMLElement;
+    this.amuletsEl = document.getElementById("petsAmuletsList") as HTMLElement;
     this.statusEl = document.getElementById("petsStatus") as HTMLElement;
     this.stimEl = document.getElementById("petsStimCount") as HTMLElement;
+    this.shardsEl = document.getElementById("petsShardCount") as HTMLElement;
+    this.kitsEl = document.getElementById("petsKitCount") as HTMLElement;
 
     window.addEventListener("keydown", (event) => {
       if (event.code !== "KeyP" || event.repeat) return;
-      // Allow toggle in lobby (no pointer lock) and in-match.
       event.preventDefault();
       this.setOpen(!this.open);
     });
 
     const closeBtn = document.getElementById("petsCloseBtn");
     closeBtn?.addEventListener("click", () => this.setOpen(false));
+
+    const craftBtn = document.getElementById("petsCraftAmuletBtn");
+    craftBtn?.addEventListener("click", () => {
+      this.send({ type: "economy_craft_amulet" });
+    });
   }
 
   setOpen(open: boolean): void {
@@ -93,16 +109,29 @@ export class PetsPanel {
     if (!this.profile) {
       this.goldEl.textContent = "—";
       this.stimEl.textContent = "0";
+      this.shardsEl.textContent = "0";
+      this.kitsEl.textContent = "0";
       this.ratingsEl.textContent = "Join a match to load pets.";
       this.eggsEl.replaceChildren();
       this.petsEl.replaceChildren();
+      this.gemsEl.replaceChildren();
+      this.amuletsEl.replaceChildren();
       return;
     }
     this.goldEl.textContent = String(this.profile.gold);
     this.stimEl.textContent = String(this.profile.stimulatorCount);
+    this.shardsEl.textContent = String(this.profile.shardCount);
+    this.kitsEl.textContent = String(this.profile.repairKitCount);
     this.renderRatings(this.profile.ratings);
     this.renderEggs(this.profile.eggs, this.profile.stimulatorCount);
-    this.renderPets(this.profile.pets);
+    this.renderPets(this.profile.pets, this.profile.slot2Enabled);
+    this.renderGems(this.profile.gems);
+    this.renderAmulets(this.profile.amulets, this.profile.repairKitCount, this.profile.shardCount);
+
+    const craftBtn = document.getElementById("petsCraftAmuletBtn") as HTMLButtonElement | null;
+    if (craftBtn) {
+      craftBtn.disabled = this.profile.shardCount < 10 || this.profile.amulets.length >= 4;
+    }
   }
 
   private renderEggsOnly(): void {
@@ -114,7 +143,7 @@ export class PetsPanel {
     this.ratingsEl.textContent =
       `HP ${ratings.healthRating} · DR ${ratings.armorRating} · ` +
       `SPD ${ratings.speedRating} · DMG ${ratings.damageRating}` +
-      (this.profile?.slot2Enabled ? "" : " · slot2 off");
+      (this.profile?.slot2Enabled ? " · slot2 on" : " · slot2 off");
   }
 
   private renderEggs(eggs: EconomyEggDto[], stimCount: number): void {
@@ -162,7 +191,7 @@ export class PetsPanel {
     }
   }
 
-  private renderPets(pets: EconomyPetDto[]): void {
+  private renderPets(pets: EconomyPetDto[], slot2Enabled: boolean): void {
     this.petsEl.replaceChildren();
     if (pets.length === 0) {
       const empty = document.createElement("div");
@@ -174,18 +203,18 @@ export class PetsPanel {
     for (const pet of pets) {
       const row = document.createElement("div");
       row.className = "pets-row";
-      if (pet.equipSlot === 1) row.classList.add("equipped");
+      if (pet.equipSlot === 1 || pet.equipSlot === 2) row.classList.add("equipped");
 
       const label = document.createElement("span");
       label.className = "pets-row-label";
-      label.textContent =
-        `${pet.type} #${pet.id} · value ${pet.baseValue}` +
-        (pet.equipSlot === 1 ? " · equipped" : "");
+      const slotLabel =
+        pet.equipSlot === 1 ? " · slot1" : pet.equipSlot === 2 ? " · slot2" : "";
+      label.textContent = `${pet.type} #${pet.id} · value ${pet.baseValue}${slotLabel}`;
 
       const actions = document.createElement("span");
       actions.className = "pets-row-actions";
 
-      if (pet.equipSlot === 1) {
+      if (pet.equipSlot === 1 || pet.equipSlot === 2) {
         const unequipBtn = document.createElement("button");
         unequipBtn.type = "button";
         unequipBtn.textContent = "Unequip";
@@ -194,17 +223,149 @@ export class PetsPanel {
         });
         actions.appendChild(unequipBtn);
       } else {
-        const equipBtn = document.createElement("button");
-        equipBtn.type = "button";
-        equipBtn.textContent = "Equip";
-        equipBtn.addEventListener("click", () => {
+        const equip1 = document.createElement("button");
+        equip1.type = "button";
+        equip1.textContent = "Slot1";
+        equip1.addEventListener("click", () => {
           this.send({ type: "economy_equip_pet", petId: pet.id, slot: 1 });
         });
-        actions.appendChild(equipBtn);
+        actions.appendChild(equip1);
+
+        if (slot2Enabled) {
+          const equip2 = document.createElement("button");
+          equip2.type = "button";
+          equip2.textContent = "Slot2";
+          equip2.addEventListener("click", () => {
+            this.send({ type: "economy_equip_pet", petId: pet.id, slot: 2 });
+          });
+          actions.appendChild(equip2);
+        }
+      }
+
+      if (this.selectedGemId !== null) {
+        const socketBtn = document.createElement("button");
+        socketBtn.type = "button";
+        socketBtn.textContent = "Socket gem";
+        socketBtn.addEventListener("click", () => {
+          if (this.selectedGemId === null) return;
+          this.send({
+            type: "economy_socket_gem",
+            gemId: this.selectedGemId,
+            petId: pet.id,
+          });
+          this.selectedGemId = null;
+        });
+        actions.appendChild(socketBtn);
       }
 
       row.append(label, actions);
       this.petsEl.appendChild(row);
+    }
+  }
+
+  private renderGems(gems: EconomyGemDto[]): void {
+    this.gemsEl.replaceChildren();
+    if (gems.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "pets-empty";
+      empty.textContent = "No gems";
+      this.gemsEl.appendChild(empty);
+      return;
+    }
+    for (const gem of gems) {
+      const row = document.createElement("div");
+      row.className = "pets-row";
+      if (this.selectedGemId === gem.id) row.classList.add("equipped");
+
+      const label = document.createElement("span");
+      label.className = "pets-row-label";
+      label.textContent =
+        `${gem.gemType} #${gem.id} · ${gem.value}` +
+        (gem.petId !== null ? ` · on pet #${gem.petId}` : " · bag");
+
+      const actions = document.createElement("span");
+      actions.className = "pets-row-actions";
+
+      if (gem.petId !== null) {
+        const unsocket = document.createElement("button");
+        unsocket.type = "button";
+        unsocket.textContent = "Unsocket";
+        unsocket.addEventListener("click", () => {
+          this.send({ type: "economy_unsocket_gem", gemId: gem.id });
+        });
+        actions.appendChild(unsocket);
+      } else {
+        const select = document.createElement("button");
+        select.type = "button";
+        select.textContent = this.selectedGemId === gem.id ? "Selected" : "Select";
+        select.addEventListener("click", () => {
+          this.selectedGemId = this.selectedGemId === gem.id ? null : gem.id;
+          if (this.profile) this.render();
+        });
+        actions.appendChild(select);
+      }
+
+      row.append(label, actions);
+      this.gemsEl.appendChild(row);
+    }
+  }
+
+  private renderAmulets(
+    amulets: EconomyAmuletDto[],
+    kitCount: number,
+    _shardCount: number,
+  ): void {
+    this.amuletsEl.replaceChildren();
+    if (amulets.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "pets-empty";
+      empty.textContent = "No amulets";
+      this.amuletsEl.appendChild(empty);
+      return;
+    }
+    for (const amulet of amulets) {
+      const row = document.createElement("div");
+      row.className = "pets-row";
+      if (amulet.equipped) row.classList.add("equipped");
+
+      const label = document.createElement("span");
+      label.className = "pets-row-label";
+      label.textContent =
+        `Amulet #${amulet.id} · dur ${amulet.durability}/10` +
+        (amulet.equipped ? " · equipped" : "");
+
+      const actions = document.createElement("span");
+      actions.className = "pets-row-actions";
+
+      if (amulet.equipped) {
+        const unequip = document.createElement("button");
+        unequip.type = "button";
+        unequip.textContent = "Unequip";
+        unequip.addEventListener("click", () => {
+          this.send({ type: "economy_unequip_amulet", amuletId: amulet.id });
+        });
+        actions.appendChild(unequip);
+      } else {
+        const equip = document.createElement("button");
+        equip.type = "button";
+        equip.textContent = "Equip";
+        equip.addEventListener("click", () => {
+          this.send({ type: "economy_equip_amulet", amuletId: amulet.id });
+        });
+        actions.appendChild(equip);
+      }
+
+      const repair = document.createElement("button");
+      repair.type = "button";
+      repair.textContent = "Repair";
+      repair.disabled = kitCount <= 0 || amulet.durability >= 10;
+      repair.addEventListener("click", () => {
+        this.send({ type: "economy_repair_amulet", amuletId: amulet.id });
+      });
+      actions.appendChild(repair);
+
+      row.append(label, actions);
+      this.amuletsEl.appendChild(row);
     }
   }
 }

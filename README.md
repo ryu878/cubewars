@@ -82,6 +82,15 @@ Combat is server-authoritative too: firing sends a bare "fire" event, and the se
 
 ## Current status
 
+EPIC 25 (Gems, Amulets, Shards & Death Penalties) — see `docs/tasks/epic-25-gems-amulets-shards.md`.
+
+- **Gems:** socket/unsocket onto pets (one gem per type per pet). Kill loot is a **copy** of a gem from the victim's equipped pet (victim keeps theirs).
+- **Amulets:** equip enables pet slot 2 at 40% contribution; unequip forces slot-2 unequip. Craft from 10 shards. Repair kits +1 durability (cap 10).
+- **Death (humans only):** equipped amulet durability −1 (destroy at 0); each active pet and its socketed gems lose 10% effectiveness (`floor`, min 1).
+- **Shards:** +1 on killing a human who has any amulet, once per victim per match (in-memory), if killer amulets &lt; 4.
+- **Client:** pets panel (P) lists gems/amulets/shards/kits; slot 2 when amulet equipped.
+- Verified via `npm run regression:economy-gems-amulets`, `npm run regression:economy-pets`, `npm run regression:economy-gold`, `npm run typecheck`, and `npm run build`.
+
 EPIC 24 (Pets, Eggs, Incubation & Equip Stats) — see `docs/tasks/epic-24-pets-eggs-equip.md`.
 
 - **Pets loop:** human kills can drop eggs (15%) and growth stimulators (8%, soft-cap 20). Eggs incubate (24h, overridable via `CUBEWARS_INCUBATION_MS`), hatch into pets (type + base_value 1–200), and one pet can be equipped in slot 1.

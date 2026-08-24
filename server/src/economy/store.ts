@@ -1,21 +1,32 @@
-// Durable player economy profiles keyed by nickname (EPIC 23 + EPIC 24).
-// Gold / pets / eggs / stimulators are transactional. Single-process
-// assumption: better-sqlite3 sync API; do not run multiple server processes
-// against the same SQLite file.
+// Durable player economy profiles keyed by nickname (EPIC 23–25).
+// Gold / pets / eggs / stimulators / gems / amulets / shards / repair kits
+// are transactional. Single-process assumption: better-sqlite3 sync API;
+// do not run multiple server processes against the same SQLite file.
 
 import path from "node:path";
 import type Database from "better-sqlite3";
 import {
   ECONOMY_CAPS,
+  GEM_TYPES,
+  GEM_VALUE_MAX,
+  GEM_VALUE_MIN,
   INCUBATION,
   PET_TYPES,
+  REPAIR_KIT_SOFT_CAP,
   STIMULATOR_SOFT_CAP,
   aggregateEquippedRatings,
+  applyDeathEffectivenessDecay,
   applyStimulatorDeadline,
   emptyRatings,
   isEggReady,
+  shouldGrantAmuletDrop,
   shouldGrantEggDrop,
+  shouldGrantGemDrop,
+  shouldGrantRepairKitDrop,
+  shouldGrantShard,
   shouldGrantStimulatorDrop,
+  type GemType,
+  type PetGemBonuses,
   type PetType,
   type ProfileRatings,
   normalizeNickname,
@@ -44,7 +55,24 @@ export interface EconomyPet {
   profileId: number;
   type: PetType;
   baseValue: number;
-  equipSlot: 1 | null;
+  equipSlot: 1 | 2 | null;
+  createdAt: number;
+}
+
+export interface EconomyGem {
+  id: number;
+  profileId: number;
+  gemType: GemType;
+  value: number;
+  petId: number | null;
+  createdAt: number;
+}
+
+export interface EconomyAmulet {
+  id: number;
+  profileId: number;
+  durability: number;
+  equipped: boolean;
   createdAt: number;
 }
 
@@ -56,8 +84,12 @@ export interface FullEconomyProfile {
   pets: EconomyPet[];
   eggs: EconomyEgg[];
   stimulatorCount: number;
+  gems: EconomyGem[];
+  amulets: EconomyAmulet[];
+  shardCount: number;
+  repairKitCount: number;
   ratings: ProfileRatings;
-  slot2Enabled: false;
+  slot2Enabled: boolean;
 }
 
 export type EconomyActionErrorCode =
@@ -68,9 +100,20 @@ export type EconomyActionErrorCode =
   | "pet_cap"
   | "egg_cap"
   | "stimulator_cap"
+  | "gem_cap"
+  | "amulet_cap"
+  | "shard_cap"
+  | "insufficient_shards"
+  | "type_occupied"
+  | "already_socketed"
+  | "not_socketed"
+  | "no_repair_kit"
+  | "repair_kit_cap"
   | "not_ready"
   | "no_stimulator"
-  | "already_ready";
+  | "already_ready"
+  | "already_equipped"
+  | "not_equipped";
 
 export class EconomyActionError extends Error {
   readonly code: EconomyActionErrorCode;
@@ -80,6 +123,30 @@ export class EconomyActionError extends Error {
     this.code = code;
     this.name = "EconomyActionError";
   }
+}
+
+export interface KillItemDropsResult {
+  egg: EconomyEgg | null;
+  stimulator: boolean;
+  gem: EconomyGem | null;
+  shard: boolean;
+  amulet: EconomyAmulet | null;
+  repairKit: boolean;
+}
+
+export interface KillDropRolls {
+  egg: number;
+  stimulator: number;
+  gem: number;
+  amulet: number;
+  repairKit: number;
+}
+
+export interface VictimDropContext {
+  /** Victim nickname (same profile keying as killer). */
+  nickname: string;
+  /** Match-level: true if this killer already received a shard from this victim. */
+  alreadyGrantedShard: boolean;
 }
 
 interface ProfileRow {
@@ -107,6 +174,23 @@ interface PetRow {
   created_at: number;
 }
 
+interface GemRow {
+  id: number;
+  profile_id: number;
+  type: string;
+  value: number;
+  pet_id: number | null;
+  created_at: number;
+}
+
+interface AmuletRow {
+  id: number;
+  profile_id: number;
+  durability: number;
+  equipped: number;
+  created_at: number;
+}
+
 function rowToProfile(row: ProfileRow): EconomyProfile {
   return {
     id: row.id,
@@ -129,12 +213,36 @@ function rowToEgg(row: EggRow): EconomyEgg {
 
 function rowToPet(row: PetRow): EconomyPet {
   const type = row.type as PetType;
+  let equipSlot: 1 | 2 | null = null;
+  if (row.equip_slot === 1) equipSlot = 1;
+  else if (row.equip_slot === 2) equipSlot = 2;
   return {
     id: row.id,
     profileId: row.profile_id,
     type,
     baseValue: row.base_value,
-    equipSlot: row.equip_slot === 1 ? 1 : null,
+    equipSlot,
+    createdAt: row.created_at,
+  };
+}
+
+function rowToGem(row: GemRow): EconomyGem {
+  return {
+    id: row.id,
+    profileId: row.profile_id,
+    gemType: row.type as GemType,
+    value: row.value,
+    petId: row.pet_id,
+    createdAt: row.created_at,
+  };
+}
+
+function rowToAmulet(row: AmuletRow): EconomyAmulet {
+  return {
+    id: row.id,
+    profileId: row.profile_id,
+    durability: row.durability,
+    equipped: row.equipped === 1,
     createdAt: row.created_at,
   };
 }
@@ -158,6 +266,16 @@ function randomPetType(): PetType {
 
 function randomBaseValue(): number {
   return 1 + Math.floor(Math.random() * 200);
+}
+
+function defaultKillRolls(): KillDropRolls {
+  return {
+    egg: Math.random(),
+    stimulator: Math.random(),
+    gem: Math.random(),
+    amulet: Math.random(),
+    repairKit: Math.random(),
+  };
 }
 
 export class EconomyStore {
@@ -302,6 +420,26 @@ export class EconomyStore {
     return rows.map(rowToPet);
   }
 
+  listGems(profileId: number): EconomyGem[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, profile_id, type, value, pet_id, created_at
+         FROM gems WHERE profile_id = ? ORDER BY id ASC`,
+      )
+      .all(profileId) as GemRow[];
+    return rows.map(rowToGem);
+  }
+
+  listAmulets(profileId: number): EconomyAmulet[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, profile_id, durability, equipped, created_at
+         FROM amulets WHERE profile_id = ? ORDER BY id ASC`,
+      )
+      .all(profileId) as AmuletRow[];
+    return rows.map(rowToAmulet);
+  }
+
   countEggs(profileId: number): number {
     const row = this.db.prepare("SELECT COUNT(*) AS c FROM eggs WHERE profile_id = ?").get(profileId) as {
       c: number;
@@ -323,15 +461,96 @@ export class EconomyStore {
     return row.c;
   }
 
+  countGems(profileId: number): number {
+    const row = this.db.prepare("SELECT COUNT(*) AS c FROM gems WHERE profile_id = ?").get(profileId) as {
+      c: number;
+    };
+    return row.c;
+  }
+
+  countAmulets(profileId: number): number {
+    const row = this.db.prepare("SELECT COUNT(*) AS c FROM amulets WHERE profile_id = ?").get(profileId) as {
+      c: number;
+    };
+    return row.c;
+  }
+
+  countRepairKits(profileId: number): number {
+    const row = this.db
+      .prepare("SELECT COUNT(*) AS c FROM repair_kits WHERE profile_id = ?")
+      .get(profileId) as { c: number };
+    return row.c;
+  }
+
+  getShardCount(profileId: number): number {
+    const row = this.db.prepare("SELECT count FROM shards WHERE profile_id = ?").get(profileId) as
+      | { count: number }
+      | undefined;
+    return row?.count ?? 0;
+  }
+
+  hasAnyAmulet(profileId: number): boolean {
+    return this.countAmulets(profileId) > 0;
+  }
+
+  isSlot2Enabled(profileId: number): boolean {
+    const row = this.db
+      .prepare("SELECT id FROM amulets WHERE profile_id = ? AND equipped = 1 LIMIT 1")
+      .get(profileId) as { id: number } | undefined;
+    return Boolean(row);
+  }
+
+  /** Gems socketed on pets that are currently equipped (slot 1 or 2). */
+  listGemsOnEquippedPets(profileId: number): EconomyGem[] {
+    const rows = this.db
+      .prepare(
+        `SELECT g.id, g.profile_id, g.type, g.value, g.pet_id, g.created_at
+         FROM gems g
+         INNER JOIN pets p ON p.id = g.pet_id
+         WHERE g.profile_id = ? AND p.profile_id = ? AND p.equip_slot IN (1, 2)
+         ORDER BY g.id ASC`,
+      )
+      .all(profileId, profileId) as GemRow[];
+    return rows.map(rowToGem);
+  }
+
+  private gemBonusesByPet(profileId: number): Map<number, PetGemBonuses> {
+    const map = new Map<number, PetGemBonuses>();
+    for (const gem of this.listGems(profileId)) {
+      if (gem.petId === null) continue;
+      const existing = map.get(gem.petId) ?? {};
+      existing[gem.gemType] = gem.value;
+      map.set(gem.petId, existing);
+    }
+    return map;
+  }
+
+  private computeRatings(profileId: number): ProfileRatings {
+    const pets = this.listPets(profileId);
+    const gemMap = this.gemBonusesByPet(profileId);
+    const slot2Enabled = this.isSlot2Enabled(profileId);
+    return aggregateEquippedRatings(
+      pets.map((p) => ({
+        type: p.type,
+        baseValue: p.baseValue,
+        equipSlot: p.equipSlot,
+        gems: gemMap.get(p.id),
+      })),
+      slot2Enabled,
+    );
+  }
+
   getFullProfile(nickname: string): FullEconomyProfile {
     const base = this.getOrCreateProfile(nickname);
     const pets = this.listPets(base.id);
     const eggs = this.listEggs(base.id);
+    const gems = this.listGems(base.id);
+    const amulets = this.listAmulets(base.id);
     const stimulatorCount = this.countStimulators(base.id);
-    const ratings = aggregateEquippedRatings(
-      pets.map((p) => ({ type: p.type, baseValue: p.baseValue, equipSlot: p.equipSlot })),
-      false,
-    );
+    const shardCount = this.getShardCount(base.id);
+    const repairKitCount = this.countRepairKits(base.id);
+    const slot2Enabled = this.isSlot2Enabled(base.id);
+    const ratings = this.computeRatings(base.id);
     return {
       id: base.id,
       nicknameKey: base.nicknameKey,
@@ -340,8 +559,12 @@ export class EconomyStore {
       pets,
       eggs,
       stimulatorCount,
+      gems,
+      amulets,
+      shardCount,
+      repairKitCount,
       ratings,
-      slot2Enabled: false,
+      slot2Enabled,
     };
   }
 
@@ -397,36 +620,156 @@ export class EconomyStore {
     return { id: Number(result.lastInsertRowid) };
   }
 
+  grantGem(
+    nickname: string,
+    gemType: GemType,
+    value: number,
+    nowMs: number = Date.now(),
+  ): EconomyGem {
+    if (!GEM_TYPES.includes(gemType) || value < GEM_VALUE_MIN || value > GEM_VALUE_MAX) {
+      throw new Error(`invalid gem type/value: ${gemType}/${value}`);
+    }
+    const profile = this.getOrCreateProfile(nickname);
+    if (this.countGems(profile.id) >= ECONOMY_CAPS.gems) {
+      throw new EconomyActionError("gem_cap", "gem cap reached");
+    }
+    const result = this.db
+      .prepare(
+        `INSERT INTO gems (profile_id, type, value, pet_id, created_at)
+         VALUES (@profile_id, @type, @value, NULL, @created_at)`,
+      )
+      .run({
+        profile_id: profile.id,
+        type: gemType,
+        value,
+        created_at: nowMs,
+      });
+    this.touchProfile(profile.id, nowMs);
+    return {
+      id: Number(result.lastInsertRowid),
+      profileId: profile.id,
+      gemType,
+      value,
+      petId: null,
+      createdAt: nowMs,
+    };
+  }
+
+  grantAmulet(
+    nickname: string,
+    durability: number = ECONOMY_CAPS.amuletDurabilityMax,
+    nowMs: number = Date.now(),
+  ): EconomyAmulet {
+    const dur = Math.max(0, Math.min(ECONOMY_CAPS.amuletDurabilityMax, Math.floor(durability)));
+    if (dur <= 0) {
+      throw new Error("cannot grant amulet with durability <= 0");
+    }
+    const profile = this.getOrCreateProfile(nickname);
+    if (this.countAmulets(profile.id) >= ECONOMY_CAPS.amulets) {
+      throw new EconomyActionError("amulet_cap", "amulet cap reached");
+    }
+    const result = this.db
+      .prepare(
+        `INSERT INTO amulets (profile_id, durability, equipped, created_at)
+         VALUES (@profile_id, @durability, 0, @created_at)`,
+      )
+      .run({
+        profile_id: profile.id,
+        durability: dur,
+        created_at: nowMs,
+      });
+    this.touchProfile(profile.id, nowMs);
+    return {
+      id: Number(result.lastInsertRowid),
+      profileId: profile.id,
+      durability: dur,
+      equipped: false,
+      createdAt: nowMs,
+    };
+  }
+
+  grantRepairKit(nickname: string, nowMs: number = Date.now()): { id: number } {
+    const profile = this.getOrCreateProfile(nickname);
+    if (this.countRepairKits(profile.id) >= REPAIR_KIT_SOFT_CAP) {
+      throw new EconomyActionError("repair_kit_cap", "repair kit soft-cap reached");
+    }
+    const result = this.db
+      .prepare(
+        `INSERT INTO repair_kits (profile_id, created_at)
+         VALUES (@profile_id, @created_at)`,
+      )
+      .run({ profile_id: profile.id, created_at: nowMs });
+    this.touchProfile(profile.id, nowMs);
+    return { id: Number(result.lastInsertRowid) };
+  }
+
+  addShard(nickname: string, amount: number = 1, nowMs: number = Date.now()): number {
+    if (!Number.isInteger(amount) || amount <= 0) {
+      throw new Error(`addShard amount must be a positive integer, got ${amount}`);
+    }
+    const profile = this.getOrCreateProfile(nickname);
+    const run = this.db.transaction(() => {
+      const current = this.getShardCount(profile.id);
+      if (current >= ECONOMY_CAPS.shards) {
+        throw new EconomyActionError("shard_cap", "shard cap reached");
+      }
+      const next = Math.min(ECONOMY_CAPS.shards, current + amount);
+      this.db
+        .prepare(
+          `INSERT INTO shards (profile_id, count) VALUES (@profile_id, @count)
+           ON CONFLICT(profile_id) DO UPDATE SET count = @count`,
+        )
+        .run({ profile_id: profile.id, count: next });
+      this.touchProfile(profile.id, nowMs);
+      return next;
+    });
+    return run();
+  }
+
   /**
-   * Human-only kill item drops (egg + stimulator). Gold is handled separately.
-   * Rolls are independent. Caps skip the drop silently (gold still granted upstream).
+   * Human-only kill item drops (egg/stim + gem/shard/amulet/repair).
+   * Gold is handled separately. Caps skip the drop silently.
+   * Gem/amulet drops are **loot copies** (victim keeps items).
    */
   tryKillItemDrops(
     nickname: string,
     victimIsHuman: boolean,
-    rolls: { egg: number; stimulator: number } = { egg: Math.random(), stimulator: Math.random() },
+    rolls: Partial<KillDropRolls> = {},
     nowMs: number = Date.now(),
-  ): { egg: EconomyEgg | null; stimulator: boolean } {
+    victim?: VictimDropContext,
+  ): KillItemDropsResult {
+    const merged: KillDropRolls = { ...defaultKillRolls(), ...rolls };
+    const empty: KillItemDropsResult = {
+      egg: null,
+      stimulator: false,
+      gem: null,
+      shard: false,
+      amulet: null,
+      repairKit: false,
+    };
     if (!victimIsHuman) {
-      return { egg: null, stimulator: false };
+      return empty;
     }
     const profile = this.getOrCreateProfile(nickname);
     let egg: EconomyEgg | null = null;
     let stimulator = false;
+    let gem: EconomyGem | null = null;
+    let shard = false;
+    let amulet: EconomyAmulet | null = null;
+    let repairKit = false;
 
     const eggCount = this.countEggs(profile.id);
     const petCount = this.countPets(profile.id);
-    if (shouldGrantEggDrop(eggCount, petCount, rolls.egg)) {
+    if (shouldGrantEggDrop(eggCount, petCount, merged.egg)) {
       try {
         egg = this.grantEgg(nickname, nowMs);
       } catch (err) {
         if (!(err instanceof EconomyActionError)) throw err;
-        // Cap race — skip silently.
       }
     }
 
     const stimCount = this.countStimulators(profile.id);
-    if (shouldGrantStimulatorDrop(stimCount, rolls.stimulator)) {
+    if (shouldGrantStimulatorDrop(stimCount, merged.stimulator)) {
       try {
         this.grantStimulator(nickname, nowMs);
         stimulator = true;
@@ -435,7 +778,63 @@ export class EconomyStore {
       }
     }
 
-    return { egg, stimulator };
+    if (victim) {
+      const victimProfile = this.getOrCreateProfile(victim.nickname);
+      const victimHasAmulet = this.hasAnyAmulet(victimProfile.id);
+      const victimEquippedGems = this.listGemsOnEquippedPets(victimProfile.id);
+
+      if (
+        shouldGrantGemDrop(this.countGems(profile.id), victimEquippedGems.length > 0, merged.gem)
+      ) {
+        const source = victimEquippedGems[Math.floor(Math.random() * victimEquippedGems.length)]!;
+        try {
+          gem = this.grantGem(nickname, source.gemType, source.value, nowMs);
+        } catch (err) {
+          if (!(err instanceof EconomyActionError)) throw err;
+        }
+      }
+
+      if (
+        shouldGrantShard(
+          this.countAmulets(profile.id),
+          this.getShardCount(profile.id),
+          victimHasAmulet,
+          victim.alreadyGrantedShard,
+        )
+      ) {
+        try {
+          this.addShard(nickname, 1, nowMs);
+          shard = true;
+        } catch (err) {
+          if (!(err instanceof EconomyActionError)) throw err;
+        }
+      }
+
+      if (shouldGrantAmuletDrop(this.countAmulets(profile.id), victimHasAmulet, merged.amulet)) {
+        const victimAmulets = this.listAmulets(victimProfile.id);
+        const equipped = victimAmulets.find((a) => a.equipped);
+        const source =
+          equipped ?? victimAmulets[Math.floor(Math.random() * victimAmulets.length)];
+        if (source) {
+          try {
+            amulet = this.grantAmulet(nickname, source.durability, nowMs);
+          } catch (err) {
+            if (!(err instanceof EconomyActionError)) throw err;
+          }
+        }
+      }
+
+      if (shouldGrantRepairKitDrop(this.countRepairKits(profile.id), merged.repairKit)) {
+        try {
+          this.grantRepairKit(nickname, nowMs);
+          repairKit = true;
+        } catch (err) {
+          if (!(err instanceof EconomyActionError)) throw err;
+        }
+      }
+    }
+
+    return { egg, stimulator, gem, shard, amulet, repairKit };
   }
 
   applyStimulator(nickname: string, eggId: number, nowMs: number = Date.now()): EconomyEgg {
@@ -527,7 +926,7 @@ export class EconomyStore {
         profileId: profile.id,
         type,
         baseValue,
-        equipSlot: null as 1 | null,
+        equipSlot: null as 1 | 2 | null,
         createdAt: nowMs,
       };
     });
@@ -535,13 +934,13 @@ export class EconomyStore {
   }
 
   equipPet(nickname: string, petId: number, slot: number, nowMs: number = Date.now()): EconomyPet {
-    if (slot === 2) {
-      throw new EconomyActionError("slot2_disabled", "pet slot 2 is not available");
-    }
-    if (slot !== 1) {
+    if (slot !== 1 && slot !== 2) {
       throw new EconomyActionError("invalid_slot", `invalid equip slot ${slot}`);
     }
     const profile = this.getOrCreateProfile(nickname);
+    if (slot === 2 && !this.isSlot2Enabled(profile.id)) {
+      throw new EconomyActionError("slot2_disabled", "pet slot 2 requires an equipped amulet");
+    }
     const run = this.db.transaction(() => {
       const petRow = this.db
         .prepare(
@@ -554,13 +953,12 @@ export class EconomyStore {
       if (petRow.profile_id !== profile.id) {
         throw new EconomyActionError("cross_profile", "pet belongs to another profile");
       }
-      // Unequip any other pet currently in slot 1.
       this.db
-        .prepare("UPDATE pets SET equip_slot = NULL WHERE profile_id = ? AND equip_slot = 1")
-        .run(profile.id);
-      this.db.prepare("UPDATE pets SET equip_slot = 1 WHERE id = ?").run(petId);
+        .prepare("UPDATE pets SET equip_slot = NULL WHERE profile_id = ? AND equip_slot = ?")
+        .run(profile.id, slot);
+      this.db.prepare("UPDATE pets SET equip_slot = ? WHERE id = ?").run(slot, petId);
       this.touchProfile(profile.id, nowMs);
-      return rowToPet({ ...petRow, equip_slot: 1 });
+      return rowToPet({ ...petRow, equip_slot: slot });
     });
     return run();
   }
@@ -586,15 +984,310 @@ export class EconomyStore {
     return run();
   }
 
+  socketGem(nickname: string, gemId: number, petId: number, nowMs: number = Date.now()): EconomyGem {
+    const profile = this.getOrCreateProfile(nickname);
+    const run = this.db.transaction(() => {
+      const gemRow = this.db
+        .prepare(
+          `SELECT id, profile_id, type, value, pet_id, created_at FROM gems WHERE id = ?`,
+        )
+        .get(gemId) as GemRow | undefined;
+      if (!gemRow) {
+        throw new EconomyActionError("not_found", `gem ${gemId} not found`);
+      }
+      if (gemRow.profile_id !== profile.id) {
+        throw new EconomyActionError("cross_profile", "gem belongs to another profile");
+      }
+      if (gemRow.pet_id !== null) {
+        throw new EconomyActionError("already_socketed", "gem is already socketed");
+      }
+      const petRow = this.db
+        .prepare(
+          `SELECT id, profile_id, type, base_value, equip_slot, created_at FROM pets WHERE id = ?`,
+        )
+        .get(petId) as PetRow | undefined;
+      if (!petRow) {
+        throw new EconomyActionError("not_found", `pet ${petId} not found`);
+      }
+      if (petRow.profile_id !== profile.id) {
+        throw new EconomyActionError("cross_profile", "pet belongs to another profile");
+      }
+      const occupied = this.db
+        .prepare("SELECT id FROM gems WHERE pet_id = ? AND type = ?")
+        .get(petId, gemRow.type) as { id: number } | undefined;
+      if (occupied) {
+        throw new EconomyActionError("type_occupied", `pet already has a ${gemRow.type} gem`);
+      }
+      this.db.prepare("UPDATE gems SET pet_id = ? WHERE id = ?").run(petId, gemId);
+      this.touchProfile(profile.id, nowMs);
+      return rowToGem({ ...gemRow, pet_id: petId });
+    });
+    return run();
+  }
+
+  unsocketGem(nickname: string, gemId: number, nowMs: number = Date.now()): EconomyGem {
+    const profile = this.getOrCreateProfile(nickname);
+    const run = this.db.transaction(() => {
+      const gemRow = this.db
+        .prepare(
+          `SELECT id, profile_id, type, value, pet_id, created_at FROM gems WHERE id = ?`,
+        )
+        .get(gemId) as GemRow | undefined;
+      if (!gemRow) {
+        throw new EconomyActionError("not_found", `gem ${gemId} not found`);
+      }
+      if (gemRow.profile_id !== profile.id) {
+        throw new EconomyActionError("cross_profile", "gem belongs to another profile");
+      }
+      if (gemRow.pet_id === null) {
+        throw new EconomyActionError("not_socketed", "gem is not socketed");
+      }
+      // Cap check on remove: always true when moving to bag (same profile gem count).
+      if (this.countGems(profile.id) > ECONOMY_CAPS.gems) {
+        throw new EconomyActionError("gem_cap", "gem cap exceeded");
+      }
+      this.db.prepare("UPDATE gems SET pet_id = NULL WHERE id = ?").run(gemId);
+      this.touchProfile(profile.id, nowMs);
+      return rowToGem({ ...gemRow, pet_id: null });
+    });
+    return run();
+  }
+
+  equipAmulet(nickname: string, amuletId: number, nowMs: number = Date.now()): EconomyAmulet {
+    const profile = this.getOrCreateProfile(nickname);
+    const run = this.db.transaction(() => {
+      const row = this.db
+        .prepare(
+          `SELECT id, profile_id, durability, equipped, created_at FROM amulets WHERE id = ?`,
+        )
+        .get(amuletId) as AmuletRow | undefined;
+      if (!row) {
+        throw new EconomyActionError("not_found", `amulet ${amuletId} not found`);
+      }
+      if (row.profile_id !== profile.id) {
+        throw new EconomyActionError("cross_profile", "amulet belongs to another profile");
+      }
+      if (row.equipped === 1) {
+        throw new EconomyActionError("already_equipped", "amulet already equipped");
+      }
+      this.db
+        .prepare("UPDATE amulets SET equipped = 0 WHERE profile_id = ? AND equipped = 1")
+        .run(profile.id);
+      this.db.prepare("UPDATE amulets SET equipped = 1 WHERE id = ?").run(amuletId);
+      this.touchProfile(profile.id, nowMs);
+      return rowToAmulet({ ...row, equipped: 1 });
+    });
+    return run();
+  }
+
+  unequipAmulet(nickname: string, amuletId: number, nowMs: number = Date.now()): EconomyAmulet {
+    const profile = this.getOrCreateProfile(nickname);
+    const run = this.db.transaction(() => {
+      const row = this.db
+        .prepare(
+          `SELECT id, profile_id, durability, equipped, created_at FROM amulets WHERE id = ?`,
+        )
+        .get(amuletId) as AmuletRow | undefined;
+      if (!row) {
+        throw new EconomyActionError("not_found", `amulet ${amuletId} not found`);
+      }
+      if (row.profile_id !== profile.id) {
+        throw new EconomyActionError("cross_profile", "amulet belongs to another profile");
+      }
+      if (row.equipped !== 1) {
+        throw new EconomyActionError("not_equipped", "amulet is not equipped");
+      }
+      this.db.prepare("UPDATE amulets SET equipped = 0 WHERE id = ?").run(amuletId);
+      // Force unequip pet in slot 2 when amulet removed.
+      this.db
+        .prepare("UPDATE pets SET equip_slot = NULL WHERE profile_id = ? AND equip_slot = 2")
+        .run(profile.id);
+      this.touchProfile(profile.id, nowMs);
+      return rowToAmulet({ ...row, equipped: 0 });
+    });
+    return run();
+  }
+
+  craftAmulet(nickname: string, nowMs: number = Date.now()): EconomyAmulet {
+    const profile = this.getOrCreateProfile(nickname);
+    const run = this.db.transaction(() => {
+      if (this.countAmulets(profile.id) >= ECONOMY_CAPS.amulets) {
+        throw new EconomyActionError("amulet_cap", "amulet cap reached");
+      }
+      const shards = this.getShardCount(profile.id);
+      if (shards < ECONOMY_CAPS.amuletCraftShards) {
+        throw new EconomyActionError("insufficient_shards", "need 10 shards to craft an amulet");
+      }
+      const next = shards - ECONOMY_CAPS.amuletCraftShards;
+      this.db
+        .prepare(
+          `INSERT INTO shards (profile_id, count) VALUES (@profile_id, @count)
+           ON CONFLICT(profile_id) DO UPDATE SET count = @count`,
+        )
+        .run({ profile_id: profile.id, count: next });
+      const result = this.db
+        .prepare(
+          `INSERT INTO amulets (profile_id, durability, equipped, created_at)
+           VALUES (@profile_id, @durability, 0, @created_at)`,
+        )
+        .run({
+          profile_id: profile.id,
+          durability: ECONOMY_CAPS.amuletDurabilityMax,
+          created_at: nowMs,
+        });
+      this.touchProfile(profile.id, nowMs);
+      return {
+        id: Number(result.lastInsertRowid),
+        profileId: profile.id,
+        durability: ECONOMY_CAPS.amuletDurabilityMax,
+        equipped: false,
+        createdAt: nowMs,
+      };
+    });
+    return run();
+  }
+
+  repairAmulet(nickname: string, amuletId: number, nowMs: number = Date.now()): EconomyAmulet {
+    const profile = this.getOrCreateProfile(nickname);
+    const run = this.db.transaction(() => {
+      const row = this.db
+        .prepare(
+          `SELECT id, profile_id, durability, equipped, created_at FROM amulets WHERE id = ?`,
+        )
+        .get(amuletId) as AmuletRow | undefined;
+      if (!row) {
+        throw new EconomyActionError("not_found", `amulet ${amuletId} not found`);
+      }
+      if (row.profile_id !== profile.id) {
+        throw new EconomyActionError("cross_profile", "amulet belongs to another profile");
+      }
+      const kit = this.db
+        .prepare("SELECT id FROM repair_kits WHERE profile_id = ? ORDER BY id ASC LIMIT 1")
+        .get(profile.id) as { id: number } | undefined;
+      if (!kit) {
+        throw new EconomyActionError("no_repair_kit", "no repair kit available");
+      }
+      const nextDur = Math.min(ECONOMY_CAPS.amuletDurabilityMax, row.durability + 1);
+      this.db.prepare("DELETE FROM repair_kits WHERE id = ?").run(kit.id);
+      this.db.prepare("UPDATE amulets SET durability = ? WHERE id = ?").run(nextDur, amuletId);
+      this.touchProfile(profile.id, nowMs);
+      return rowToAmulet({ ...row, durability: nextDur });
+    });
+    return run();
+  }
+
+  /**
+   * Human death penalties (EPIC 25 §2.4): equipped amulet durability −1
+   * (destroy at 0 + unequ slot2 pet); each active pet and its socketed gems
+   * lose 10% effectiveness (floor, min 1). Bots must not call this.
+   */
+  applyHumanDeathPenalties(
+    nickname: string,
+    nowMs: number = Date.now(),
+  ): {
+    amuletDestroyed: boolean;
+    durabilityAfter: number | null;
+    petsDecayed: number;
+    gemsDecayed: number;
+  } {
+    const profile = this.getOrCreateProfile(nickname);
+    const run = this.db.transaction(() => {
+      let amuletDestroyed = false;
+      let durabilityAfter: number | null = null;
+      let petsDecayed = 0;
+      let gemsDecayed = 0;
+
+      const equipped = this.db
+        .prepare(
+          `SELECT id, profile_id, durability, equipped, created_at FROM amulets
+           WHERE profile_id = ? AND equipped = 1 LIMIT 1`,
+        )
+        .get(profile.id) as AmuletRow | undefined;
+      if (equipped) {
+        const next = equipped.durability - 1;
+        if (next <= 0) {
+          this.db.prepare("DELETE FROM amulets WHERE id = ?").run(equipped.id);
+          this.db
+            .prepare("UPDATE pets SET equip_slot = NULL WHERE profile_id = ? AND equip_slot = 2")
+            .run(profile.id);
+          amuletDestroyed = true;
+          durabilityAfter = 0;
+        } else {
+          this.db.prepare("UPDATE amulets SET durability = ? WHERE id = ?").run(next, equipped.id);
+          durabilityAfter = next;
+        }
+      }
+
+      const activePets = this.db
+        .prepare(
+          `SELECT id, profile_id, type, base_value, equip_slot, created_at FROM pets
+           WHERE profile_id = ? AND equip_slot IN (1, 2)`,
+        )
+        .all(profile.id) as PetRow[];
+      for (const pet of activePets) {
+        const nextBase = applyDeathEffectivenessDecay(pet.base_value);
+        if (nextBase !== pet.base_value) {
+          this.db.prepare("UPDATE pets SET base_value = ? WHERE id = ?").run(nextBase, pet.id);
+          petsDecayed += 1;
+        }
+        const gems = this.db
+          .prepare(
+            `SELECT id, profile_id, type, value, pet_id, created_at FROM gems WHERE pet_id = ?`,
+          )
+          .all(pet.id) as GemRow[];
+        for (const gem of gems) {
+          const nextVal = applyDeathEffectivenessDecay(gem.value);
+          if (nextVal !== gem.value) {
+            this.db.prepare("UPDATE gems SET value = ? WHERE id = ?").run(nextVal, gem.id);
+            gemsDecayed += 1;
+          }
+        }
+      }
+
+      this.touchProfile(profile.id, nowMs);
+      return { amuletDestroyed, durabilityAfter, petsDecayed, gemsDecayed };
+    });
+    return run();
+  }
+
   /** Ratings for an already-known nickname key (no create). */
   getRatingsForKey(nicknameKey: string): ProfileRatings {
     const profile = this.getProfile(nicknameKey);
     if (!profile) return emptyRatings();
-    const pets = this.listPets(profile.id);
-    return aggregateEquippedRatings(
-      pets.map((p) => ({ type: p.type, baseValue: p.baseValue, equipSlot: p.equipSlot })),
-      false,
-    );
+    return this.computeRatings(profile.id);
+  }
+
+  /** Test helper: grant a pet directly without egg. */
+  grantPetForTests(
+    nickname: string,
+    type: PetType,
+    baseValue: number,
+    nowMs: number = Date.now(),
+  ): EconomyPet {
+    const profile = this.getOrCreateProfile(nickname);
+    if (this.countPets(profile.id) >= ECONOMY_CAPS.pets) {
+      throw new EconomyActionError("pet_cap", "pet cap reached");
+    }
+    const result = this.db
+      .prepare(
+        `INSERT INTO pets (profile_id, type, base_value, equip_slot, created_at)
+         VALUES (@profile_id, @type, @base_value, NULL, @created_at)`,
+      )
+      .run({
+        profile_id: profile.id,
+        type,
+        base_value: baseValue,
+        created_at: nowMs,
+      });
+    this.touchProfile(profile.id, nowMs);
+    return {
+      id: Number(result.lastInsertRowid),
+      profileId: profile.id,
+      type,
+      baseValue,
+      equipSlot: null,
+      createdAt: nowMs,
+    };
   }
 
   private touchProfile(profileId: number, nowMs: number): void {
