@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-24 |
 | Author (Pusya) | Programmer (Pusya) |
 | Task / Story / EPIC | EPIC 26 — Drop Table Completion & Durable Achievements (Tasks 26.1–26.5) |
-| Branch / commit / PR | `task/epic-26-durable-achievements-drops` @ `6171ffe` (`6171ffebbca89d2c0d56f221112ac89ef7b020f1`); base `task/epic-25-gems-amulets-shards` @ `b4f3918` — compare https://github.com/ryu878/cubewars/compare/task/epic-25-gems-amulets-shards...task/epic-26-durable-achievements-drops |
+| Branch / commit / PR | `task/epic-26-durable-achievements-drops` tip `e076258d858d2bd921acf8d663fff5e953dac443` (fix `6171ffe`); base `task/epic-25-gems-amulets-shards` @ `b4f3918` — compare https://github.com/ryu878/cubewars/compare/task/epic-25-gems-amulets-shards...task/epic-26-durable-achievements-drops |
 | Revision round (if this is a Critic/Judge fix, not first pass) | yes — finding IDs: F-001 |
 
 ## What was done (brief)
