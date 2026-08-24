@@ -1,6 +1,7 @@
 node_modules/
 dist/
 qa-artifacts/
+server/data/
 .env
 *.log
 .DS_Store

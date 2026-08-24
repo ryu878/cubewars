@@ -33,6 +33,7 @@ export class ModeSelect {
   private leaderboardListEl: HTMLElement;
   private endlessLeaderboardListEl: HTMLElement;
   private errorEl: HTMLElement;
+  private goldValueEl: HTMLElement;
   private pending = false;
   private enabled = false;
 
@@ -47,6 +48,7 @@ export class ModeSelect {
     this.leaderboardListEl = document.getElementById("leaderboardList") as HTMLElement;
     this.endlessLeaderboardListEl = document.getElementById("endlessLeaderboardList") as HTMLElement;
     this.errorEl = document.getElementById("modeSelectError") as HTMLElement;
+    this.goldValueEl = document.getElementById("lobbyGoldValue") as HTMLElement;
 
     this.nicknameInput.value = localStorage.getItem(NICKNAME_STORAGE_KEY) ?? "";
 
@@ -105,6 +107,11 @@ export class ModeSelect {
     localStorage.setItem(NICKNAME_STORAGE_KEY, nickname);
     this.pending = false;
     this.overlayEl.classList.add("hidden");
+  }
+
+  /** Server-authored gold (EPIC 23) — display only, never computed client-side. */
+  setGold(gold: number): void {
+    this.goldValueEl.textContent = String(Math.max(0, Math.round(gold)));
   }
 
   joinRejected(reason: string): void {

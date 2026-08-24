@@ -49,6 +49,8 @@ export class CombatHud {
   private weaponEl: HTMLElement;
   private weaponNameEl: HTMLElement;
   private ammoValueEl: HTMLElement;
+  private goldEl: HTMLElement;
+  private goldValueEl: HTMLElement;
 
   private hitMarkerTimer: { handle: number | undefined } = { handle: undefined };
   private damageFlashTimer: { handle: number | undefined } = { handle: undefined };
@@ -66,6 +68,8 @@ export class CombatHud {
     this.weaponEl = document.getElementById("weaponHud") as HTMLElement;
     this.weaponNameEl = document.getElementById("weaponName") as HTMLElement;
     this.ammoValueEl = document.getElementById("ammoValue") as HTMLElement;
+    this.goldEl = document.getElementById("goldHud") as HTMLElement;
+    this.goldValueEl = document.getElementById("goldValue") as HTMLElement;
   }
 
   /** Update the on-screen health readout (Story 4.3 AC: "Current health is visible on screen and updates when damaged"). Always driven by the server's own PlayerState.health — never a locally-guessed value. EPIC 13 Story 13.4: writes only the number into the dedicated #healthValue child span (label span is static markup, index.html), not a combined "Health: N" string on the whole badge. */
@@ -148,5 +152,16 @@ export class CombatHud {
     this.weaponNameEl.textContent = displayName;
     this.ammoValueEl.textContent = ammoText;
     this.weaponEl.dataset.empty = ammo === 0 ? "true" : "false";
+  }
+
+  /**
+   * Update the gold readout (EPIC 23). Always driven by server
+   * `economy_profile` / `economy_gold_update` — the client never invents or
+   * accumulates gold locally.
+   */
+  setGold(gold: number): void {
+    const clamped = Math.max(0, Math.round(gold));
+    this.goldValueEl.textContent = String(clamped);
+    this.goldEl.hidden = false;
   }
 }

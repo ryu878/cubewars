@@ -17,12 +17,15 @@
 // this whole EPIC — do not change this sequence's behavior while touching
 // this file for an unrelated EPIC 9 concern.
 
+import { randomInt } from "node:crypto";
 import type { WebSocket } from "ws";
 import {
   ARENA_GEOMETRY,
   ARENA_BOUNDS,
   BROADCAST_TICK_HZ,
   COMBAT,
+  GOLD_DROP_MAX,
+  GOLD_DROP_MIN,
   MAX_PUBLIC_PLAYERS_PER_MATCH,
   PICKUP_RADIUS,
   SPAWN_POINTS,
@@ -31,6 +34,8 @@ import {
   playerHitboxBounds,
   rayIntersectsAabb,
   type DeathEvent,
+  type EconomyGoldUpdateMessage,
+  type EconomyProfileMessage,
   type FireBroadcastEvent,
   type HitEvent,
   type KillEvent,
@@ -54,6 +59,7 @@ import { PickupSpawner } from "./pickupSpawner.js";
 import { BotAI } from "./botAI.js";
 import { EndlessWorld } from "./endlessWorld.js";
 import { classifyHitZone, pointOnRay } from "./combat.js";
+import type { EconomyStore } from "./economy/index.js";
 
 // Same tick rate/derivation as the pre-EPIC-9 single global loop
 // (server/src/index.ts) — every Match now runs its own independent copy of
@@ -91,6 +97,8 @@ export interface MatchOptions {
   onEmpty?: (matchId: string) => void;
   onKillRecorded?: (attackerNickname: string, victimNickname: string) => void;
   onEndlessProgress?: (nickname: string, botKills: number, distanceKm: number) => void;
+  /** Durable gold store (EPIC 23). Optional so unit tests without a DB still work. */
+  economy?: EconomyStore;
 }
 
 export class Match {
@@ -177,6 +185,7 @@ export class Match {
     this.registry.spawn(connectionId, nickname, nicknameKey);
     this.sendMapState();
     this.sendLoadout(connectionId);
+    this.sendEconomyProfile(connectionId, nickname);
     this.broadcastScoreboard();
     this.broadcastPickupState();
     this.sendEndlessState();
@@ -255,6 +264,51 @@ export class Match {
     if (!socket || socket.readyState !== socket.OPEN) return;
     const message: LoadoutMessage = { type: "loadout", ...loadout };
     socket.send(JSON.stringify(message));
+  }
+
+  /** Send durable gold snapshot to the owning human socket only (EPIC 23). */
+  sendEconomyProfile(playerId: string, nickname: string): void {
+    const economy = this.options.economy;
+    if (!economy) return;
+    const socket = this.sockets.get(playerId);
+    if (!socket || socket.readyState !== socket.OPEN) return;
+    const profile = economy.getOrCreateProfile(nickname);
+    const message: EconomyProfileMessage = {
+      type: "economy_profile",
+      nickname: profile.nickname,
+      gold: profile.gold,
+    };
+    socket.send(JSON.stringify(message));
+  }
+
+  private sendEconomyGoldUpdate(playerId: string, gold: number, gained: number): void {
+    const socket = this.sockets.get(playerId);
+    if (!socket || socket.readyState !== socket.OPEN) return;
+    const message: EconomyGoldUpdateMessage = { type: "economy_gold_update", gold, gained };
+    socket.send(JSON.stringify(message));
+  }
+
+  /**
+   * EPIC 23: mint kill gold into the human killer's nickname profile.
+   * Skips fog deaths, self-kills, and non-human shooters (bots have no socket).
+   */
+  private grantKillGold(shooterId: string, victimId: string): void {
+    const economy = this.options.economy;
+    if (!economy) return;
+    if (shooterId === "fog" || shooterId === victimId) return;
+    if (!this.sockets.has(shooterId)) return;
+    if (this.botAI?.isBot(shooterId)) return;
+
+    const killer = this.registry.getPlayer(shooterId);
+    if (!killer) return;
+
+    const gained = randomInt(GOLD_DROP_MIN, GOLD_DROP_MAX + 1);
+    const profile = economy.addGold(killer.nickname, gained);
+    this.sendEconomyGoldUpdate(shooterId, profile.gold, gained);
+    console.log(
+      `[economy] gold minted: +${gained} -> ${profile.nickname} (total ${profile.gold}) ` +
+        `[match=${this.id} kill ${shooterId} -> ${victimId}]`,
+    );
   }
 
   /**
@@ -389,6 +443,7 @@ export class Match {
           victimNickname: this.registry.getNickname(event.targetId),
         };
         this.broadcast(killMessage);
+        this.grantKillGold(shooterId, event.targetId);
         if (this.mode === "endless") {
           if (this.endlessHumanId && shooterId === this.endlessHumanId && this.botAI?.isBot(event.targetId)) {
             this.endlessBotKills += 1;

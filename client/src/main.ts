@@ -416,6 +416,14 @@ const connection = new GameConnection(wsUrl, {
     viewmodel.setWeapon(message.equippedWeapon);
     viewmodel.setEmpty(message.ammo === 0);
   },
+  onEconomyProfile: (message) => {
+    hud.setGold(message.gold);
+    modeSelect.setGold(message.gold);
+  },
+  onEconomyGoldUpdate: (message) => {
+    hud.setGold(message.gold);
+    modeSelect.setGold(message.gold);
+  },
   onPickupState: (message) => {
     pickupRenderer.sync(message.pickups);
   },

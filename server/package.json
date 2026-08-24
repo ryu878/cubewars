@@ -11,9 +11,11 @@
   },
   "dependencies": {
     "@cubewars/shared": "*",
+    "better-sqlite3": "^11.10.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.7.5",
     "@types/ws": "^8.5.12",
     "tsx": "^4.19.1"

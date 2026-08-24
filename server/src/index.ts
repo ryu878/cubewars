@@ -14,8 +14,11 @@ import {
 } from "@cubewars/shared";
 import { MatchManager } from "./matchManager.js";
 import type { Match } from "./match.js";
+import { EconomyStore } from "./economy/index.js";
 
 const PORT = Number(process.env.CUBEWARS_SERVER_PORT ?? 7777);
+
+const economyStore = EconomyStore.open();
 
 // Flood guard: bound the total number of ANY client messages (input, fire,
 // join, binary, oversized, non-JSON, unrecognized-type — literally anything
@@ -86,6 +89,7 @@ const wss = new WebSocketServer({ port: PORT, maxPayload: MAX_MESSAGE_BYTES });
 const matchManager = new MatchManager({
   onLeaderboardChanged: () => broadcastLobbyLeaderboard(),
   onEndlessLeaderboardChanged: () => broadcastLobbyEndlessLeaderboard(),
+  economy: economyStore,
 });
 
 // Shared across EVERY message shape a connection can send (join, input,

@@ -22,6 +22,7 @@ export * from "./combat.js";
 export * from "./weapons.js";
 export * from "./pickups.js";
 export * from "./nickname.js";
+export * from "./economy.js";
 
 export const PROTOCOL_VERSION = 1;
 
@@ -453,6 +454,28 @@ export interface ProjectileImpactEvent {
   point: Vector3;
 }
 
+/**
+ * Server -> owning connection only (EPIC 23): full economy profile snapshot
+ * for the player's nickname key. Sent on join and whenever a full refresh is
+ * useful. Gold is always server-authoritative — the client never sets it.
+ */
+export interface EconomyProfileMessage {
+  type: "economy_profile";
+  nickname: string;
+  gold: number;
+}
+
+/**
+ * Server -> owning connection only (EPIC 23): gold balance after a grant
+ * (e.g. kill reward). `gained` is the amount just minted; `gold` is the new
+ * durable total. Private to the killer's socket — not broadcast.
+ */
+export interface EconomyGoldUpdateMessage {
+  type: "economy_gold_update";
+  gold: number;
+  gained: number;
+}
+
 export type ServerMessage =
   | WelcomeMessage
   | WorldStateMessage
@@ -471,4 +494,6 @@ export type ServerMessage =
   | LoadoutMessage
   | PickupStateMessage
   | FireBroadcastEvent
-  | ProjectileImpactEvent;
+  | ProjectileImpactEvent
+  | EconomyProfileMessage
+  | EconomyGoldUpdateMessage;

@@ -588,10 +588,53 @@
       #endlessHud span {
         font-variant-numeric: tabular-nums;
       }
+
+      /* EPIC 23: durable gold readout (server-authored only). */
+      #goldHud {
+        position: fixed;
+        top: 18px;
+        right: 18px;
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        padding: 8px 14px;
+        background: rgba(0, 0, 0, 0.6);
+        border-radius: 10px;
+        z-index: 10;
+        pointer-events: none;
+        white-space: nowrap;
+      }
+      #goldHud[hidden] {
+        display: none;
+      }
+      #goldHud .hud-label {
+        font-size: 14px;
+        color: #e6c35c;
+      }
+      #goldValue {
+        font-family: system-ui, sans-serif;
+        font-size: 28px;
+        font-weight: 800;
+        color: #ffe082;
+        font-variant-numeric: tabular-nums;
+      }
+      #lobbyGold {
+        margin: 0 0 14px;
+        color: #e6c35c;
+        font: 700 14px system-ui, sans-serif;
+        text-align: left;
+      }
+      #lobbyGoldValue {
+        color: #ffe082;
+        font-variant-numeric: tabular-nums;
+      }
     </style>
   </head>
   <body>
     <div id="status" data-state="connecting">connecting…</div>
+    <div id="goldHud" hidden>
+      <span class="hud-label">GOLD</span><span id="goldValue">0</span>
+    </div>
     <div id="healthHud" data-low="false">
       <span class="hud-label">HP</span><span id="healthValue" class="hud-value">100</span>
     </div>
@@ -623,6 +666,7 @@
         <p>Choose a nickname and join a game</p>
         <label for="nicknameInput">Nickname</label>
         <input id="nicknameInput" type="text" maxlength="16" autocomplete="nickname" placeholder="Player" />
+        <div id="lobbyGold">Gold: <span id="lobbyGoldValue">—</span></div>
         <div class="mode-section-title">Games</div>
         <div id="lobbyList" aria-live="polite"></div>
         <div class="mode-section-title">Leaderboard</div>

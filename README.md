@@ -42,6 +42,7 @@ npm run dev --workspace=client
 ## Configuration
 
 - **Server port:** `CUBEWARS_SERVER_PORT` (see `config.vars.example`). Set via your shell: `export CUBEWARS_SERVER_PORT=7777`.
+- **Economy DB:** `CUBEWARS_ECONOMY_DB` (optional). Defaults to `server/data/economy.sqlite` under the server package. SQLite persistence is **single-process only** — do not run multiple game-server processes against the same file. Profiles are keyed by normalized nickname until a real auth EPIC exists (nickname spoofing is an accepted interim risk).
 - **Client → server URL:** `VITE_CUBEWARS_WS_URL` (see `client/.env.example`). Copy to `client/.env` to override the default `ws://localhost:7777`. This is the one place the fixed stack's "no `.env` files" rule is relaxed — Vite conventionally loads `.env` for client-side config; no secrets ever go here.
 
 ## Type-checking and build
@@ -78,6 +79,14 @@ Movement/look is predicted locally for responsiveness, but the **server is autho
 Combat is server-authoritative too: firing sends a bare "fire" event, and the server resolves the actual hitscan raycast from its own tracked position/yaw/pitch **and equipped weapon** for that player — the client never states an aim origin/direction, a weapon, or a hit, of its own. See "Current status" below for the exact model.
 
 ## Current status
+
+EPIC 23 (Economy Persistence Foundation) — see `docs/tasks/epic-23-economy-persistence-foundation.md` and product TZ `docs/product/emerald-wasteland-economy-tz-v2.1.md`.
+
+- **Shared economy config:** gold drop band 1–500, item caps, and drop-chance constants live in `shared/src/economy.ts`.
+- **SQLite profiles:** server opens `CUBEWARS_ECONOMY_DB` (default `server/data/economy.sqlite`) via `better-sqlite3`, keyed by nickname.
+- **Gold on kill:** confirmed human kills (including bot victims; endless included) mint random gold into the killer's profile and push `economy_gold_update` to that connection. Fog/self deaths do not grant gold.
+- **Client readout:** lobby + HUD show server-provided gold only.
+- Verified via `npm run regression:economy-gold`, `npm run typecheck`, and `npm run build`.
 
 EPIC 22 (Endless Single Player) — see `docs/tasks/epic-22-endless-single-player.md`. Direct user feedback (Russian): "Добавь еще режим Endless Single Player. Сервер должен генерить бесконечный лабиринт ... задняя стена должна двигаться на тебя, ну типо туман ... Для этого режима тоже нужен отдельный лидербоард..."
 

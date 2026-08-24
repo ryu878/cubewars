@@ -21,6 +21,7 @@
     "regression:lobby-nicknames": "tsx scripts/regression-lobby-nicknames.ts",
     "regression:leaderboard": "tsx scripts/regression-leaderboard.ts",
     "regression:endless": "tsx scripts/regression-endless-mode.ts",
+    "regression:economy-gold": "tsx scripts/regression-economy-gold.ts",
     "regression:fire-input-drop-rate": "node scripts/regression-fire-input-drop-rate.mjs",
     "qa:epic17-avatar-selfcheck": "node scripts/qa-epic17-avatar-selfcheck.mjs",
     "qa:epic18-hold-fire": "node scripts/qa-epic18-hold-fire.mjs",
@@ -30,5 +31,8 @@
     "concurrently": "^9.0.1",
     "playwright": "1.62.1",
     "typescript": "^5.6.3"
+  },
+  "allowScripts": {
+    "better-sqlite3@11.10.0": true
   }
 }

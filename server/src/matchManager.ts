@@ -15,6 +15,7 @@ import {
   type LobbyMatchSummary,
 } from "@cubewars/shared";
 import { Match } from "./match.js";
+import type { EconomyStore } from "./economy/index.js";
 
 /** Fixed id for the first persistent public match (EPIC 9 spec Section 2). */
 export const PUBLIC_MATCH_ID = "public";
@@ -22,6 +23,7 @@ export const PUBLIC_MATCH_ID = "public";
 export interface MatchManagerOptions {
   onLeaderboardChanged?: (entries: LeaderboardEntry[]) => void;
   onEndlessLeaderboardChanged?: (entries: EndlessLeaderboardEntry[]) => void;
+  economy?: EconomyStore;
 }
 
 export class MatchManager {
@@ -111,6 +113,7 @@ export class MatchManager {
       mode: "bots",
       onEmpty: (matchId) => this.destroy(matchId),
       onKillRecorded: (attackerNickname, victimNickname) => this.recordKill(attackerNickname, victimNickname),
+      economy: this.options.economy,
     });
     match.start();
     this.matches.set(id, match);
@@ -126,6 +129,7 @@ export class MatchManager {
       onEmpty: (matchId) => this.destroy(matchId),
       onEndlessProgress: (nickname, botKills, distanceKm) =>
         this.recordEndlessProgress(nickname, botKills, distanceKm),
+      economy: this.options.economy,
     });
     match.start();
     this.matches.set(id, match);
@@ -168,6 +172,7 @@ export class MatchManager {
       id,
       mode: "public",
       onKillRecorded: (attackerNickname, victimNickname) => this.recordKill(attackerNickname, victimNickname),
+      economy: this.options.economy,
     });
     match.start();
     this.matches.set(id, match);
