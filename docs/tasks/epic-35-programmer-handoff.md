@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-25 13:22 UTC |
 | Author (Pusya) | Programmer (Pusya) |
 | Task / Story / EPIC | EPIC 35 — Split Economy — Deathmatch vs Sandbox Pools (Tasks 35.1–35.3, 35.5–35.7; **not** 35.4) |
-| Branch / commit / PR | `task/epic-35-split-economy-deathmatch-sandbox` @ `708af28` (base `master` @ `8115674` incl. EPIC 37) |
+| Branch / commit / PR | `task/epic-35-split-economy-deathmatch-sandbox` @ `a7f8f90` (feature `708af28`; base `master` @ `8115674` incl. EPIC 37) |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
