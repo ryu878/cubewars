@@ -6,50 +6,51 @@
 
 | Field | Value |
 |-------|-------|
-| Date / time (UTC optional) | 2026-08-25T18:25:00Z |
+| Date / time (UTC optional) | 2026-08-25T18:50:00Z |
 | Author (Pusya) | Programmer (Pusya) |
 | Task / Story / EPIC | EPIC 43 — Inventory Cell Size, Icons, and Hover Tooltips (`docs/tasks/epic-43-inventory-icons-tooltips.md`) |
-| Branch / commit / PR | `task/epic-43-inventory-icons-tooltips` (pushed to origin). Implementation: `0b16d78`. Handoff docs commits follow on the same branch. PR optional — Team Lead merges after chain. |
-| Revision round (if this is a Critic/Judge fix, not first pass) | no |
+| Branch / commit / PR | `task/epic-43-inventory-icons-tooltips` (continue on branch). Implementation + F-001 revision: see latest commit after this handoff update. |
+| Revision round (if this is a Critic/Judge fix, not first pass) | **yes — finding IDs: F-001** |
 | Base SHA (`master` at branch creation) | `a6e7aceb98209f4d1981697b45ea4332ff489997` |
+| Prior product commit | `0b16d78` |
+| Critic review | `docs/tasks/epic-43-critic-review.md` (REVISE F-001) |
 
 ## What was done (brief)
 
-1. Scaled `#inventoryGrid` from `min(480px, 100%)` to `min(960px, 95vw)` (~2× linear cell size); widened `#inventoryPanel` / raised max-height so the overlay still scrolls instead of clipping primary controls.
-2. Replaced cryptic `ITEM_LABEL` abbreviations (`STM`/`PET`/…) with geometric CSS icons per `InventoryItemType` in grid cells, drag ghost, selected detail title, and equip rail; English display names + CSS hover/focus tooltips (`data-tooltip`) with useful detail (type, durability, egg timer, shard count, etc.).
-3. Updated README Current status for EPIC 43. No server/economy/protocol changes.
+1. Scaled `#inventoryGrid` from `min(480px, 100%)` to `min(960px, …)` (~2× linear cell size); icons + English tooltips + cryptic-code removal (unchanged this revision).
+2. **F-001 fix:** restructured inventory body into side-by-side layout — scrollable `.inv-grid-scroll` (full ~960×960 grid, cells stay ~2×) beside fixed `.inv-side` (equip rail + `#inventoryDetails` actions). Widened panel to `min(1280px, …)` so rail/details no longer wrap under the square grid at 1400×900. Body `max-height` keeps the side column in the first viewport; grid scrolls independently when taller than the viewport.
+3. No server/economy/protocol changes. Icons, English tooltips, and cryptic-code removal preserved.
 
 ## Changed files / areas
 
-- `client/src/inventoryOverlay.ts` — `ITEM_DISPLAY_NAME`, `createItemIcon()`, tooltip/detail title helpers; grid/ghost/rail/details render paths
-- `client/index.html` — inventory CSS: larger grid/panel, icon glyphs, type backgrounds for stim/kit/shards, CSS tooltips, rail/details icon row layout
-- `README.md` — Current status EPIC 43
-- `docs/tasks/epic-43-inventory-icons-tooltips.md` — EPIC spec (included in commit)
-- `docs/tasks/epic-43-programmer-handoff.md` — this handoff
+- `client/index.html` — F-001 layout: `.inv-grid-scroll`, `.inv-side`, panel width, body max-height, nowrap side-by-side; prior EPIC 43 icon/tooltip CSS retained
+- `client/src/inventoryOverlay.ts` — prior EPIC 43 icon/tooltip/detail English names (unchanged this revision)
+- `README.md` — Current status EPIC 43 (prior)
+- `docs/tasks/epic-43-inventory-icons-tooltips.md` — EPIC spec
+- `docs/tasks/epic-43-programmer-handoff.md` — this handoff (+ F-001 section)
+- `scripts/qa-epic43-f001-layout-smoke.mjs` — brief 1400×900 viewport smoke for F-001
 
 ## How to verify (steps for Trusya)
 
 1. Start client + server as usual; open inventory from lobby **Inventory** button (EPIC 42) and/or in-match with **I**.
-2. Confirm grid cells are roughly twice as large as before (~115px vs ~56–60px on a wide viewport).
-3. Confirm each bag item shows a distinct geometric icon — **no** primary cell text `STM`, `PET`, `AMU`, `SHD`, `KIT`, `EGG`, `GEM`.
-4. Hover (and Tab-focus) an item: English tooltip appears (e.g. “Stimulator #…”, “Pet (type) #…”, egg timer, gem type/value, amulet durability, shard count).
-5. Select items: detail title uses full English names (not `STM #id`); equip rail shows small icons + readable “Pet (…) / Amulet …” labels.
-6. Smoke: drag-move, select, equip/unequip, hatch/stim, socket, repair, craft, discard still send the same `economy_*` intents (no protocol change).
-7. Optional: light Playwright smoke already run by Programmer — `qa-artifacts/epic-43/inventory-icons-smoke.png` (git-ignored); cell ~115px, icons=7, no cryptic codes.
+2. At ~1400×900: select a bag item — English detail title + at least one action (Equip / Hatch / etc.) must be visible **without** scrolling the panel past the grid (`panel.scrollTop === 0` acceptable).
+3. Confirm grid cells remain roughly **~2×** previous (~115px vs ~56.5px); icons still geometric; hover tooltips still English; no `STM`/`PET`/… primary labels.
+4. Optional Programmer smoke: `node scripts/qa-epic43-f001-layout-smoke.mjs` → `qa-artifacts/epic-43/07-f001-selected-detail-actions-visible.png` + `f001-layout-smoke.json` (`ok: true`).
+5. Light regression: drag-move, equip/unequip still send same `economy_*` intents.
 
 ## Build and run
 
-- Build command: `npm run typecheck` → **PASS**; `npm run build` → **PASS**
+- Build command: `npm run typecheck` → **PASS**; `npm run build` → **PASS** (F-001 revision)
 - Run command: standard client Vite + game server (same as prior EPICs)
-- Expected smoke result: larger icon grid, English tooltips, no abbreviation labels in cells
+- Expected smoke result: side rail+details visible with selection at 1400×900; cell ~115px (~2.04×); English title + Equip action in viewport
 
 ## Cell size notes (AC measurement)
 
 | | Grid CSS width | Approx cell linear (8×8, gaps) |
 |--|----------------|--------------------------------|
-| **Before** | `min(480px, 100%)`, gap 4px | ~(480 − 7×4) / 8 ≈ **56.5px** (~60px if counting gap inclusively) |
-| **After** | `min(960px, 95vw)`, gap 6px | Measured Playwright @1400×900: grid **960px**, cell **115×115px** → ≈ **2.04×** vs 56.5px |
-| **Compromise** | None — full ~2× linear kept; panel scrolls (`max-height: min(92vh, 980px)`) on shorter viewports |
+| **Before** | `min(480px, 100%)`, gap 4px | ~(480 − 7×4) / 8 ≈ **56.5px** |
+| **After (product + F-001)** | `min(960px, 100%)` inside scroll viewport, gap 6px | F-001 smoke @1400×900: grid **960px**, cell **115×115px** → ≈ **2.04×** vs 56.5px |
+| **Compromise** | **None** — full ~2× linear kept. Layout fix uses side-by-side + independently scrollable grid instead of shrinking cells (√2 not needed). |
 
 ## Configuration
 
@@ -68,11 +69,23 @@
 
 ## Risks / known limitations
 
-- On very narrow viewports the grid uses `min(960px, 95vw)` so cells shrink with viewport width (still ~2× vs the old `min(480px, …)` formula at the same vw).
-- CSS tooltips on top-row items may clip under `#inventoryPanel { overflow: auto }`; `aria-label` still present for accessibility.
-- Icon glyphs are simple CSS shapes — distinct by type + existing tinted backgrounds; not illustrated art assets.
+- On viewports ≤1040px wide, body wraps (media query); grid scroll max-height still applies so details are reachable without relying on a buried full-height square alone.
+- CSS tooltips on top-row items may clip under panel/grid scroll; `aria-label` still present.
+- Craft / Appearance sections remain below the body (may need panel scroll); F-001 scope is selected-item detail title + act controls in viewport.
 
 ## Status
 
 - [x] Ready for QA (Trusya)
 - [ ] Draft / WIP (do not take into QA)
+
+---
+
+## Revision: F-001 (Critic REVISE)
+
+| Field | Value |
+|-------|-------|
+| Finding | **F-001** — at ~1400×900, `#inventoryDetails` / select→act wrapped below ~960×960 grid and sat below the fold |
+| Fix | Side-by-side `.inv-body`: `.inv-grid-scroll` (overflow auto, full ~960² grid) + `.inv-side` (rail + details). Panel `min(1280px, …)`. Body `max-height: min(720px, calc(92vh - 150px))` so side stays in the first viewport. |
+| Cell size | Still **~2×** (115px / 56.5 ≈ **2.04×**). √2 compromise **not** used. |
+| Evidence | `node scripts/qa-epic43-f001-layout-smoke.mjs` → `titleInViewport`/`actionInViewport` true; screenshot `qa-artifacts/epic-43/07-f001-selected-detail-actions-visible.png`; `f001-layout-smoke.json` `ok: true`, `panelScrollTop: 0` |
+| Out of scope preserved | Icons, English tooltips, cryptic-code removal, no server/economy changes |

@@ -855,7 +855,8 @@
         display: flex;
       }
       #inventoryPanel {
-        width: min(1200px, calc(100vw - 24px));
+        /* EPIC 43 F-001: wide enough for ~960 grid + side rail/details at common laptop widths. */
+        width: min(1280px, calc(100vw - 24px));
         max-height: min(92vh, 980px);
         overflow: auto;
         padding: 16px 20px 20px;
@@ -901,17 +902,56 @@
       .inv-body {
         display: flex;
         gap: 18px;
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
+        align-items: stretch;
+        /* Cap body height so rail + details stay in the first viewport beside a scrollable grid. */
+        max-height: min(720px, calc(92vh - 150px));
+        min-height: 0;
+      }
+      .inv-grid-scroll {
+        flex: 1 1 auto;
+        min-width: 0;
+        max-width: 960px;
+        /* Definite viewport height so the ~960×960 square scrolls here, not the whole panel (F-001). */
+        max-height: min(720px, calc(92vh - 150px));
+        overflow: auto;
+        min-height: 0;
       }
       #inventoryGrid {
         display: grid;
         grid-template-columns: repeat(8, 1fr);
         grid-template-rows: repeat(8, 1fr);
         gap: 6px;
-        /* EPIC 43: ~2× linear cell size (was min(480px); cells ≈56–60px → ≈112–120px). */
-        width: min(960px, 95vw);
+        /* EPIC 43: ~2× linear cell size (was min(480px); cells ≈56–60px → ≈112–120px).
+           Full square stays ~960×960; shorter viewports scroll inside .inv-grid-scroll (F-001). */
+        width: min(960px, 100%);
         aspect-ratio: 1 / 1;
-        flex-shrink: 0;
+      }
+      .inv-side {
+        flex: 0 0 248px;
+        width: 248px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        min-height: 0;
+        max-height: min(720px, calc(92vh - 150px));
+        overflow: auto;
+        /* Keep rail + details pinned to the top of the body beside the grid. */
+        align-self: flex-start;
+      }
+      @media (max-width: 1040px) {
+        .inv-body {
+          flex-wrap: wrap;
+          max-height: none;
+        }
+        .inv-grid-scroll {
+          max-width: 100%;
+          max-height: min(960px, calc(92vh - 150px));
+        }
+        .inv-side {
+          flex: 1 1 100%;
+          width: 100%;
+        }
       }
       .inv-cell {
         background: rgba(255, 255, 255, 0.04);
@@ -1232,7 +1272,7 @@
         display: flex;
         flex-direction: column;
         gap: 10px;
-        min-width: 200px;
+        min-width: 0;
       }
       .inv-rail-slot {
         padding: 8px 10px;
@@ -1269,7 +1309,7 @@
       }
       .inv-details {
         flex: 1;
-        min-width: 220px;
+        min-width: 0;
         padding: 8px 10px;
         border: 1px solid rgba(140, 180, 120, 0.4);
         border-radius: 8px;
@@ -1508,9 +1548,13 @@
         <div id="inventoryRatings" class="inv-meta"></div>
         <div id="inventoryCaps" class="inv-caps"></div>
         <div class="inv-body">
-          <div id="inventoryGrid" role="grid" aria-label="8x8 inventory grid"></div>
-          <div id="inventoryRail" class="inv-rail"></div>
-          <div id="inventoryDetails" class="inv-details"></div>
+          <div class="inv-grid-scroll">
+            <div id="inventoryGrid" role="grid" aria-label="8x8 inventory grid"></div>
+          </div>
+          <aside class="inv-side" aria-label="Equip rail and selected item">
+            <div id="inventoryRail" class="inv-rail"></div>
+            <div id="inventoryDetails" class="inv-details"></div>
+          </aside>
         </div>
         <p class="inv-meta">
           <button id="inventoryCraftAmuletBtn" type="button">Craft amulet (10 shards)</button>
