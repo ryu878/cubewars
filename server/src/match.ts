@@ -760,7 +760,10 @@ export class Match {
             this.publishEndlessProgress();
           }
           if (this.botAI?.isBot(event.targetId)) this.botAI.removeBot(event.targetId);
-        } else {
+        } else if (this.mode === "public") {
+          // EPIC 37: competitive career leaderboard is public-mode (real PvP)
+          // only — bots-mode practice kills must not inflate K/D or create
+          // bogus "Bot N" leaderboard rows. Endless already handled above.
           this.options.onKillRecorded?.(killMessage.attackerNickname, killMessage.victimNickname);
         }
         scoreboardChanged = true;
