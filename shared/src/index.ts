@@ -216,6 +216,16 @@ export interface JoinMessage {
 }
 
 /**
+ * Client -> server: bind nickname in the lobby without joining a match (EPIC 42).
+ * Server normalizes the nickname, sets nicknameReady, stays in lobbySockets,
+ * and pushes the Deathmatch `economy_profile`. Does not create/join a match.
+ */
+export interface LobbyBindNicknameMessage {
+  type: "lobby_bind_nickname";
+  nickname: string;
+}
+
+/**
  * Client -> server: equip a pet into slot 1 or 2 (EPIC 24/25). Server validates
  * ownership; slot 2 only when an amulet is equipped (`slot2Enabled`).
  */
@@ -435,6 +445,7 @@ export type ClientMessage =
   | FireEvent
   | SwitchWeaponEvent
   | JoinMessage
+  | LobbyBindNicknameMessage
   | EconomyEquipPetMessage
   | EconomyUnequipPetMessage
   | EconomySetPetColorMessage
@@ -870,7 +881,8 @@ export interface EconomyActionResultMessage {
     | "trade_offer"
     | "trade_confirm"
     | "trade_cancel"
-    | "set_pet_color";
+    | "set_pet_color"
+    | "lobby_bind";
   ok: boolean;
   code?: string;
 }

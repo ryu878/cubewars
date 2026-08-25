@@ -696,6 +696,26 @@
         font-weight: 600;
         font-size: 12px;
       }
+      /* EPIC 42: lobby Inventory button (opens existing inventory overlay). */
+      #modeSelect #lobbyInventoryBtn {
+        display: block;
+        width: 100%;
+        margin: 0 0 14px;
+        padding: 10px 14px;
+        border: 1px solid rgba(230, 195, 92, 0.45);
+        border-radius: 8px;
+        background: rgba(230, 195, 92, 0.12);
+        color: #ffe082;
+        font: 700 14px system-ui, sans-serif;
+        cursor: pointer;
+      }
+      #modeSelect #lobbyInventoryBtn:hover:not(:disabled) {
+        background: rgba(230, 195, 92, 0.22);
+      }
+      #modeSelect #lobbyInventoryBtn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
       /* Lobby footer: community / developers Telegram (opens in new tab). */
       #modeSelect .lobby-telegram {
         flex: 0 0 100%;
@@ -1347,6 +1367,7 @@
         <label for="nicknameInput">Nickname</label>
         <input id="nicknameInput" type="text" maxlength="16" autocomplete="nickname" placeholder="Player" />
         <div id="lobbyGold">Gold: <span id="lobbyGoldValue">—</span> <span id="lobbyGoldPoolHint">(Deathmatch pool)</span></div>
+        <button id="lobbyInventoryBtn" type="button" disabled>Inventory</button>
         <div class="mode-section-title">Games</div>
         <div id="lobbyList" aria-live="polite"></div>
         <div class="mode-section-title">Leaderboard</div>
@@ -1368,7 +1389,7 @@
         href="https://t.me/cubewarsgame"
         target="_blank"
         rel="noopener noreferrer"
-      >Telegram developers — t.me/cubewarsgame</a>
+      >Game Developers Telegram Chat - t.me/cubewarsgame</a>
     </div>
     <div id="endlessHud" aria-hidden="true">
       <span id="endlessDistance">0.00 km</span>

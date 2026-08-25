@@ -163,6 +163,11 @@ export class InventoryOverlay {
     }
   }
 
+  /** Player-facing status line (lobby waiting / errors) — does not mutate bag state. */
+  setStatus(text: string): void {
+    this.statusEl.textContent = text;
+  }
+
   /** Replace local snapshot from server `economy_profile`; always authoritative. */
   setProfile(message: EconomyProfileMessage): void {
     this.profile = message;
@@ -175,6 +180,10 @@ export class InventoryOverlay {
     if (message.ok) {
       this.statusEl.textContent = `${message.action}: ok`;
       if (message.action === "discard_item") this.discardArm = null;
+    } else if (message.action === "lobby_bind" && message.code === "nickname_invalid") {
+      this.statusEl.textContent = "Enter a valid nickname to load inventory";
+    } else if (message.code === "match_required") {
+      this.statusEl.textContent = `${message.action} requires being in a Deathmatch match`;
     } else {
       this.statusEl.textContent = `${message.action} failed: ${message.code ?? "error"}`;
     }
@@ -225,9 +234,10 @@ export class InventoryOverlay {
   private render(): void {
     if (!this.profile) {
       this.goldEl.textContent = "—";
-      this.poolBadgeEl.textContent = "Pool: Deathmatch (join a match to load)";
+      this.poolBadgeEl.textContent = "Pool: Deathmatch (waiting for profile)";
       this.poolBadgeEl.dataset.pool = "deathmatch";
-      this.ratingsEl.textContent = "Join a match to load your inventory.";
+      this.ratingsEl.textContent =
+        "Waiting for inventory… Use Inventory on the lobby with a valid nickname, or join a match.";
       this.capsEl.textContent = "";
       this.gridEl.replaceChildren();
       this.railEl.replaceChildren();
