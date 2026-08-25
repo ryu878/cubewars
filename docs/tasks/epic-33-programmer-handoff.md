@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-25 |
 | Author (Pusya) | Programmer (Pusya) |
 | Task / Story / EPIC | EPIC 33 — Avatar Color Customization |
-| Branch / commit / PR | `task/epic-33-avatar-color-customization` tip `c314e4c` (impl `31d7ce0`; base `master` @ `f87190b`) |
+| Branch / commit / PR | `task/epic-33-avatar-color-customization` tip `425440e` (impl `31d7ce0`; base `master` @ `f87190b`) |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
