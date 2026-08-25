@@ -1,18 +1,39 @@
-// First-person weapon viewmodel (EPIC 10 Story 10.1/10.3) — a purely
-// cosmetic, client-only Three.js object attached to the camera so it
-// inherits look direction automatically. Driven entirely by data the client
-// already receives for the HUD (LoadoutMessage.equippedWeapon/ammo, the
-// existing onFire trigger) — introduces no new client-trusted gameplay
-// state (EPIC 10 spec Risks: "confirm it introduces no new client-trusted
-// gameplay state").
+// First-person weapon viewmodel (EPIC 10 Story 10.1/10.3, revisited by
+// EPIC 30 Story 30.1) — a purely cosmetic, client-only Three.js object
+// attached to the camera so it inherits look direction automatically.
+// Driven entirely by data the client already receives for the HUD
+// (LoadoutMessage.equippedWeapon/ammo, the existing onFire trigger) —
+// introduces no new client-trusted gameplay state (EPIC 10 spec Risks:
+// "confirm it introduces no new client-trusted gameplay state").
 //
 // Shape/color per weapon reuses WEAPON_STATS[...].color (shared/src/
 // weapons.ts) — the same identity already used by the HUD text and the
 // world pickup meshes (client/src/pickups.ts), so all three agree at a
 // glance per the spec's explicit ask.
+//
+// EPIC 30 Story 30.1: each weapon is now a multi-material composite (base
+// body color + a darker per-weapon ACCENT for grip/stock/magazine parts +
+// a shared neutral METAL_ACCENT_COLOR for barrel tips/sights/trim), plus
+// 2-3 extra detail primitives per weapon (sight nub, trigger guard,
+// foregrip, magazine, muzzle rim, etc.) so each weapon reads as an actual
+// held object, not a flat-color box/cylinder composite. The shared metal
+// accent is a deliberate, spec-flagged deviation from "reuse only the
+// existing per-weapon color identity": it is a neutral trim color applied
+// identically across all three weapons (never the weapon's *primary*
+// identity color, which stays WEAPON_STATS[...].color), so weapon-to-weapon
+// distinction is unaffected — see Risks note in the EPIC 30 handoff.
 
 import * as THREE from "three";
 import { WEAPON_ORDER, WEAPON_STATS, type WeaponType } from "@cubewars/shared";
+
+/** Shared neutral gunmetal trim used for small metal details (barrel tips, sights, muzzle rims) on every weapon — intentionally NOT weapon-specific so it never competes with each weapon's primary WEAPON_STATS color for identity. */
+const METAL_ACCENT_COLOR = 0x3a3f45;
+
+/** Darkens a weapon's primary color for its grip/stock/magazine accent parts — keeps the accent tied to that weapon's own identity color rather than introducing an unrelated new color per weapon. */
+function darken(color: number, factor: number): number {
+  const c = new THREE.Color(color).multiplyScalar(factor);
+  return c.getHex();
+}
 
 /** Lower-right, in front of the camera — typical FPS viewmodel placement. Camera-local space (camera looks down -z). */
 const VIEWMODEL_BASE_POSITION = new THREE.Vector3(0.16, -0.12, -0.7);
@@ -62,18 +83,36 @@ function trackMaterial(
   return material;
 }
 
-/** Pistol: compact grip + short slide/barrel — small "reads as a small weapon" silhouette (Story 10.1). */
+/**
+ * Pistol: compact grip + short slide/barrel — small "reads as a small
+ * weapon" silhouette (Story 10.1), now with a darker grip accent, a metal
+ * barrel tip, a small rear sight nub, and a trigger-guard bar (Story 30.1).
+ */
 function buildPistolVisual(color: number): WeaponVisual {
   const group = new THREE.Group();
   const materials: WeaponVisual["materials"] = [];
-  const material = trackMaterial(materials, new THREE.MeshStandardMaterial({ color, metalness: 0.3, roughness: 0.6 }));
+  const bodyMat = trackMaterial(materials, new THREE.MeshStandardMaterial({ color, metalness: 0.3, roughness: 0.6 }));
+  const gripMat = trackMaterial(
+    materials,
+    new THREE.MeshStandardMaterial({ color: darken(color, 0.4), metalness: 0.25, roughness: 0.75 }),
+  );
+  const metalMat = trackMaterial(
+    materials,
+    new THREE.MeshStandardMaterial({ color: METAL_ACCENT_COLOR, metalness: 0.85, roughness: 0.3 }),
+  );
 
-  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.17, 0.09), material);
+  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.17, 0.09), gripMat);
   grip.position.set(0, -0.1, 0.04);
   grip.rotation.x = 0.2;
-  const slide = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.08, 0.28), material);
+  const slide = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.08, 0.28), bodyMat);
   slide.position.set(0, 0.02, -0.1);
-  group.add(grip, slide);
+  const barrelTip = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.05, 0.05), metalMat);
+  barrelTip.position.set(0, 0.02, -0.26);
+  const sightNub = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.03, 0.03), metalMat);
+  sightNub.position.set(0, 0.075, 0.02);
+  const triggerGuard = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.02, 0.09), gripMat);
+  triggerGuard.position.set(0, -0.03, 0.02);
+  group.add(grip, slide, barrelTip, sightNub, triggerGuard);
 
   const { mesh: flashMesh, material: flashMaterial } = makeFlash(0xfff2b0, 0.055);
   flashMesh.position.set(0, 0.03, -0.28);
@@ -82,23 +121,42 @@ function buildPistolVisual(color: number): WeaponVisual {
   return { group, materials, flashMesh, flashMaterial };
 }
 
-/** Rifle: longer barrel + stock — visibly bigger/longer than the pistol (Story 10.1). */
+/**
+ * Rifle: longer barrel + stock — visibly bigger/longer than the pistol
+ * (Story 10.1), now with a darker stock/magazine accent, a foregrip, a
+ * metal muzzle rim, and a top sight rail block (Story 30.1).
+ */
 function buildRifleVisual(color: number): WeaponVisual {
   const group = new THREE.Group();
   const materials: WeaponVisual["materials"] = [];
-  const material = trackMaterial(
+  const bodyMat = trackMaterial(materials, new THREE.MeshStandardMaterial({ color, metalness: 0.35, roughness: 0.5 }));
+  const accentMat = trackMaterial(
     materials,
-    new THREE.MeshStandardMaterial({ color, metalness: 0.35, roughness: 0.5 }),
+    new THREE.MeshStandardMaterial({ color: darken(color, 0.4), metalness: 0.3, roughness: 0.65 }),
+  );
+  const metalMat = trackMaterial(
+    materials,
+    new THREE.MeshStandardMaterial({ color: METAL_ACCENT_COLOR, metalness: 0.85, roughness: 0.3 }),
   );
 
-  const stock = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.22), material);
+  const stock = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.22), accentMat);
   stock.position.set(0, -0.03, 0.12);
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 0.4), material);
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 0.4), bodyMat);
   body.position.set(0, 0, -0.12);
-  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.4, 10), material);
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.4, 10), bodyMat);
   barrel.rotation.x = Math.PI / 2;
   barrel.position.set(0, 0.01, -0.5);
-  group.add(stock, body, barrel);
+  const muzzleRim = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 0.04, 10), metalMat);
+  muzzleRim.rotation.x = Math.PI / 2;
+  muzzleRim.position.set(0, 0.01, -0.7);
+  const foregrip = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.09, 0.06), accentMat);
+  foregrip.position.set(0, -0.06, -0.34);
+  const magazine = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.14, 0.07), accentMat);
+  magazine.position.set(0, -0.09, -0.06);
+  magazine.rotation.x = -0.18;
+  const sightRail = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.16), metalMat);
+  sightRail.position.set(0, 0.065, -0.14);
+  group.add(stock, body, barrel, muzzleRim, foregrip, magazine, sightRail);
 
   const { mesh: flashMesh, material: flashMaterial } = makeFlash(0xff9d2e, 0.08);
   flashMesh.position.set(0, 0.01, -0.72);
@@ -107,24 +165,40 @@ function buildRifleVisual(color: number): WeaponVisual {
   return { group, materials, flashMesh, flashMaterial };
 }
 
-/** Grenade launcher: thick tube + bulky muzzle — a distinctly "heavy weapon" silhouette (Story 10.1). */
+/**
+ * Grenade launcher: thick tube + bulky muzzle — a distinctly "heavy weapon"
+ * silhouette (Story 10.1), now with a darker stock/handle accent, a chunky
+ * front sight, and a metal muzzle rim (Story 30.1).
+ */
 function buildGrenadeLauncherVisual(color: number): WeaponVisual {
   const group = new THREE.Group();
   const materials: WeaponVisual["materials"] = [];
-  const material = trackMaterial(
+  const bodyMat = trackMaterial(materials, new THREE.MeshStandardMaterial({ color, metalness: 0.2, roughness: 0.7 }));
+  const accentMat = trackMaterial(
     materials,
-    new THREE.MeshStandardMaterial({ color, metalness: 0.2, roughness: 0.7 }),
+    new THREE.MeshStandardMaterial({ color: darken(color, 0.4), metalness: 0.2, roughness: 0.8 }),
+  );
+  const metalMat = trackMaterial(
+    materials,
+    new THREE.MeshStandardMaterial({ color: METAL_ACCENT_COLOR, metalness: 0.85, roughness: 0.3 }),
   );
 
-  const stock = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.15, 0.18), material);
+  const stock = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.15, 0.18), accentMat);
   stock.position.set(0, -0.05, 0.08);
-  const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.45, 12), material);
+  const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.45, 12), bodyMat);
   tube.rotation.x = Math.PI / 2;
   tube.position.set(0, 0, -0.18);
-  const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.07, 12), material);
+  const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.07, 12), bodyMat);
   muzzle.rotation.x = Math.PI / 2;
   muzzle.position.set(0, 0, -0.43);
-  group.add(stock, tube, muzzle);
+  const muzzleRim = new THREE.Mesh(new THREE.CylinderGeometry(0.125, 0.125, 0.025, 12), metalMat);
+  muzzleRim.rotation.x = Math.PI / 2;
+  muzzleRim.position.set(0, 0, -0.47);
+  const handle = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.11, 0.06), accentMat);
+  handle.position.set(0, -0.09, -0.2);
+  const frontSight = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.06, 0.05), metalMat);
+  frontSight.position.set(0, 0.11, -0.38);
+  group.add(stock, tube, muzzle, muzzleRim, handle, frontSight);
 
   const { mesh: flashMesh, material: flashMaterial } = makeFlash(0xcc55ff, 0.15);
   flashMesh.position.set(0, 0, -0.56);
