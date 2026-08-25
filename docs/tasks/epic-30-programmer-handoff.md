@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-25 |
 | Author (Pusya) | Pusya |
 | Task / Story / EPIC | EPIC 30 — Weapon Viewmodel & Pickup Visual Polish (Round 2); Stories 30.1–30.4 |
-| Branch / commit / PR | `task/epic-30-weapon-pickup-visual-polish` (see tip SHA after push); PR not opened yet (Tester gate first) |
+| Branch / commit / PR | `task/epic-30-weapon-pickup-visual-polish` @ `8029c65f4a4e5b4b61cfc0cc8710f6785a3e5a81`; PR not opened yet (Tester gate first) |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
