@@ -9,6 +9,7 @@ import type { PickupStatus } from "./pickups.js";
 import type { DamageKind, DamageZone } from "./combat.js";
 import type { MapBox } from "./mapData.js";
 import type {
+  EquippedPetVisual,
   GemType,
   InventoryItemType,
   PetType,
@@ -230,6 +231,17 @@ export interface EconomyUnequipPetMessage {
   petId: number;
 }
 
+/**
+ * Client -> server: set a owned pet's cosmetic color palette index (EPIC 39).
+ * Server validates ownership + index range; scope is derived server-side from
+ * match context (or Deathmatch in lobby) — never trust a client-claimed pool.
+ */
+export interface EconomySetPetColorMessage {
+  type: "economy_set_pet_color";
+  petId: number;
+  paletteIndex: number;
+}
+
 /** Client -> server: hatch a ready egg owned by this profile (EPIC 24). */
 export interface EconomyHatchEggMessage {
   type: "economy_hatch_egg";
@@ -425,6 +437,7 @@ export type ClientMessage =
   | JoinMessage
   | EconomyEquipPetMessage
   | EconomyUnequipPetMessage
+  | EconomySetPetColorMessage
   | EconomyHatchEggMessage
   | EconomyApplyStimulatorMessage
   | EconomySocketGemMessage
@@ -484,6 +497,12 @@ export interface PlayerState {
   equippedPetTypes: PetType[];
   /** EPIC 31: whether this player currently has an amulet equipped (enables pet slot 2). Same cosmetic-reveal precedent as equippedPetTypes. */
   hasAmulet: boolean;
+  /**
+   * EPIC 39: full companion visual state (type + palette index + left/right
+   * side), slot order matching equippedPetTypes. Server-computed; clients
+   * never invent sides/colors for other players. Cosmetic only.
+   */
+  equippedPetsVisual: EquippedPetVisual[];
   /**
    * EPIC 33: palette indices for head/torso/hands/legs. Same cosmetic-reveal
    * precedent as equippedWeapon / equippedPetTypes — server-computed,
@@ -719,7 +738,7 @@ export interface ProjectileImpactEvent {
   point: Vector3;
 }
 
-/** Wire DTO for a durable pet row (EPIC 24/25/29). */
+/** Wire DTO for a durable pet row (EPIC 24/25/29/39). */
 export interface EconomyPetDto {
   id: number;
   type: PetType;
@@ -731,6 +750,8 @@ export interface EconomyPetDto {
    * Footprint = 2 horizontal cells.
    */
   slotAnchor: number | null;
+  /** EPIC 39: index into AVATAR_COLOR_PALETTE for companion mesh color. */
+  colorIndex: number;
 }
 
 /** Wire DTO for an incubating egg (EPIC 24/29). Footprint = 1. */
@@ -848,7 +869,8 @@ export interface EconomyActionResultMessage {
     | "trade_open"
     | "trade_offer"
     | "trade_confirm"
-    | "trade_cancel";
+    | "trade_cancel"
+    | "set_pet_color";
   ok: boolean;
   code?: string;
 }

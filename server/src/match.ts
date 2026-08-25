@@ -330,6 +330,7 @@ export class Match {
         baseValue: p.baseValue,
         equipSlot: p.equipSlot,
         slotAnchor: p.slotAnchor,
+        colorIndex: p.colorIndex,
       })),
       eggs: profile.eggs.map((e) => ({
         id: e.id,
@@ -399,12 +400,19 @@ export class Match {
     if (!economy) return;
     const full = await economy.getFullProfile(nickname, this.economyScope());
     this.registry.applyPetRatings(playerId, full.ratings);
-    const equippedPetTypes = full.pets
+    const equipped = full.pets
       .filter((pet) => pet.equipSlot === 1 || pet.equipSlot === 2)
-      .sort((a, b) => (a.equipSlot ?? 0) - (b.equipSlot ?? 0))
-      .map((pet) => pet.type);
+      .sort((a, b) => (a.equipSlot ?? 0) - (b.equipSlot ?? 0));
     const hasAmulet = full.amulets.some((amulet) => amulet.equipped);
-    this.registry.setEquipmentVisual(playerId, equippedPetTypes, hasAmulet);
+    this.registry.setEquipmentVisual(
+      playerId,
+      equipped.map((pet) => ({
+        slotId: `pet:${pet.id}`,
+        type: pet.type,
+        colorIndex: pet.colorIndex,
+      })),
+      hasAmulet,
+    );
   }
 
   /** EPIC 33: load persisted avatar colors (or defaults) into the live PlayerRecord. */
@@ -464,6 +472,7 @@ export class Match {
       itemType?: InventoryItemType;
       itemId?: number;
       toAnchor?: number;
+      paletteIndex?: number;
     },
   ): Promise<void> {
     const economy = this.options.economy;
@@ -486,6 +495,22 @@ export class Match {
           return;
         }
         await economy.unequipPet(nickname, payload.petId, Date.now(), scope);
+      } else if (action === "set_pet_color") {
+        if (
+          typeof payload.petId !== "number" ||
+          !Number.isInteger(payload.petId) ||
+          !isValidPaletteIndex(payload.paletteIndex)
+        ) {
+          this.sendEconomyActionResult(playerId, action, false, "not_found");
+          return;
+        }
+        await economy.setPetColor(
+          nickname,
+          payload.petId,
+          payload.paletteIndex!,
+          Date.now(),
+          scope,
+        );
       } else if (action === "hatch") {
         if (typeof payload.eggId !== "number" || !Number.isInteger(payload.eggId)) {
           this.sendEconomyActionResult(playerId, action, false, "not_found");

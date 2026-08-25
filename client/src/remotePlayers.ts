@@ -4,12 +4,12 @@
 
 import * as THREE from "three";
 import {
-  PET_TYPES,
   WEAPON_STATS,
   avatarColorsKey,
   defaultAvatarColors,
   resolveAvatarColor,
   type AvatarColors,
+  type EquippedPetVisual,
   type PetType,
   type PlayerState,
   type Vector3,
@@ -33,28 +33,17 @@ const RUN_PHASE_SPEED = 9;
 /** EPIC 36: low opacity while spawn-protected — reads as a ghost, not a solid target. */
 const SPAWN_PROTECTION_OPACITY = 0.35;
 
-// EPIC 31 "Randomized Bot Equipment Loadouts" Section 3.4: small, cheap
-// visual tell for equipped pets/amulet, applied uniformly to any PlayerState
-// carrying this data (bots and humans alike — one broadcast path, see
-// server/src/match.ts applyEconomyCombatToPlayer() / server/src/botAI.ts
-// applyBotLoadout()). Not required to be pixel-perfect, just readable at
-// typical engagement range (spec Section 3.4).
-const PET_ORB_RADIUS = 0.1;
-/** Slot-order shoulder/backpack anchor positions for up to 2 pet orbs (slot1, slot2) — mounted just outside the backpack's left/right edge, at the same depth as the backpack so they read as small satellite orbs riding beside it (not buried inside the torso silhouette). */
-const PET_ORB_LOCAL_POSITIONS: readonly [number, number, number][] = [
-  [-0.34, 0, 0.27],
-  [0.34, 0, 0.27],
-];
+// EPIC 39 companions (replaces EPIC 31 color orbs): low-poly silhouettes that
+// read as dog/cat/bird/lion at engagement range. Client-render only — never
+// hitscan/collision. Soft cyan aura + palette color from server.
+const PET_SIDE_X = { left: -0.48, right: 0.48 } as const;
+const PET_ANCHOR_Y_OFFSET = 0.12;
+const PET_ANCHOR_Z = 0.22;
+const PET_BOB_AMPLITUDE = 0.035;
+const PET_BOB_SPEED = 2.4;
+const PET_GLOW_COLOR = 0x4ec8ff;
 const AMULET_RING_OUTER_RADIUS = 0.13;
 const AMULET_RING_TUBE_RADIUS = 0.028;
-
-/** Color per PetType (EPIC 31 spec Section 3.4: "color-coded by pet type") — matches each type's primary rating axis (shared/src/economy.ts PET_TYPE_RATING): dog/armor -> steel grey, cat/health -> red, bird/speed -> cyan, lion/damage -> orange. */
-const PET_ORB_COLORS: Record<PetType, number> = {
-  dog: 0x9aa0ab,
-  cat: 0xe0435c,
-  bird: 0x36c7e0,
-  lion: 0xf2a93b,
-};
 
 interface AvatarPartSet {
   root: THREE.Group;
@@ -67,8 +56,10 @@ interface AvatarPartSet {
   rightLeg: THREE.Mesh;
   weaponAnchor: THREE.Group;
   weapons: Record<WeaponType, THREE.Group>;
-  /** EPIC 31: up to 2 pet-tell orbs, slot order [slot1, slot2], hidden by default. */
-  petOrbs: THREE.Mesh[];
+  /** EPIC 39: up to 2 companion groups, slot order [slot1, slot2], hidden by default. */
+  petCompanions: THREE.Group[];
+  /** Base Y for companion bob (local space). */
+  petCompanionBaseY: number;
   /** EPIC 31: amulet-tell pendant, hidden by default. */
   amuletPendant: THREE.Mesh;
 }
@@ -80,13 +71,15 @@ interface AvatarState {
   running: boolean;
   runPhase: number;
   currentWeapon: WeaponType;
-  /** EPIC 31: last-applied pet-tell types, compared by joined-string equality to skip redundant material swaps (mirrors the currentWeapon discipline above). */
-  currentPetTypesKey: string;
+  /** EPIC 39: last-applied companion visual key (type/color/side). */
+  currentPetsVisualKey: string;
   currentHasAmulet: boolean;
   /** EPIC 33: last-applied avatar palette key (skip redundant color writes). */
   currentAvatarColorsKey: string;
   /** EPIC 36: last applied protection opacity state (avoids redundant material writes). */
   spawnProtected: boolean;
+  /** EPIC 39: cosmetic bob phase (shared across companions on this avatar). */
+  petBobPhase: number;
 }
 
 const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x2d6cdf, roughness: 0.7 });
@@ -95,20 +88,7 @@ const headMaterial = new THREE.MeshStandardMaterial({ color: 0xf2c197, roughness
 const faceMaterial = new THREE.MeshStandardMaterial({ color: 0x101318, roughness: 0.5 });
 const backpackMaterial = new THREE.MeshStandardMaterial({ color: 0x1b1d2a, roughness: 0.75 });
 
-/** One glowing-orb material per PetType (EPIC 31) — swapped onto a shared orb mesh per slot rather than rebuilt per player, matching this file's existing per-type-material style (see weaponMaterial()). */
-const petOrbMaterials: Record<PetType, THREE.MeshStandardMaterial> = Object.fromEntries(
-  PET_TYPES.map((type) => [
-    type,
-    new THREE.MeshStandardMaterial({
-      color: PET_ORB_COLORS[type],
-      emissive: PET_ORB_COLORS[type],
-      emissiveIntensity: 0.5,
-      roughness: 0.4,
-    }),
-  ]),
-) as Record<PetType, THREE.MeshStandardMaterial>;
-
-/** Amulet pendant material (EPIC 31) — a distinct gold glow so it reads as "amulet", not "another pet orb", at a glance (spec Section 3.4). */
+/** Amulet pendant material (EPIC 31) — gold glow, distinct from pet companions. */
 const amuletMaterial = new THREE.MeshStandardMaterial({
   color: 0xffd75e,
   emissive: 0xffb300,
@@ -119,6 +99,174 @@ const amuletMaterial = new THREE.MeshStandardMaterial({
 
 function box(sizeX: number, sizeY: number, sizeZ: number, material: THREE.Material): THREE.Mesh {
   return new THREE.Mesh(new THREE.BoxGeometry(sizeX, sizeY, sizeZ), material);
+}
+
+function petBodyMaterial(hex: number): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({
+    color: hex,
+    emissive: hex,
+    emissiveIntensity: 0.22,
+    roughness: 0.55,
+    metalness: 0.05,
+  });
+}
+
+function petGlowShell(): THREE.Mesh {
+  const mat = new THREE.MeshBasicMaterial({
+    color: PET_GLOW_COLOR,
+    transparent: true,
+    opacity: 0.28,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const shell = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 12), mat);
+  shell.name = "avatar:pet-glow";
+  return shell;
+}
+
+/** Low-poly dog: quadruped + longer snout. */
+function buildDogMesh(mat: THREE.MeshStandardMaterial): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "companion:dog";
+  const body = box(0.14, 0.1, 0.22, mat);
+  body.position.set(0, 0.08, 0);
+  const head = box(0.1, 0.09, 0.1, mat);
+  head.position.set(0, 0.14, -0.14);
+  const snout = box(0.06, 0.05, 0.1, mat);
+  snout.position.set(0, 0.12, -0.22);
+  const earL = box(0.03, 0.05, 0.02, mat);
+  earL.position.set(-0.04, 0.2, -0.12);
+  const earR = box(0.03, 0.05, 0.02, mat);
+  earR.position.set(0.04, 0.2, -0.12);
+  const legs: THREE.Mesh[] = [];
+  for (const [x, z] of [
+    [-0.05, 0.07],
+    [0.05, 0.07],
+    [-0.05, -0.07],
+    [0.05, -0.07],
+  ] as const) {
+    const leg = box(0.035, 0.08, 0.035, mat);
+    leg.position.set(x, 0.04, z);
+    legs.push(leg);
+  }
+  const tail = box(0.025, 0.025, 0.08, mat);
+  tail.position.set(0, 0.12, 0.14);
+  g.add(body, head, snout, earL, earR, ...legs, tail);
+  return g;
+}
+
+/** Low-poly cat: quadruped + pointed ears + shorter face. */
+function buildCatMesh(mat: THREE.MeshStandardMaterial): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "companion:cat";
+  const body = box(0.12, 0.09, 0.18, mat);
+  body.position.set(0, 0.08, 0);
+  const head = box(0.09, 0.08, 0.08, mat);
+  head.position.set(0, 0.14, -0.12);
+  const face = box(0.05, 0.04, 0.04, mat);
+  face.position.set(0, 0.12, -0.17);
+  const earL = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.06, 4), mat);
+  earL.position.set(-0.035, 0.2, -0.11);
+  const earR = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.06, 4), mat);
+  earR.position.set(0.035, 0.2, -0.11);
+  const legs: THREE.Mesh[] = [];
+  for (const [x, z] of [
+    [-0.04, 0.06],
+    [0.04, 0.06],
+    [-0.04, -0.05],
+    [0.04, -0.05],
+  ] as const) {
+    const leg = box(0.03, 0.07, 0.03, mat);
+    leg.position.set(x, 0.035, z);
+    legs.push(leg);
+  }
+  const tail = box(0.02, 0.02, 0.12, mat);
+  tail.position.set(0, 0.12, 0.12);
+  tail.rotation.x = -0.4;
+  g.add(body, head, face, earL, earR, ...legs, tail);
+  return g;
+}
+
+/** Low-poly bird: small body + wings. */
+function buildBirdMesh(mat: THREE.MeshStandardMaterial): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "companion:bird";
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 8), mat);
+  body.position.set(0, 0.1, 0);
+  body.scale.set(1, 0.85, 1.2);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 8), mat);
+  head.position.set(0, 0.16, -0.07);
+  const beak = new THREE.Mesh(new THREE.ConeGeometry(0.015, 0.05, 4), mat);
+  beak.rotation.x = Math.PI / 2;
+  beak.position.set(0, 0.15, -0.12);
+  const wingL = box(0.12, 0.02, 0.06, mat);
+  wingL.position.set(-0.1, 0.1, 0);
+  wingL.rotation.z = 0.25;
+  const wingR = box(0.12, 0.02, 0.06, mat);
+  wingR.position.set(0.1, 0.1, 0);
+  wingR.rotation.z = -0.25;
+  const tail = box(0.04, 0.015, 0.07, mat);
+  tail.position.set(0, 0.08, 0.09);
+  g.add(body, head, beak, wingL, wingR, tail);
+  return g;
+}
+
+/** Low-poly lion: quadruped + mane volume. */
+function buildLionMesh(mat: THREE.MeshStandardMaterial): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "companion:lion";
+  const body = box(0.15, 0.11, 0.24, mat);
+  body.position.set(0, 0.09, 0);
+  const mane = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 10), mat);
+  mane.position.set(0, 0.14, -0.12);
+  mane.scale.set(1.15, 1.1, 0.95);
+  const head = box(0.09, 0.08, 0.09, mat);
+  head.position.set(0, 0.14, -0.18);
+  const snout = box(0.055, 0.045, 0.06, mat);
+  snout.position.set(0, 0.12, -0.24);
+  const legs: THREE.Mesh[] = [];
+  for (const [x, z] of [
+    [-0.055, 0.08],
+    [0.055, 0.08],
+    [-0.055, -0.08],
+    [0.055, -0.08],
+  ] as const) {
+    const leg = box(0.04, 0.085, 0.04, mat);
+    leg.position.set(x, 0.042, z);
+    legs.push(leg);
+  }
+  const tail = box(0.025, 0.025, 0.1, mat);
+  tail.position.set(0, 0.13, 0.15);
+  g.add(body, mane, head, snout, ...legs, tail);
+  return g;
+}
+
+function buildCompanionBody(type: PetType, mat: THREE.MeshStandardMaterial): THREE.Group {
+  switch (type) {
+    case "dog":
+      return buildDogMesh(mat);
+    case "cat":
+      return buildCatMesh(mat);
+    case "bird":
+      return buildBirdMesh(mat);
+    case "lion":
+      return buildLionMesh(mat);
+  }
+}
+
+/** Empty companion slot: glow + body replaced when applyPetVisual runs. */
+function buildCompanionSlot(baseY: number): THREE.Group {
+  const root = new THREE.Group();
+  root.name = "avatar:pet-companion";
+  root.position.set(PET_SIDE_X.left, baseY, PET_ANCHOR_Z);
+  root.visible = false;
+  root.add(petGlowShell());
+  // Placeholder body (replaced on apply).
+  const mat = petBodyMaterial(0x888888);
+  const body = buildDogMesh(mat);
+  body.name = "avatar:pet-body";
+  root.add(body);
+  return root;
 }
 
 function weaponMaterial(weapon: WeaponType): THREE.MeshStandardMaterial {
@@ -250,20 +398,16 @@ function buildAvatar(): AvatarPartSet {
     weaponAnchor.add(weapon);
   }
 
-  // EPIC 31 pet-tell orbs: small spheres near the shoulder/backpack, one per
-  // slot, hidden until a loadout arrives (applyPetVisual() below).
-  // Clone materials so EPIC 36 opacity is per-avatar.
-  const petOrbs: THREE.Mesh[] = PET_ORB_LOCAL_POSITIONS.map(([x, , z]) => {
-    const orb = new THREE.Mesh(new THREE.SphereGeometry(PET_ORB_RADIUS, 10, 10), petOrbMaterials.dog.clone());
-    orb.name = "avatar:pet-orb";
-    orb.position.set(x, backpack.position.y + TORSO_HEIGHT * 0.22, z);
-    orb.visible = false;
-    return orb;
-  });
+  // EPIC 39 companion slots: low-poly silhouettes beside the avatar
+  // (left/right from server). Clone materials so EPIC 36 opacity is per-avatar.
+  const petCompanionBaseY = torso.position.y + PET_ANCHOR_Y_OFFSET;
+  const petCompanions: THREE.Group[] = [
+    buildCompanionSlot(petCompanionBaseY),
+    buildCompanionSlot(petCompanionBaseY),
+  ];
 
   // EPIC 31 amulet-tell pendant: a small ring at the neck/chest, visually
-  // distinct (gold glow) from the pet orbs so "has amulet" reads separately
-  // from "has pet" at a glance (spec Section 3.4).
+  // distinct (gold glow) from companions so "has amulet" reads separately.
   const amuletPendant = new THREE.Mesh(
     new THREE.TorusGeometry(AMULET_RING_OUTER_RADIUS, AMULET_RING_TUBE_RADIUS, 8, 16),
     amuletMaterial.clone(),
@@ -272,8 +416,33 @@ function buildAvatar(): AvatarPartSet {
   amuletPendant.position.set(0, torso.position.y + TORSO_HEIGHT * 0.42, -BODY_DEPTH / 2 - 0.02);
   amuletPendant.visible = false;
 
-  root.add(torso, backpack, head, leftLeg, rightLeg, leftArm, rightArm, weaponAnchor, ...petOrbs, amuletPendant);
-  return { root, torso, head, face, leftArm, rightArm, leftLeg, rightLeg, weaponAnchor, weapons, petOrbs, amuletPendant };
+  root.add(
+    torso,
+    backpack,
+    head,
+    leftLeg,
+    rightLeg,
+    leftArm,
+    rightArm,
+    weaponAnchor,
+    ...petCompanions,
+    amuletPendant,
+  );
+  return {
+    root,
+    torso,
+    head,
+    face,
+    leftArm,
+    rightArm,
+    leftLeg,
+    rightLeg,
+    weaponAnchor,
+    weapons,
+    petCompanions,
+    petCompanionBaseY,
+    amuletPendant,
+  };
 }
 
 function clonePosition(position: Vector3): Vector3 {
@@ -290,21 +459,35 @@ function applyWeapon(parts: AvatarPartSet, weapon: WeaponType): void {
   }
 }
 
-/** EPIC 31 Section 3.4: show/hide + color the pet-tell orbs and amulet pendant from the server-broadcast, cosmetic-only PlayerState fields. */
-function applyPetVisual(parts: AvatarPartSet, petTypes: readonly PetType[], hasAmulet: boolean): void {
-  for (let slot = 0; slot < parts.petOrbs.length; slot++) {
-    const orb = parts.petOrbs[slot]!;
-    const type = petTypes[slot];
-    if (type) {
-      orb.visible = true;
-      // Recolor the per-avatar cloned material in place (do not swap back to
-      // the shared petOrbMaterials singleton — that would break EPIC 36 opacity).
-      const mat = orb.material as THREE.MeshStandardMaterial;
-      mat.color.setHex(PET_ORB_COLORS[type]);
-      mat.emissive.setHex(PET_ORB_COLORS[type]);
-    } else {
-      orb.visible = false;
+/**
+ * EPIC 39: show/hide companion meshes from server-broadcast equippedPetsVisual
+ * (type + palette color + left/right side). Falls back to equippedPetTypes
+ * for incomplete fixtures. Cosmetic only — never solid.
+ */
+function applyPetVisual(
+  parts: AvatarPartSet,
+  visuals: readonly EquippedPetVisual[],
+  hasAmulet: boolean,
+): void {
+  for (let slot = 0; slot < parts.petCompanions.length; slot++) {
+    const companion = parts.petCompanions[slot]!;
+    const visual = visuals[slot];
+    if (!visual) {
+      companion.visible = false;
+      continue;
     }
+    companion.visible = true;
+    companion.position.x = PET_SIDE_X[visual.side];
+    companion.position.z = PET_ANCHOR_Z;
+
+    const hex = resolveAvatarColor(visual.colorIndex);
+    const oldBody = companion.getObjectByName("avatar:pet-body");
+    if (oldBody) companion.remove(oldBody);
+
+    const mat = petBodyMaterial(hex);
+    const body = buildCompanionBody(visual.type, mat);
+    body.name = "avatar:pet-body";
+    companion.add(body);
   }
   parts.amuletPendant.visible = hasAmulet;
 }
@@ -330,7 +513,7 @@ function applyAvatarColors(parts: AvatarPartSet, colors: AvatarColors): void {
   setMeshColor(parts.rightLeg, legsHex);
 }
 
-/** EPIC 36: set opacity on every mesh material under this avatar (body + weapons + tells). */
+/** EPIC 36: set opacity on every mesh material under this avatar (body + weapons + tells + companions). */
 function applySpawnProtectionVisual(parts: AvatarPartSet, protectedNow: boolean): void {
   const opacity = protectedNow ? SPAWN_PROTECTION_OPACITY : 1;
   const transparent = protectedNow;
@@ -339,17 +522,37 @@ function applySpawnProtectionVisual(parts: AvatarPartSet, protectedNow: boolean)
     const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
     for (const mat of materials) {
       if (!mat || !("opacity" in mat)) continue;
+      // Glow shells stay translucent; scale their base opacity when protected.
+      if (obj.name === "avatar:pet-glow") {
+        const basic = mat as THREE.MeshBasicMaterial;
+        basic.transparent = true;
+        basic.opacity = protectedNow ? 0.28 * SPAWN_PROTECTION_OPACITY : 0.28;
+        basic.depthWrite = false;
+        continue;
+      }
       const std = mat as THREE.MeshStandardMaterial;
       std.transparent = transparent;
       std.opacity = opacity;
-      // Avoid z-fighting / incorrect sorting while translucent.
       std.depthWrite = !transparent;
     }
   });
 }
 
-function petTypesKey(petTypes: readonly PetType[]): string {
-  return petTypes.join(",");
+function petsVisualKey(visuals: readonly EquippedPetVisual[]): string {
+  return visuals.map((v) => `${v.type}:${v.colorIndex}:${v.side}`).join("|");
+}
+
+/** Prefer equippedPetsVisual; fall back to equippedPetTypes for older fixtures. */
+function resolvePetsVisual(player: PlayerState): EquippedPetVisual[] {
+  if (Array.isArray(player.equippedPetsVisual) && player.equippedPetsVisual.length > 0) {
+    return player.equippedPetsVisual;
+  }
+  const types = player.equippedPetTypes ?? [];
+  return types.map((type, i) => ({
+    type,
+    colorIndex: 0,
+    side: i % 2 === 0 ? ("left" as const) : ("right" as const),
+  }));
 }
 
 function poseStanding(parts: AvatarPartSet): void {
@@ -401,9 +604,10 @@ export class RemotePlayers {
         const parts = buildAvatar();
         parts.root.name = `remote-avatar:${player.id}`;
         const colors = player.avatarColors ?? defaultAvatarColors();
+        const petsVisual = resolvePetsVisual(player);
         applyAvatarColors(parts, colors);
         applyWeapon(parts, player.equippedWeapon);
-        applyPetVisual(parts, player.equippedPetTypes, player.hasAmulet);
+        applyPetVisual(parts, petsVisual, player.hasAmulet);
         this.scene.add(parts.root);
         avatar = {
           parts,
@@ -412,10 +616,11 @@ export class RemotePlayers {
           running: false,
           runPhase: 0,
           currentWeapon: player.equippedWeapon,
-          currentPetTypesKey: petTypesKey(player.equippedPetTypes),
+          currentPetsVisualKey: petsVisualKey(petsVisual),
           currentHasAmulet: player.hasAmulet,
           currentAvatarColorsKey: avatarColorsKey(colors),
           spawnProtected: false,
+          petBobPhase: 0,
         };
         this.avatars.set(player.id, avatar);
       } else {
@@ -432,11 +637,16 @@ export class RemotePlayers {
         applyWeapon(avatar.parts, player.equippedWeapon);
       }
 
-      const nextPetTypesKey = petTypesKey(player.equippedPetTypes);
-      if (avatar.currentPetTypesKey !== nextPetTypesKey || avatar.currentHasAmulet !== player.hasAmulet) {
-        avatar.currentPetTypesKey = nextPetTypesKey;
+      const petsVisual = resolvePetsVisual(player);
+      const nextPetsKey = petsVisualKey(petsVisual);
+      if (avatar.currentPetsVisualKey !== nextPetsKey || avatar.currentHasAmulet !== player.hasAmulet) {
+        avatar.currentPetsVisualKey = nextPetsKey;
         avatar.currentHasAmulet = player.hasAmulet;
-        applyPetVisual(avatar.parts, player.equippedPetTypes, player.hasAmulet);
+        applyPetVisual(avatar.parts, petsVisual, player.hasAmulet);
+        // Fresh companion materials start opaque — re-apply EPIC 36 if needed.
+        if (avatar.spawnProtected) {
+          applySpawnProtectionVisual(avatar.parts, true);
+        }
       }
 
       const colors = player.avatarColors ?? defaultAvatarColors();
@@ -468,7 +678,7 @@ export class RemotePlayers {
     }
   }
 
-  /** Advance cosmetic run/stand poses. No gameplay state is changed here. */
+  /** Advance cosmetic run/stand poses and companion bob. No gameplay state is changed here. */
   update(dt: number): void {
     for (const avatar of this.avatars.values()) {
       if (!avatar.parts.root.visible) continue;
@@ -478,6 +688,13 @@ export class RemotePlayers {
       } else {
         avatar.runPhase = 0;
         poseStanding(avatar.parts);
+      }
+      // EPIC 39: gentle vertical bob on visible companions (cosmetic only).
+      avatar.petBobPhase += dt * PET_BOB_SPEED;
+      const bob = Math.sin(avatar.petBobPhase) * PET_BOB_AMPLITUDE;
+      for (const companion of avatar.parts.petCompanions) {
+        if (!companion.visible) continue;
+        companion.position.y = avatar.parts.petCompanionBaseY + bob;
       }
     }
   }

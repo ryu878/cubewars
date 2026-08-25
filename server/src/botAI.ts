@@ -20,6 +20,7 @@ import {
   aggregateEquippedRatings,
   boxBounds,
   randomAvatarColors,
+  randomPaletteIndex,
   rayIntersectsAabb,
   type EquippedPetInput,
   type PetType,
@@ -86,6 +87,8 @@ interface BotPetSlot {
   type: PetType;
   baseValue: number;
   equipSlot: 1 | 2;
+  /** EPIC 39: random palette index assigned with the loadout (in-memory only). */
+  colorIndex: number;
 }
 
 export interface BotLoadout {
@@ -112,6 +115,15 @@ function randomPetType(): PetType {
   return PET_TYPES[Math.floor(Math.random() * PET_TYPES.length)]!;
 }
 
+function randomBotPet(equipSlot: 1 | 2): BotPetSlot {
+  return {
+    type: randomPetType(),
+    baseValue: randomBotPetBaseValue(),
+    equipSlot,
+    colorIndex: randomPaletteIndex(),
+  };
+}
+
 /** Generate one bot's fixed-for-its-lifetime loadout (EPIC 31 spec Section 3.1) — pure, no registry/economy access. */
 export function generateBotLoadout(): BotLoadout {
   const archetype = BOT_LOADOUT_ARCHETYPES[Math.floor(Math.random() * BOT_LOADOUT_ARCHETYPES.length)]!;
@@ -121,22 +133,19 @@ export function generateBotLoadout(): BotLoadout {
     case "B":
       return {
         archetype,
-        pets: [{ type: randomPetType(), baseValue: randomBotPetBaseValue(), equipSlot: 1 }],
+        pets: [randomBotPet(1)],
         hasAmulet: false,
       };
     case "C":
       return {
         archetype,
-        pets: [{ type: randomPetType(), baseValue: randomBotPetBaseValue(), equipSlot: 2 }],
+        pets: [randomBotPet(2)],
         hasAmulet: true,
       };
     case "D":
       return {
         archetype,
-        pets: [
-          { type: randomPetType(), baseValue: randomBotPetBaseValue(), equipSlot: 1 },
-          { type: randomPetType(), baseValue: randomBotPetBaseValue(), equipSlot: 2 },
-        ],
+        pets: [randomBotPet(1), randomBotPet(2)],
         hasAmulet: true,
       };
   }
@@ -162,13 +171,19 @@ function applyBotLoadout(registry: PlayerRegistry, botId: string, loadout: BotLo
   registry.applyPetRatings(botId, ratings);
   registry.setEquipmentVisual(
     botId,
-    loadout.pets.map((pet) => pet.type),
+    loadout.pets.map((pet) => ({
+      slotId: `bot:${botId}:slot${pet.equipSlot}`,
+      type: pet.type,
+      colorIndex: pet.colorIndex,
+    })),
     loadout.hasAmulet,
   );
   // EPIC 33: independently random palette index per body part (in-memory only).
   const avatarColors = randomAvatarColors();
   registry.setAvatarColors(botId, avatarColors);
-  const petsLabel = loadout.pets.map((pet) => `${pet.type}#${pet.baseValue}`).join(",");
+  const petsLabel = loadout.pets
+    .map((pet) => `${pet.type}#${pet.baseValue}@c${pet.colorIndex}`)
+    .join(",");
   console.log(
     `[bots] ${botId} loadout: archetype=${loadout.archetype} pets=[${petsLabel}] amulet=${loadout.hasAmulet} ` +
       `colors=h${avatarColors.head}/t${avatarColors.torso}/a${avatarColors.hands}/l${avatarColors.legs}`,
