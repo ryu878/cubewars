@@ -36,9 +36,14 @@ const SPAWN_PROTECTION_OPACITY = 0.35;
 // EPIC 39 companions (replaces EPIC 31 color orbs): low-poly silhouettes that
 // read as dog/cat/bird/lion at engagement range. Client-render only — never
 // hitscan/collision. Soft cyan aura + palette color from server.
-const PET_SIDE_X = { left: -0.48, right: 0.48 } as const;
-const PET_ANCHOR_Y_OFFSET = 0.12;
-const PET_ANCHOR_Z = 0.22;
+// EPIC 40: arm's-length float (~45° up from torso) + modest root scale so
+// companions read clearly vs the amulet pendant (amulet layout unchanged).
+const PET_SIDE_X = { left: -0.9, right: 0.9 } as const;
+/** Y above torso center; ≈ |PET_SIDE_X| so the radial hang reads ~45° upward. */
+const PET_ANCHOR_Y_OFFSET = 0.9;
+const PET_ANCHOR_Z = 0.3;
+/** Scales body + cyan glow together (glow SphereGeometry radius stays 0.22). */
+const PET_ROOT_SCALE = 1.35;
 const PET_BOB_AMPLITUDE = 0.035;
 const PET_BOB_SPEED = 2.4;
 const PET_GLOW_COLOR = 0x4ec8ff;
@@ -259,6 +264,7 @@ function buildCompanionSlot(baseY: number): THREE.Group {
   const root = new THREE.Group();
   root.name = "avatar:pet-companion";
   root.position.set(PET_SIDE_X.left, baseY, PET_ANCHOR_Z);
+  root.scale.setScalar(PET_ROOT_SCALE);
   root.visible = false;
   root.add(petGlowShell());
   // Placeholder body (replaced on apply).
