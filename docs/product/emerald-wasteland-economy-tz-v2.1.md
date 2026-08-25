@@ -20,7 +20,7 @@ This document is the **product source of truth** for the pets / inventory / econ
 | Match HP / armor | Four abstract stats only | Compose with EPIC 7: see §2.1 |
 | Crypto OBS / blockchain | Optional in core TZ | **Out of scope** for EPICs 23–29; separate optional EPIC later with legal + Infosec gate |
 | Selling gold for real money | Monetization note | **Out of scope** (policy/legal); not implemented |
-| Drop victims | Ambiguous | Economy item drops only from **human** kills; bots grant **gold only** (configurable) |
+| Drop victims | Ambiguous | **EPIC 35:** Deathmatch pool — economy drops only from **human** kills (EPIC 32). Sandbox pool (`bots`/`endless`) — bot and human kills reward into an isolated sandbox profile that cannot feed Deathmatch. |
 | Stimulator | Wording ambiguous when remaining &lt; 1h | `hatch_deadline = min(hatch_deadline, now + 1h)` — never extends past ready |
 | Auction “seller limit” rule | Contradictory | Seller may list owned items; **buyer** inventory/limit check at settle; fail → cancel, refund bid |
 | Inventory UI framework | Implied rich UI | Plain HTML/CSS + TypeScript (no React) unless user later approves a UI framework |
@@ -129,17 +129,29 @@ Profile ratings recalculate on equip/unequip and are pushed to the client for HU
 
 Gold always; other rolls independent. Failed condition → that item skipped (gold still granted).
 
-**Bot kills:** gold only (default); configurable later.
+**Split pools (EPIC 35):** each nickname has two independent economy documents — **Deathmatch** (`public` mode) and **Sandbox** (`bots` / `endless`). Scope is chosen server-side from match mode; the client cannot pick a pool.
+
+- **Deathmatch:** human-victim kills only (EPIC 32 anti-farm). Bot victims grant nothing into this pool.
+- **Sandbox:** bot and human kills both reward into the sandbox pool (test-mode play). Sandbox gold/items can never be spent or applied in Deathmatch actions.
+- Legacy single-pool Redis keys migrate into Deathmatch on first read; Sandbox starts empty.
+
+**Bot kills (historical note):** pre-EPIC 35 / EPIC 32 era treated bots as gold-only or zero-reward against a single shared economy. That competitive protection remains for Deathmatch; Sandbox re-enables rewarding bot kills safely by isolation.
 
 ---
 
 ## 3. Economy
 
+### 3.0 Economy pools (EPIC 35)
+
+- Redis key shape: `economy:v1:{deathmatch|sandbox}:{nicknameKey}`.
+- Inventory / hatch / equip / craft / discard actions in a match always mutate that match's pool only.
+- Career PvP K/D and endless personal bests continue to live on the Deathmatch document (lobby leaderboards).
+
 ### 3.1 Gold
 
 - Primary currency; kill drop 1–500; auction buy/sell; P2P transfer.
 - Auction fee **10%** of closing price: **5% burned**, **5%** to developer ledger account (in-DB balance, not a player).
-
+- Gold balances are **per pool** — Sandbox gold is not Deathmatch gold.
 ### 3.2 Auction
 
 - List pets, gems, amulets, eggs, shards, repair kits, stimulators for gold.
@@ -173,16 +185,16 @@ No real-money gold sales in-repo. Auction developer cut is in-game gold ledger o
 | Survive Redis/process restart | Redis **AOF** (recommended: `appendonly yes`) — document in README / compose |
 | One-shot import from older builds | Optional read of legacy SQLite file `CUBEWARS_ECONOMY_DB` → Redis, then SQLite is not used at runtime |
 
-All mutations server-side. Prefer atomic Redis transactions / Lua / single JSON document per nickname key so multi-field updates cannot partially apply.
+All mutations server-side. Prefer atomic Redis transactions / Lua / single JSON document per **(nickname, economy pool)** so multi-field updates cannot partially apply. As of EPIC 35 there are two documents per nickname (`deathmatch` and `sandbox`); legacy unscoped keys migrate to `deathmatch` on first read.
 
 **MUST persist (player achievements / progress):**
 
 | Data | Redis shape (logical) |
 |------|------------------------|
-| Gold, nickname, timestamps | profile document / hash |
-| Pets, eggs, stimulators, gems, amulets, shards, repair kits | nested in profile document (or typed keys under same nickname) |
-| PvP career kills / deaths | career fields + ZSET for lobby top-20 |
-| Endless best bot kills + distance km | endless fields + ZSET for endless top-20 |
+| Gold, nickname, timestamps | profile document per pool (`deathmatch` \| `sandbox`) |
+| Pets, eggs, stimulators, gems, amulets, shards, repair kits | nested in the pool's profile document |
+| PvP career kills / deaths | career fields on **deathmatch** doc + ZSET for lobby top-20 |
+| Endless best bot kills + distance km | endless fields on **deathmatch** doc + ZSET for endless top-20 |
 | Auction lots / developer gold ledger | later EPICs |
 
 **MUST NOT persist (session-only — OK to reset):**

@@ -1,6 +1,7 @@
-// Durable player economy profiles keyed by nickname (EPIC 23–27).
+// Durable player economy profiles keyed by nickname + economy scope (EPIC 23–27, 35).
 // Redis primary store with write-through in-process cache. Single game-server
 // process assumption; Redis AOF required for durability across Redis restarts.
+// EPIC 35: two isolated pools per nickname — deathmatch | sandbox.
 
 import type { Redis } from "ioredis";
 import {
@@ -28,6 +29,7 @@ import {
   type InventoryItemType,
   type PetGemBonuses,
   type PetType,
+  type MatchMode,
   type ProfileRatings,
   normalizeNickname,
 } from "@cubewars/shared";
@@ -215,6 +217,16 @@ export interface EconomyStoreOpenOptions {
   skipSqliteImport?: boolean;
 }
 
+export type EconomyScope = "deathmatch" | "sandbox";
+
+/** Competitive (public / Deathmatch) pool is the default for lobby/career and legacy callers. */
+export const DEFAULT_ECONOMY_SCOPE: EconomyScope = "deathmatch";
+
+/** Server-only: derive economy pool from match mode. Never trust a client-supplied scope. */
+export function economyScopeFromMatchMode(mode: MatchMode): EconomyScope {
+  return mode === "public" ? "deathmatch" : "sandbox";
+}
+
 /** Resolve incubation duration; env override for QA/tests only (positive int ms). */
 export function resolveIncubationDurationMs(
   envValue: string | undefined = process.env.CUBEWARS_INCUBATION_MS,
@@ -257,7 +269,7 @@ export class EconomyStore {
   readonly keyPrefix: string;
 
   private readonly redis: Redis;
-  /** Write-through cache: nicknameKey → document. */
+  /** Write-through cache: `${scope}:${nicknameKey}` → document. */
   private readonly cache = new Map<string, EconomyDocument>();
 
   private constructor(redis: Redis, redisUrl: string, keyPrefix: string) {
@@ -267,7 +279,17 @@ export class EconomyStore {
     this.dbPath = redisUrl;
   }
 
-  private economyKey(nicknameKey: string): string {
+  private cacheKey(scope: EconomyScope, nicknameKey: string): string {
+    return `${scope}:${nicknameKey}`;
+  }
+
+  /** Scoped Redis key (EPIC 35): deathmatch | sandbox pools are fully isolated. */
+  private economyKey(scope: EconomyScope, nicknameKey: string): string {
+    return `${this.keyPrefix}:economy:v1:${scope}:${nicknameKey}`;
+  }
+
+  /** Pre-EPIC-35 unscoped key — migrated into deathmatch on first read. */
+  private legacyEconomyKey(nicknameKey: string): string {
     return `${this.keyPrefix}:economy:v1:${nicknameKey}`;
   }
 
@@ -317,7 +339,7 @@ export class EconomyStore {
 
     if (!opts.skipSqliteImport) {
       await maybeImportSqliteToRedis(redis, {
-        economyKey: (k) => store.economyKey(k),
+        economyKey: (k) => store.economyKey("deathmatch", k),
         itemOwnerKey: (kind, id) => store.itemOwnerKey(kind, id),
         nickIndexKey: store.nickIndexKey,
         lbPvpKey: store.lbPvpKey,
@@ -448,27 +470,54 @@ export class EconomyStore {
     };
   }
 
-  private async loadDoc(nicknameKey: string): Promise<EconomyDocument | null> {
-    const cached = this.cache.get(nicknameKey);
+  private async loadDoc(
+    scope: EconomyScope,
+    nicknameKey: string,
+  ): Promise<EconomyDocument | null> {
+    const ck = this.cacheKey(scope, nicknameKey);
+    const cached = this.cache.get(ck);
     if (cached) {
-      await this.ensureInventoryPacked(cached);
+      await this.ensureInventoryPacked(scope, cached);
       return cached;
     }
-    const raw = await this.redis.get(this.economyKey(nicknameKey));
+    let raw = await this.redis.get(this.economyKey(scope, nicknameKey));
+    if (!raw && scope === "deathmatch") {
+      raw = await this.migrateLegacyEconomyDoc(nicknameKey);
+    }
     if (!raw) return null;
     const doc = JSON.parse(raw) as EconomyDocument;
     if (doc.shardSlotAnchor === undefined) doc.shardSlotAnchor = null;
-    this.cache.set(nicknameKey, doc);
-    await this.ensureInventoryPacked(doc);
+    this.cache.set(ck, doc);
+    await this.ensureInventoryPacked(scope, doc);
     return doc;
   }
 
+  /**
+   * EPIC 35: one-time idempotent migration of unscoped
+   * `${prefix}:economy:v1:${nicknameKey}` → deathmatch-scoped key.
+   * Returns the document JSON if migration (or concurrent migrate) succeeded.
+   */
+  private async migrateLegacyEconomyDoc(nicknameKey: string): Promise<string | null> {
+    const legacyKey = this.legacyEconomyKey(nicknameKey);
+    const legacyRaw = await this.redis.get(legacyKey);
+    if (!legacyRaw) return null;
+    const scopedKey = this.economyKey("deathmatch", nicknameKey);
+    const created = await this.redis.set(scopedKey, legacyRaw, "NX");
+    if (created === "OK") {
+      await this.redis.del(legacyKey);
+      console.log(`[economy] migrated legacy profile -> deathmatch for ${nicknameKey}`);
+      return legacyRaw;
+    }
+    // Another reader won the race — use whatever is under the scoped key now.
+    return this.redis.get(scopedKey);
+  }
+
   /** One-shot auto-pack for legacy docs missing slotAnchor (EPIC 29). */
-  private async ensureInventoryPacked(doc: EconomyDocument): Promise<void> {
+  private async ensureInventoryPacked(scope: EconomyScope, doc: EconomyDocument): Promise<void> {
     if (!needsAutoPack(doc)) return;
     autoPackDocument(doc);
-    console.log(`[economy] inventory auto-pack once for ${doc.nicknameKey}`);
-    await this.saveDoc(doc);
+    console.log(`[economy] inventory auto-pack once for ${doc.nicknameKey} [${scope}]`);
+    await this.saveDoc(scope, doc);
   }
 
   /** Assign a free bag anchor or throw inventory_full. */
@@ -491,39 +540,44 @@ export class EconomyStore {
    * On Redis failure: invalidate cache for this key and throw so callers do not
    * treat the mutation as durable (F-002).
    */
-  private async saveDoc(doc: EconomyDocument): Promise<void> {
+  private async saveDoc(scope: EconomyScope, doc: EconomyDocument): Promise<void> {
+    const ck = this.cacheKey(scope, doc.nicknameKey);
     const multi = this.redis.multi();
-    multi.set(this.economyKey(doc.nicknameKey), JSON.stringify(doc));
+    multi.set(this.economyKey(scope, doc.nicknameKey), JSON.stringify(doc));
     multi.sadd(this.nickIndexKey, doc.nicknameKey);
-    if (doc.career.kills > 0 || doc.career.deaths > 0) {
-      multi.zadd(this.lbPvpKey, doc.career.kills, doc.nicknameKey);
-    }
-    if (doc.endless.botKills > 0 || doc.endless.distanceKm > 0) {
-      multi.zadd(this.lbEndlessKey, doc.endless.botKills, doc.nicknameKey);
+    // Career / endless leaderboards stay on the deathmatch document only
+    // (competitive stats; sandbox farming must not pollute them).
+    if (scope === "deathmatch") {
+      if (doc.career.kills > 0 || doc.career.deaths > 0) {
+        multi.zadd(this.lbPvpKey, doc.career.kills, doc.nicknameKey);
+      }
+      if (doc.endless.botKills > 0 || doc.endless.distanceKm > 0) {
+        multi.zadd(this.lbEndlessKey, doc.endless.botKills, doc.nicknameKey);
+      }
     }
 
     let results: [Error | null, unknown][] | null;
     try {
       results = await multi.exec();
     } catch (err) {
-      this.cache.delete(doc.nicknameKey);
+      this.cache.delete(ck);
       throw err instanceof Error ? err : new Error(String(err));
     }
 
     if (!results) {
-      this.cache.delete(doc.nicknameKey);
+      this.cache.delete(ck);
       throw new Error(
-        `Redis MULTI/EXEC discarded while saving economy doc for ${doc.nicknameKey}`,
+        `Redis MULTI/EXEC discarded while saving economy doc for ${doc.nicknameKey} [${scope}]`,
       );
     }
     for (const [err] of results) {
       if (err) {
-        this.cache.delete(doc.nicknameKey);
+        this.cache.delete(ck);
         throw err;
       }
     }
 
-    this.cache.set(doc.nicknameKey, doc);
+    this.cache.set(ck, doc);
   }
 
   private itemOwnerKey(kind: "pet" | "egg" | "gem" | "amulet", id: number): string {
@@ -561,18 +615,21 @@ export class EconomyStore {
     }
   }
 
-  async getOrCreateProfile(nickname: string): Promise<EconomyProfile> {
+  async getOrCreateProfile(
+    nickname: string,
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
+  ): Promise<EconomyProfile> {
     const normalized = normalizeNickname(nickname);
     if (!normalized.ok) {
       throw new Error(`cannot create economy profile for invalid nickname: ${normalized.reason}`);
     }
-    const existing = await this.loadDoc(normalized.key);
+    const existing = await this.loadDoc(scope, normalized.key);
     if (existing) {
       if (existing.nickname !== normalized.nickname) {
         const now = Date.now();
         existing.nickname = normalized.nickname;
         existing.updatedAt = now;
-        await this.saveDoc(existing);
+        await this.saveDoc(scope, existing);
       }
       return this.docToProfile(existing);
     }
@@ -580,20 +637,30 @@ export class EconomyStore {
     const now = Date.now();
     const id = await this.allocProfileId();
     const doc = createEmptyDocument(id, normalized.key, normalized.nickname, now);
-    await this.saveDoc(doc);
+    await this.saveDoc(scope, doc);
     return this.docToProfile(doc);
   }
 
-  async getProfile(nicknameKey: string): Promise<EconomyProfile | null> {
-    const doc = await this.loadDoc(nicknameKey);
+  async getProfile(
+    nicknameKey: string,
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
+  ): Promise<EconomyProfile | null> {
+    const doc = await this.loadDoc(scope, nicknameKey);
     return doc ? this.docToProfile(doc) : null;
   }
 
-  async getGold(nicknameKey: string): Promise<number> {
-    return (await this.getProfile(nicknameKey))?.gold ?? 0;
+  async getGold(
+    nicknameKey: string,
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
+  ): Promise<number> {
+    return (await this.getProfile(nicknameKey, scope))?.gold ?? 0;
   }
 
-  async addGold(nicknameKeyOrNickname: string, amount: number): Promise<EconomyProfile> {
+  async addGold(
+    nicknameKeyOrNickname: string,
+    amount: number,
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
+  ): Promise<EconomyProfile> {
     if (!Number.isFinite(amount) || amount < 0) {
       throw new Error(`addGold amount must be a non-negative finite number, got ${amount}`);
     }
@@ -604,19 +671,19 @@ export class EconomyStore {
     const display = normalized.ok ? normalized.nickname : nicknameKeyOrNickname;
 
     if (normalized.ok) {
-      await this.getOrCreateProfile(display);
-    } else if (!(await this.getProfile(key))) {
+      await this.getOrCreateProfile(display, scope);
+    } else if (!(await this.getProfile(key, scope))) {
       throw new Error(`addGold requires an existing profile when nickname is invalid: ${key}`);
     }
 
-    const doc = await this.loadDoc(key);
+    const doc = await this.loadDoc(scope, key);
     if (!doc) {
-      throw new Error(`profile missing after addGold for key=${key}`);
+      throw new Error(`profile missing after addGold for key=${key} scope=${scope}`);
     }
     const now = Date.now();
     doc.gold += amountInt;
     doc.updatedAt = now;
-    await this.saveDoc(doc);
+    await this.saveDoc(scope, doc);
     return this.docToProfile(doc);
   }
 
@@ -624,10 +691,12 @@ export class EconomyStore {
     attackerNickname: string,
     victimNickname: string,
   ): Promise<{ attacker: CareerStatsEntry; victim: CareerStatsEntry }> {
-    const attackerProfile = await this.getOrCreateProfile(attackerNickname);
-    const victimProfile = await this.getOrCreateProfile(victimNickname);
-    const attackerDoc = (await this.loadDoc(attackerProfile.nicknameKey))!;
-    const victimDoc = (await this.loadDoc(victimProfile.nicknameKey))!;
+    // Career K/D always lives on the deathmatch pool (competitive).
+    const scope: EconomyScope = "deathmatch";
+    const attackerProfile = await this.getOrCreateProfile(attackerNickname, scope);
+    const victimProfile = await this.getOrCreateProfile(victimNickname, scope);
+    const attackerDoc = (await this.loadDoc(scope, attackerProfile.nicknameKey))!;
+    const victimDoc = (await this.loadDoc(scope, victimProfile.nicknameKey))!;
     const now = Date.now();
     attackerDoc.career.kills += 1;
     attackerDoc.career.updatedAt = now;
@@ -635,8 +704,8 @@ export class EconomyStore {
     victimDoc.career.deaths += 1;
     victimDoc.career.updatedAt = now;
     victimDoc.updatedAt = now;
-    await this.saveDoc(attackerDoc);
-    await this.saveDoc(victimDoc);
+    await this.saveDoc(scope, attackerDoc);
+    await this.saveDoc(scope, victimDoc);
     return {
       attacker: {
         nicknameKey: attackerDoc.nicknameKey,
@@ -665,7 +734,7 @@ export class EconomyStore {
         : await this.redis.zrevrange(this.lbPvpKey, 0, fetchCount - 1);
     const entries: CareerStatsEntry[] = [];
     for (const key of members) {
-      const doc = await this.loadDoc(key);
+      const doc = await this.loadDoc("deathmatch", key);
       if (!doc) continue;
       if (doc.career.kills === 0 && doc.career.deaths === 0) continue;
       entries.push({
@@ -686,7 +755,7 @@ export class EconomyStore {
     const keys = await this.redis.smembers(this.nickIndexKey);
     const entries: CareerStatsEntry[] = [];
     for (const key of keys) {
-      const doc = await this.loadDoc(key);
+      const doc = await this.loadDoc("deathmatch", key);
       if (!doc) continue;
       if (doc.career.kills === 0 && doc.career.deaths === 0) continue;
       entries.push({
@@ -711,14 +780,16 @@ export class EconomyStore {
       throw new Error(`invalid endless best values: botKills=${botKills} distanceKm=${distanceKm}`);
     }
     const killsInt = Math.floor(botKills);
-    const profile = await this.getOrCreateProfile(nickname);
-    const doc = (await this.loadDoc(profile.nicknameKey))!;
+    // Endless personal bests stay on the deathmatch document (lobby leaderboard).
+    const scope: EconomyScope = "deathmatch";
+    const profile = await this.getOrCreateProfile(nickname, scope);
+    const doc = (await this.loadDoc(scope, profile.nicknameKey))!;
     const now = Date.now();
     doc.endless.botKills = Math.max(doc.endless.botKills, killsInt);
     doc.endless.distanceKm = Math.max(doc.endless.distanceKm, distanceKm);
     doc.endless.updatedAt = now;
     doc.updatedAt = now;
-    await this.saveDoc(doc);
+    await this.saveDoc(scope, doc);
     return {
       nicknameKey: doc.nicknameKey,
       nickname: doc.nickname,
@@ -738,7 +809,7 @@ export class EconomyStore {
         : await this.redis.zrevrange(this.lbEndlessKey, 0, fetchCount - 1);
     const entries: EndlessCareerEntry[] = [];
     for (const key of members) {
-      const doc = await this.loadDoc(key);
+      const doc = await this.loadDoc("deathmatch", key);
       if (!doc) continue;
       if (doc.endless.botKills === 0 && doc.endless.distanceKm === 0) continue;
       entries.push({
@@ -874,16 +945,22 @@ export class EconomyStore {
       if (doc.id === profileId) return doc;
     }
     const keys = await this.redis.smembers(this.nickIndexKey);
+    const scopes: EconomyScope[] = ["deathmatch", "sandbox"];
     for (const key of keys) {
-      const doc = await this.loadDoc(key);
-      if (doc && doc.id === profileId) return doc;
+      for (const scope of scopes) {
+        const doc = await this.loadDoc(scope, key);
+        if (doc && doc.id === profileId) return doc;
+      }
     }
     return null;
   }
 
-  async getFullProfile(nickname: string): Promise<FullEconomyProfile> {
-    const base = await this.getOrCreateProfile(nickname);
-    const doc = (await this.loadDoc(base.nicknameKey))!;
+  async getFullProfile(
+    nickname: string,
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
+  ): Promise<FullEconomyProfile> {
+    const base = await this.getOrCreateProfile(nickname, scope);
+    const doc = (await this.loadDoc(scope, base.nicknameKey))!;
     return {
       id: doc.id,
       nicknameKey: doc.nicknameKey,
@@ -911,9 +988,10 @@ export class EconomyStore {
     nickname: string,
     nowMs: number = Date.now(),
     durationMs: number = resolveIncubationDurationMs(),
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
   ): Promise<EconomyEgg> {
-    const profile = await this.getOrCreateProfile(nickname);
-    const doc = (await this.loadDoc(profile.nicknameKey))!;
+    const profile = await this.getOrCreateProfile(nickname, scope);
+    const doc = (await this.loadDoc(scope, profile.nicknameKey))!;
     if (doc.eggs.length >= ECONOMY_CAPS.eggs) {
       throw new EconomyActionError("egg_cap", "egg cap reached");
     }
@@ -929,14 +1007,18 @@ export class EconomyStore {
     doc.eggs.push(egg);
     this.assignBagAnchor(doc, "egg", id);
     doc.updatedAt = nowMs;
-    await this.saveDoc(doc);
+    await this.saveDoc(scope, doc);
     await this.bindItemOwner("egg", id, doc.nicknameKey);
     return this.eggFromDoc(doc, egg);
   }
 
-  async grantStimulator(nickname: string, nowMs: number = Date.now()): Promise<{ id: number }> {
-    const profile = await this.getOrCreateProfile(nickname);
-    const doc = (await this.loadDoc(profile.nicknameKey))!;
+  async grantStimulator(
+    nickname: string,
+    nowMs: number = Date.now(),
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
+  ): Promise<{ id: number }> {
+    const profile = await this.getOrCreateProfile(nickname, scope);
+    const doc = (await this.loadDoc(scope, profile.nicknameKey))!;
     if (doc.stimulators.length >= STIMULATOR_SOFT_CAP) {
       throw new EconomyActionError("stimulator_cap", "stimulator soft-cap reached");
     }
@@ -947,7 +1029,7 @@ export class EconomyStore {
     doc.stimulators.push({ id, createdAt: nowMs, slotAnchor: null });
     this.assignBagAnchor(doc, "stimulator", id);
     doc.updatedAt = nowMs;
-    await this.saveDoc(doc);
+    await this.saveDoc(scope, doc);
     return { id };
   }
 
@@ -957,6 +1039,7 @@ export class EconomyStore {
     value: number,
     nowMs: number = Date.now(),
     opts?: { allowExistingValue?: boolean },
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
   ): Promise<EconomyGem> {
     const minValue = opts?.allowExistingValue ? 1 : GEM_VALUE_MIN;
     if (
@@ -967,8 +1050,8 @@ export class EconomyStore {
     ) {
       throw new Error(`invalid gem type/value: ${gemType}/${value}`);
     }
-    const profile = await this.getOrCreateProfile(nickname);
-    const doc = (await this.loadDoc(profile.nicknameKey))!;
+    const profile = await this.getOrCreateProfile(nickname, scope);
+    const doc = (await this.loadDoc(scope, profile.nicknameKey))!;
     if (doc.gems.length >= ECONOMY_CAPS.gems) {
       throw new EconomyActionError("gem_cap", "gem cap reached");
     }
@@ -987,7 +1070,7 @@ export class EconomyStore {
     doc.gems.push(gem);
     this.assignBagAnchor(doc, "gem", id);
     doc.updatedAt = nowMs;
-    await this.saveDoc(doc);
+    await this.saveDoc(scope, doc);
     await this.bindItemOwner("gem", id, doc.nicknameKey);
     return this.gemFromDoc(doc, gem);
   }
@@ -996,13 +1079,14 @@ export class EconomyStore {
     nickname: string,
     durability: number = ECONOMY_CAPS.amuletDurabilityMax,
     nowMs: number = Date.now(),
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
   ): Promise<EconomyAmulet> {
     const dur = Math.max(0, Math.min(ECONOMY_CAPS.amuletDurabilityMax, Math.floor(durability)));
     if (dur <= 0) {
       throw new Error("cannot grant amulet with durability <= 0");
     }
-    const profile = await this.getOrCreateProfile(nickname);
-    const doc = (await this.loadDoc(profile.nicknameKey))!;
+    const profile = await this.getOrCreateProfile(nickname, scope);
+    const doc = (await this.loadDoc(scope, profile.nicknameKey))!;
     if (doc.amulets.length >= ECONOMY_CAPS.amulets) {
       throw new EconomyActionError("amulet_cap", "amulet cap reached");
     }
@@ -1020,14 +1104,18 @@ export class EconomyStore {
     doc.amulets.push(amulet);
     this.assignBagAnchor(doc, "amulet", id);
     doc.updatedAt = nowMs;
-    await this.saveDoc(doc);
+    await this.saveDoc(scope, doc);
     await this.bindItemOwner("amulet", id, doc.nicknameKey);
     return this.amuletFromDoc(doc, amulet);
   }
 
-  async grantRepairKit(nickname: string, nowMs: number = Date.now()): Promise<{ id: number }> {
-    const profile = await this.getOrCreateProfile(nickname);
-    const doc = (await this.loadDoc(profile.nicknameKey))!;
+  async grantRepairKit(
+    nickname: string,
+    nowMs: number = Date.now(),
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
+  ): Promise<{ id: number }> {
+    const profile = await this.getOrCreateProfile(nickname, scope);
+    const doc = (await this.loadDoc(scope, profile.nicknameKey))!;
     if (doc.repairKits.length >= REPAIR_KIT_SOFT_CAP) {
       throw new EconomyActionError("repair_kit_cap", "repair kit soft-cap reached");
     }
@@ -1038,16 +1126,21 @@ export class EconomyStore {
     doc.repairKits.push({ id, createdAt: nowMs, slotAnchor: null });
     this.assignBagAnchor(doc, "repair_kit", id);
     doc.updatedAt = nowMs;
-    await this.saveDoc(doc);
+    await this.saveDoc(scope, doc);
     return { id };
   }
 
-  async addShard(nickname: string, amount: number = 1, nowMs: number = Date.now()): Promise<number> {
+  async addShard(
+    nickname: string,
+    amount: number = 1,
+    nowMs: number = Date.now(),
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
+  ): Promise<number> {
     if (!Number.isInteger(amount) || amount <= 0) {
       throw new Error(`addShard amount must be a positive integer, got ${amount}`);
     }
-    const profile = await this.getOrCreateProfile(nickname);
-    const doc = (await this.loadDoc(profile.nicknameKey))!;
+    const profile = await this.getOrCreateProfile(nickname, scope);
+    const doc = (await this.loadDoc(scope, profile.nicknameKey))!;
     if (doc.shardCount >= ECONOMY_CAPS.shards) {
       throw new EconomyActionError("shard_cap", "shard cap reached");
     }
@@ -1060,7 +1153,7 @@ export class EconomyStore {
       this.assignBagAnchor(doc, "shard_stack", 0);
     }
     doc.updatedAt = nowMs;
-    await this.saveDoc(doc);
+    await this.saveDoc(scope, doc);
     return doc.shardCount;
   }
 
@@ -1070,8 +1163,9 @@ export class EconomyStore {
     rolls: Partial<KillDropRolls> = {},
     nowMs: number = Date.now(),
     victim?: VictimDropContext,
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
   ): Promise<KillItemDropsResult> {
-    return this.resolveKillDrops(nickname, victimIsHuman, rolls, nowMs, victim);
+    return this.resolveKillDrops(nickname, victimIsHuman, rolls, nowMs, victim, scope);
   }
 
   async resolveKillDrops(
@@ -1080,6 +1174,7 @@ export class EconomyStore {
     rolls: Partial<KillDropRolls> = {},
     nowMs: number = Date.now(),
     victim?: VictimDropContext,
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
   ): Promise<KillItemDropsResult> {
     const merged: KillDropRolls = { ...defaultKillRolls(), ...rolls };
     const empty: KillItemDropsResult = {
@@ -1095,7 +1190,7 @@ export class EconomyStore {
     if (!victimIsHuman) {
       return empty;
     }
-    await this.getOrCreateProfile(nickname);
+    await this.getOrCreateProfile(nickname, scope);
     let egg: EconomyEgg | null = null;
     let stimulator = false;
     let gem: EconomyGem | null = null;
@@ -1111,7 +1206,7 @@ export class EconomyStore {
           ? Math.floor(merged.substituteGold)
           : rollGoldDropAmount();
       const clamped = Math.max(GOLD_DROP_MIN, Math.min(GOLD_DROP_MAX, amount));
-      await this.addGold(nickname, clamped);
+      await this.addGold(nickname, clamped, scope);
       substitutedGold += clamped;
       substitutedKinds.push(kind);
       console.log(
@@ -1121,7 +1216,7 @@ export class EconomyStore {
 
     if (merged.egg < DROP_CHANCE.egg) {
       try {
-        egg = await this.grantEgg(nickname, nowMs);
+        egg = await this.grantEgg(nickname, nowMs, resolveIncubationDurationMs(), scope);
       } catch (err) {
         if (err instanceof EconomyActionError) await substitute("egg");
         else throw err;
@@ -1130,7 +1225,7 @@ export class EconomyStore {
 
     if (merged.stimulator < DROP_CHANCE.growthStimulator) {
       try {
-        await this.grantStimulator(nickname, nowMs);
+        await this.grantStimulator(nickname, nowMs, scope);
         stimulator = true;
       } catch (err) {
         if (err instanceof EconomyActionError) await substitute("stimulator");
@@ -1139,19 +1234,19 @@ export class EconomyStore {
     }
 
     if (victim) {
-      const victimProfile = await this.getOrCreateProfile(victim.nickname);
-      const victimDoc = (await this.loadDoc(victimProfile.nicknameKey))!;
+      const victimProfile = await this.getOrCreateProfile(victim.nickname, scope);
+      const victimDoc = (await this.loadDoc(scope, victimProfile.nicknameKey))!;
       const victimHasAmulet = victimDoc.amulets.length > 0;
       const victimEquippedGems = await this.listGemsOnEquippedPets(victimProfile.id);
-      const killerProfile = await this.getOrCreateProfile(nickname);
-      const killerDoc = (await this.loadDoc(killerProfile.nicknameKey))!;
+      const killerProfile = await this.getOrCreateProfile(nickname, scope);
+      const killerDoc = (await this.loadDoc(scope, killerProfile.nicknameKey))!;
 
       if (victimEquippedGems.length > 0 && merged.gem < DROP_CHANCE.gem) {
         const source = victimEquippedGems[Math.floor(Math.random() * victimEquippedGems.length)]!;
         try {
           gem = await this.grantGem(nickname, source.gemType, source.value, nowMs, {
             allowExistingValue: true,
-          });
+          }, scope);
         } catch (err) {
           if (err instanceof EconomyActionError) {
             await substitute("gem");
@@ -1169,7 +1264,7 @@ export class EconomyStore {
         killerDoc.amulets.length < ECONOMY_CAPS.amulets
       ) {
         try {
-          await this.addShard(nickname, 1, nowMs);
+          await this.addShard(nickname, 1, nowMs, scope);
           shard = true;
         } catch (err) {
           if (err instanceof EconomyActionError) await substitute("shard");
@@ -1183,22 +1278,24 @@ export class EconomyStore {
           equipped ?? victimDoc.amulets[Math.floor(Math.random() * victimDoc.amulets.length)];
         if (source) {
           try {
-            amulet = await this.grantAmulet(nickname, source.durability, nowMs);
+            amulet = await this.grantAmulet(nickname, source.durability, nowMs, scope);
           } catch (err) {
             if (err instanceof EconomyActionError) await substitute("amulet");
             else throw err;
           }
         }
       }
+    }
 
-      if (merged.repairKit < DROP_CHANCE.repairKit) {
-        try {
-          await this.grantRepairKit(nickname, nowMs);
-          repairKit = true;
-        } catch (err) {
-          if (err instanceof EconomyActionError) await substitute("repairKit");
-          else throw err;
-        }
+    // Repair kits do not depend on victim inventory — roll for any eligible kill
+    // (including sandbox bot victims, EPIC 35).
+    if (merged.repairKit < DROP_CHANCE.repairKit) {
+      try {
+        await this.grantRepairKit(nickname, nowMs, scope);
+        repairKit = true;
+      } catch (err) {
+        if (err instanceof EconomyActionError) await substitute("repairKit");
+        else throw err;
       }
     }
 
@@ -1214,9 +1311,14 @@ export class EconomyStore {
     };
   }
 
-  async applyStimulator(nickname: string, eggId: number, nowMs: number = Date.now()): Promise<EconomyEgg> {
-    const profile = await this.getOrCreateProfile(nickname);
-    const doc = (await this.loadDoc(profile.nicknameKey))!;
+  async applyStimulator(
+    nickname: string,
+    eggId: number,
+    nowMs: number = Date.now(),
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
+  ): Promise<EconomyEgg> {
+    const profile = await this.getOrCreateProfile(nickname, scope);
+    const doc = (await this.loadDoc(scope, profile.nicknameKey))!;
     const egg = doc.eggs.find((e) => e.id === eggId);
     if (!egg) {
       await this.assertItemOwnedOrThrow("egg", eggId, doc.nicknameKey, `egg ${eggId} not found`);
@@ -1233,7 +1335,7 @@ export class EconomyStore {
     doc.stimulators = doc.stimulators.slice(1);
     egg.hatchDeadlineMs = newDeadline;
     doc.updatedAt = nowMs;
-    await this.saveDoc(doc);
+    await this.saveDoc(scope, doc);
     return this.eggFromDoc(doc, egg);
   }
 
@@ -1242,9 +1344,10 @@ export class EconomyStore {
     eggId: number,
     nowMs: number = Date.now(),
     opts?: { type?: PetType; baseValue?: number },
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
   ): Promise<EconomyPet> {
-    const profile = await this.getOrCreateProfile(nickname);
-    const doc = (await this.loadDoc(profile.nicknameKey))!;
+    const profile = await this.getOrCreateProfile(nickname, scope);
+    const doc = (await this.loadDoc(scope, profile.nicknameKey))!;
     const eggIndex = doc.eggs.findIndex((e) => e.id === eggId);
     if (eggIndex < 0) {
       await this.assertItemOwnedOrThrow("egg", eggId, doc.nicknameKey, `egg ${eggId} not found`);
@@ -1283,7 +1386,7 @@ export class EconomyStore {
     doc.pets.push(pet);
     this.assignBagAnchor(doc, "pet", id);
     doc.updatedAt = nowMs;
-    await this.saveDoc(doc);
+    await this.saveDoc(scope, doc);
     await this.bindItemOwner("pet", id, doc.nicknameKey);
     return this.petFromDoc(doc, pet);
   }
@@ -1293,12 +1396,13 @@ export class EconomyStore {
     petId: number,
     slot: number,
     nowMs: number = Date.now(),
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
   ): Promise<EconomyPet> {
     if (slot !== 1 && slot !== 2) {
       throw new EconomyActionError("invalid_slot", `invalid equip slot ${slot}`);
     }
-    const profile = await this.getOrCreateProfile(nickname);
-    const live = (await this.loadDoc(profile.nicknameKey))!;
+    const profile = await this.getOrCreateProfile(nickname, scope);
+    const live = (await this.loadDoc(scope, profile.nicknameKey))!;
     if (slot === 2 && !this.isSlot2EnabledDoc(live)) {
       throw new EconomyActionError("slot2_disabled", "pet slot 2 requires an equipped amulet");
     }
@@ -1323,13 +1427,18 @@ export class EconomyStore {
     pet.equipSlot = slot;
     pet.slotAnchor = null;
     doc.updatedAt = nowMs;
-    await this.saveDoc(doc);
+    await this.saveDoc(scope, doc);
     return this.petFromDoc(doc, pet);
   }
 
-  async unequipPet(nickname: string, petId: number, nowMs: number = Date.now()): Promise<EconomyPet> {
-    const profile = await this.getOrCreateProfile(nickname);
-    const live = (await this.loadDoc(profile.nicknameKey))!;
+  async unequipPet(
+    nickname: string,
+    petId: number,
+    nowMs: number = Date.now(),
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
+  ): Promise<EconomyPet> {
+    const profile = await this.getOrCreateProfile(nickname, scope);
+    const live = (await this.loadDoc(scope, profile.nicknameKey))!;
     const livePet = live.pets.find((p) => p.id === petId);
     if (!livePet) {
       await this.assertItemOwnedOrThrow("pet", petId, live.nicknameKey, `pet ${petId} not found`);
@@ -1346,7 +1455,7 @@ export class EconomyStore {
     pet.equipSlot = null;
     this.assignBagAnchor(doc, "pet", petId);
     doc.updatedAt = nowMs;
-    await this.saveDoc(doc);
+    await this.saveDoc(scope, doc);
     return this.petFromDoc(doc, pet);
   }
 
@@ -1355,9 +1464,10 @@ export class EconomyStore {
     gemId: number,
     petId: number,
     nowMs: number = Date.now(),
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
   ): Promise<EconomyGem> {
-    const profile = await this.getOrCreateProfile(nickname);
-    const doc = (await this.loadDoc(profile.nicknameKey))!;
+    const profile = await this.getOrCreateProfile(nickname, scope);
+    const doc = (await this.loadDoc(scope, profile.nicknameKey))!;
     const gem = doc.gems.find((g) => g.id === gemId);
     if (!gem) {
       await this.assertItemOwnedOrThrow("gem", gemId, doc.nicknameKey, `gem ${gemId} not found`);
@@ -1377,13 +1487,18 @@ export class EconomyStore {
     gem.petId = petId;
     gem.slotAnchor = null;
     doc.updatedAt = nowMs;
-    await this.saveDoc(doc);
+    await this.saveDoc(scope, doc);
     return this.gemFromDoc(doc, gem);
   }
 
-  async unsocketGem(nickname: string, gemId: number, nowMs: number = Date.now()): Promise<EconomyGem> {
-    const profile = await this.getOrCreateProfile(nickname);
-    const doc = (await this.loadDoc(profile.nicknameKey))!;
+  async unsocketGem(
+    nickname: string,
+    gemId: number,
+    nowMs: number = Date.now(),
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
+  ): Promise<EconomyGem> {
+    const profile = await this.getOrCreateProfile(nickname, scope);
+    const doc = (await this.loadDoc(scope, profile.nicknameKey))!;
     const gem = doc.gems.find((g) => g.id === gemId);
     if (!gem) {
       await this.assertItemOwnedOrThrow("gem", gemId, doc.nicknameKey, `gem ${gemId} not found`);
@@ -1401,7 +1516,7 @@ export class EconomyStore {
     gem.petId = null;
     this.assignBagAnchor(doc, "gem", gemId);
     doc.updatedAt = nowMs;
-    await this.saveDoc(doc);
+    await this.saveDoc(scope, doc);
     return this.gemFromDoc(doc, gem);
   }
 
@@ -1409,9 +1524,10 @@ export class EconomyStore {
     nickname: string,
     amuletId: number,
     nowMs: number = Date.now(),
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
   ): Promise<EconomyAmulet> {
-    const profile = await this.getOrCreateProfile(nickname);
-    const live = (await this.loadDoc(profile.nicknameKey))!;
+    const profile = await this.getOrCreateProfile(nickname, scope);
+    const live = (await this.loadDoc(scope, profile.nicknameKey))!;
     if (!live.amulets.some((a) => a.id === amuletId)) {
       await this.assertItemOwnedOrThrow(
         "amulet",
@@ -1442,7 +1558,7 @@ export class EconomyStore {
     amulet.equipped = true;
     amulet.slotAnchor = null;
     doc.updatedAt = nowMs;
-    await this.saveDoc(doc);
+    await this.saveDoc(scope, doc);
     return this.amuletFromDoc(doc, amulet);
   }
 
@@ -1450,9 +1566,10 @@ export class EconomyStore {
     nickname: string,
     amuletId: number,
     nowMs: number = Date.now(),
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
   ): Promise<EconomyAmulet> {
-    const profile = await this.getOrCreateProfile(nickname);
-    const live = (await this.loadDoc(profile.nicknameKey))!;
+    const profile = await this.getOrCreateProfile(nickname, scope);
+    const live = (await this.loadDoc(scope, profile.nicknameKey))!;
     const liveAmulet = live.amulets.find((a) => a.id === amuletId);
     if (!liveAmulet) {
       await this.assertItemOwnedOrThrow(
@@ -1485,13 +1602,17 @@ export class EconomyStore {
     amulet.equipped = false;
     this.assignBagAnchor(doc, "amulet", amuletId);
     doc.updatedAt = nowMs;
-    await this.saveDoc(doc);
+    await this.saveDoc(scope, doc);
     return this.amuletFromDoc(doc, amulet);
   }
 
-  async craftAmulet(nickname: string, nowMs: number = Date.now()): Promise<EconomyAmulet> {
-    const profile = await this.getOrCreateProfile(nickname);
-    const doc = (await this.loadDoc(profile.nicknameKey))!;
+  async craftAmulet(
+    nickname: string,
+    nowMs: number = Date.now(),
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
+  ): Promise<EconomyAmulet> {
+    const profile = await this.getOrCreateProfile(nickname, scope);
+    const doc = (await this.loadDoc(scope, profile.nicknameKey))!;
     if (doc.amulets.length >= ECONOMY_CAPS.amulets) {
       throw new EconomyActionError("amulet_cap", "amulet cap reached");
     }
@@ -1522,7 +1643,7 @@ export class EconomyStore {
     doc.amulets.push(amulet);
     this.assignBagAnchor(doc, "amulet", id);
     doc.updatedAt = nowMs;
-    await this.saveDoc(doc);
+    await this.saveDoc(scope, doc);
     await this.bindItemOwner("amulet", id, doc.nicknameKey);
     return this.amuletFromDoc(doc, amulet);
   }
@@ -1531,9 +1652,10 @@ export class EconomyStore {
     nickname: string,
     amuletId: number,
     nowMs: number = Date.now(),
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
   ): Promise<EconomyAmulet> {
-    const profile = await this.getOrCreateProfile(nickname);
-    const doc = (await this.loadDoc(profile.nicknameKey))!;
+    const profile = await this.getOrCreateProfile(nickname, scope);
+    const doc = (await this.loadDoc(scope, profile.nicknameKey))!;
     const amulet = doc.amulets.find((a) => a.id === amuletId);
     if (!amulet) {
       await this.assertItemOwnedOrThrow("amulet", amuletId, doc.nicknameKey, `amulet ${amuletId} not found`);
@@ -1546,21 +1668,22 @@ export class EconomyStore {
     doc.repairKits = doc.repairKits.slice(1);
     amulet.durability = Math.min(ECONOMY_CAPS.amuletDurabilityMax, amulet.durability + 1);
     doc.updatedAt = nowMs;
-    await this.saveDoc(doc);
+    await this.saveDoc(scope, doc);
     return this.amuletFromDoc(doc, amulet);
   }
 
   async applyHumanDeathPenalties(
     nickname: string,
     nowMs: number = Date.now(),
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
   ): Promise<{
     amuletDestroyed: boolean;
     durabilityAfter: number | null;
     petsDecayed: number;
     gemsDecayed: number;
   }> {
-    const profile = await this.getOrCreateProfile(nickname);
-    const doc = cloneDocument((await this.loadDoc(profile.nicknameKey))!);
+    const profile = await this.getOrCreateProfile(nickname, scope);
+    const doc = cloneDocument((await this.loadDoc(scope, profile.nicknameKey))!);
 
     let amuletDestroyed = false;
     let durabilityAfter: number | null = null;
@@ -1617,12 +1740,15 @@ export class EconomyStore {
     }
 
     doc.updatedAt = nowMs;
-    await this.saveDoc(doc);
+    await this.saveDoc(scope, doc);
     return { amuletDestroyed, durabilityAfter, petsDecayed, gemsDecayed };
   }
 
-  async getRatingsForKey(nicknameKey: string): Promise<ProfileRatings> {
-    const doc = await this.loadDoc(nicknameKey);
+  async getRatingsForKey(
+    nicknameKey: string,
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
+  ): Promise<ProfileRatings> {
+    const doc = await this.loadDoc(scope, nicknameKey);
     if (!doc) return emptyRatings();
     return this.computeRatings(doc);
   }
@@ -1632,9 +1758,10 @@ export class EconomyStore {
     type: PetType,
     baseValue: number,
     nowMs: number = Date.now(),
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
   ): Promise<EconomyPet> {
-    const profile = await this.getOrCreateProfile(nickname);
-    const doc = (await this.loadDoc(profile.nicknameKey))!;
+    const profile = await this.getOrCreateProfile(nickname, scope);
+    const doc = (await this.loadDoc(scope, profile.nicknameKey))!;
     if (doc.pets.length >= ECONOMY_CAPS.pets) {
       throw new EconomyActionError("pet_cap", "pet cap reached");
     }
@@ -1653,7 +1780,7 @@ export class EconomyStore {
     doc.pets.push(pet);
     this.assignBagAnchor(doc, "pet", id);
     doc.updatedAt = nowMs;
-    await this.saveDoc(doc);
+    await this.saveDoc(scope, doc);
     await this.bindItemOwner("pet", id, doc.nicknameKey);
     return this.petFromDoc(doc, pet);
   }
@@ -1664,12 +1791,13 @@ export class EconomyStore {
     itemId: number,
     toAnchor: number,
     nowMs: number = Date.now(),
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
   ): Promise<void> {
     if (!(INVENTORY_ITEM_TYPES as readonly string[]).includes(itemType)) {
       throw new EconomyActionError("invalid_item_type", `invalid item type ${itemType}`);
     }
-    const profile = await this.getOrCreateProfile(nickname);
-    const live = (await this.loadDoc(profile.nicknameKey))!;
+    const profile = await this.getOrCreateProfile(nickname, scope);
+    const live = (await this.loadDoc(scope, profile.nicknameKey))!;
     const doc = cloneDocument(live);
     const footprint = footprintForItemType(itemType);
     this.assertBagItem(doc, itemType, itemId);
@@ -1681,7 +1809,7 @@ export class EconomyStore {
     }
     setItemAnchor(doc, itemType, itemId, toAnchor);
     doc.updatedAt = nowMs;
-    await this.saveDoc(doc);
+    await this.saveDoc(scope, doc);
   }
 
   async discardItem(
@@ -1689,12 +1817,13 @@ export class EconomyStore {
     itemType: InventoryItemType,
     itemId: number,
     nowMs: number = Date.now(),
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
   ): Promise<void> {
     if (!(INVENTORY_ITEM_TYPES as readonly string[]).includes(itemType)) {
       throw new EconomyActionError("invalid_item_type", `invalid item type ${itemType}`);
     }
-    const profile = await this.getOrCreateProfile(nickname);
-    const live = (await this.loadDoc(profile.nicknameKey))!;
+    const profile = await this.getOrCreateProfile(nickname, scope);
+    const live = (await this.loadDoc(scope, profile.nicknameKey))!;
     const doc = cloneDocument(live);
     this.assertBagItem(doc, itemType, itemId);
 
@@ -1734,7 +1863,7 @@ export class EconomyStore {
       }
     }
     doc.updatedAt = nowMs;
-    await this.saveDoc(doc);
+    await this.saveDoc(scope, doc);
     console.log(
       `[economy] discard ${itemType}#${itemId} by ${doc.nicknameKey}`,
     );

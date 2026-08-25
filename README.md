@@ -104,17 +104,25 @@ Combat is server-authoritative too: firing sends a bare "fire" event, and the se
 
 ## Current status
 
+EPIC 35 (Split Economy — Deathmatch vs Sandbox Pools) — see `docs/tasks/epic-35-split-economy-deathmatch-sandbox.md`.
+
+- **Two isolated pools per nickname:** Redis keys are `${prefix}:economy:v1:{deathmatch|sandbox}:${nicknameKey}`. Gold, pets, gems, amulets, shards, and inventory never cross between pools. Scope is derived **server-side only** from match mode (`public` → deathmatch; `bots`/`endless` → sandbox).
+- **Deathmatch (competitive):** keeps EPIC 32 — only human-victim kills mint gold/items into the deathmatch pool. Bot victims grant nothing here.
+- **Sandbox (test modes):** bot and human kills reward into the **sandbox** pool only (full drop rolls for non-victim-dependent items; victim gem/amulet/shard copy still needs a human victim profile). Farming sandbox cannot feed Deathmatch.
+- **Migration:** legacy unscoped `${prefix}:economy:v1:${nicknameKey}` keys move into the deathmatch pool on first read (idempotent). Sandbox starts empty.
+- **UI:** mode-select labels Deathmatch vs Sandbox; inventory shows a server-authored `economyPool` badge.
+- Verified via `npm run regression:split-economy`, `npm run regression:bot-kill-no-reward`, economy regressions, `npm run typecheck`, and `npm run build`.
+
 EPIC 32 (Bot Kills Grant No Economy Reward) — see `docs/tasks/epic-32-bot-kill-no-economy-reward.md`. User decision (Russian, translated): "Then don't let gold drop from bots either, or the economy will collapse."
 
-- **Bot-victim kills grant nothing:** killing a bot (any match mode) mints **zero gold and zero items** — this reverses the prior EPIC 23/26 "bots are gold-only for items" design. Only a **human-victim** kill feeds the economy (gold in `[GOLD_DROP_MIN, GOLD_DROP_MAX]` plus normal item-drop resolution, unchanged from before).
-- **Why:** bots respawn indefinitely with no risk to the killer (no death penalty, no gear loss), so unconditional gold-per-bot-kill was an infinite, riskless gold faucet in "vs Bots"/"endless" modes.
-- **Server-only, single-function change:** `grantKillGold()` in `server/src/match.ts` now computes the existing `victimIsHuman` gate before minting anything and returns early (with an explicit `[economy] kill vs bot victim -> no reward` log line, not a silent no-op) when the victim is a bot. No protocol/client changes.
-- Verified via `npm run regression:bot-kill-no-reward` (new — drives `Match.grantKillGold()` directly for both the bot-victim-zero-reward case and the human-victim-unchanged case), `npm run regression:economy-gold`, `npm run regression:economy-persistence`, `npm run typecheck`, and `npm run build`.
+- **Original intent (competitive economy):** killing a bot must not mint into the real/competitive pool — bots respawn indefinitely with no risk to the killer.
+- **As of EPIC 35:** that gate remains for **Deathmatch** (`public`). In **Sandbox** (`bots`/`endless`), bot-victim kills do reward again, but only into the isolated sandbox pool — so the competitive economy stays protected while test modes feel rewarding.
+- Verified via `npm run regression:bot-kill-no-reward` (deathmatch zero-reward + sandbox bot-reward isolation) and `npm run regression:split-economy`.
 
 EPIC 31 (Randomized Bot Equipment Loadouts) — see `docs/tasks/epic-31-bot-equipment-loadouts.md`.
 
 - **Bot loadout archetypes:** each bot (`bots` and `endless` modes alike) is assigned one of 4 archetypes uniform-randomly at spawn, fixed for its lifetime including across its own respawns: A — bare (no pet, no amulet, today's baseline); B — one pet in slot 1 (100% contribution); C — amulet + one pet in slot 2 (40% contribution, demonstrating the amulet-gates-slot-2 rule on its own); D — amulet + two pets (slot 1 100% + slot 2 40%, full loadout). Pet type is random (`dog`/`cat`/`bird`/`lion`) and `baseValue` is random in `[1, 200]`, the same band human pet hatches use; bot pets carry no gems (out of scope).
-- **Combat stats via the shared path, no parallel math:** a bot's loadout is fed through the exact same `aggregateEquippedRatings()` (`shared/src/economy.ts`) and `PlayerRegistry.applyPetRatings()` (`server/src/playerRegistry.ts`) that humans' equipped pets/amulets already go through — max HP, %DR, move speed, and weapon damage modifiers are computed identically for bots and humans, in-memory only (no Redis/persistent bot economy profile). Bot AI targeting/movement/aim (`BotAI.updateOne()`) is unchanged; only what stats a bot has changed, not how it decides to move/aim/fire. Note: as of EPIC 32 above, a bot's kill still grants its human killer zero economy reward regardless of the bot's own loadout — a geared bot is a tougher fight, not a better payout.
+- **Combat stats via the shared path, no parallel math:** a bot's loadout is fed through the exact same `aggregateEquippedRatings()` (`shared/src/economy.ts`) and `PlayerRegistry.applyPetRatings()` (`server/src/playerRegistry.ts`) that humans' equipped pets/amulets already go through — max HP, %DR, move speed, and weapon damage modifiers are computed identically for bots and humans, in-memory only (no Redis/persistent bot economy profile). Bot AI targeting/movement/aim (`BotAI.updateOne()`) is unchanged; only what stats a bot has changed, not how it decides to move/aim/fire. Note: as of EPIC 35, a bot kill in sandbox modes rewards the killer's **sandbox** pool only; Deathmatch still grants nothing for bot victims (EPIC 32).
 - **Avatar visual tell:** `PlayerState` broadcasts a cosmetic-only `equippedPetTypes` (pet-type list, slot order) and `hasAmulet` flag for every player, human or bot, mirroring the EPIC 17 `equippedWeapon` reveal precedent — server-computed and read-only, never sent or inferred by the client. `client/src/remotePlayers.ts` renders a small pet-type-colored orb per equipped pet plus a distinct amulet pendant/ring accent, so any avatar (bot or human) visibly telegraphs its loadout at engagement range.
 - Verified via `npm run regression:epic31-bot-loadouts`, `npm run qa:epic31-bot-loadouts`, `npm run typecheck`, and `npm run build`.
 

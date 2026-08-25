@@ -1,9 +1,7 @@
-// EPIC 32 regression: killing a bot victim grants NO economy reward at all
-// (no gold, no items, no economy_gold_update/economy_profile send, no
-// "gold minted" log line) — only a human-victim kill feeds the economy.
-// Drives the real Match.grantKillGold() gating logic directly (not just
-// EconomyStore.addGold()), via a fake WebSocket so no real network/client is
-// needed.
+// EPIC 32 + EPIC 35 regression:
+// - Deathmatch (public): bot / non-human victims grant NO economy reward.
+// - Sandbox (bots mode): bot-victim kills DO reward, but only into the sandbox pool.
+// Drives Match.grantKillGold() directly via a fake WebSocket.
 
 import assert from "node:assert/strict";
 import type { WebSocket } from "ws";
@@ -11,7 +9,7 @@ import { GOLD_DROP_MAX, GOLD_DROP_MIN } from "@cubewars/shared";
 import { Match } from "../server/src/match.js";
 import { openTestEconomyStore } from "./economy-test-helpers.js";
 
-/** Minimal fake `ws` socket: readyState/OPEN match so match.ts's `socket.readyState === socket.OPEN` send-gates pass, and every sent frame is recorded for assertions. */
+/** Minimal fake `ws` socket: readyState/OPEN match so match.ts's send-gates pass. */
 function fakeSocket(sent: string[]): WebSocket {
   return {
     readyState: 1,
@@ -22,7 +20,6 @@ function fakeSocket(sent: string[]): WebSocket {
   } as unknown as WebSocket;
 }
 
-/** Capture console.log lines emitted during `fn()` without silencing them for the rest of the process (restored in a finally). */
 async function captureLogs(fn: () => Promise<void>): Promise<string[]> {
   const lines: string[] = [];
   const original = console.log;
@@ -41,70 +38,91 @@ async function captureLogs(fn: () => Promise<void>): Promise<string[]> {
 async function main(): Promise<void> {
   const store = await openTestEconomyStore();
 
-  const match = new Match({ id: "bot-kill-no-reward-test", mode: "bots", economy: store });
-  // Access the private reward-gating method directly — this regression's whole
-  // point is to exercise Match.grantKillGold()'s gating, not just the
-  // underlying EconomyStore primitives (those are covered by
-  // regression-economy-gold.ts already).
-  const grantKillGold = (match as unknown as {
-    grantKillGold: (shooterId: string, victimId: string) => Promise<void>;
-  }).grantKillGold.bind(match);
+  // --- Case 1: public/deathmatch — non-human victim → zero reward (EPIC 32). ---
+  const publicMatch = new Match({
+    id: "bot-kill-no-reward-public",
+    mode: "public",
+    economy: store,
+  });
+  const grantPublic = (
+    publicMatch as unknown as {
+      grantKillGold: (shooterId: string, victimId: string) => Promise<void>;
+    }
+  ).grantKillGold.bind(publicMatch);
 
-  const sentA: string[] = [];
-  await match.addHuman("human-a", fakeSocket(sentA), "KillerA", "killera");
+  const sentPublic: string[] = [];
+  await publicMatch.addHuman("human-a", fakeSocket(sentPublic), "KillerA", "killera");
+  const killerKey = (await store.getOrCreateProfile("KillerA", "deathmatch")).nicknameKey;
+  const goldBefore = await store.getGold(killerKey, "deathmatch");
 
-  const killerKey = (await store.getOrCreateProfile("KillerA")).nicknameKey;
-  const goldBeforeBotKill = await store.getGold(killerKey);
+  sentPublic.length = 0;
+  const noHumanLogs = await captureLogs(() => grantPublic("human-a", "ghost-bot"));
 
-  // --- Case 1: human kills a bot victim ("Bot 1", spawned automatically by
-  // mode "bots") -> zero gold, zero items, zero economy sends, no "gold
-  // minted" log line, and an explicit "no reward" log line instead. ---
-  sentA.length = 0;
-  const botKillLogs = await captureLogs(() => grantKillGold("human-a", "Bot 1"));
-
-  const goldAfterBotKill = await store.getGold(killerKey);
-  assert.equal(goldAfterBotKill, goldBeforeBotKill, "bot-victim kill must not mint any gold");
-  assert.equal(sentA.length, 0, "bot-victim kill must not send any economy message to the killer");
-  assert.ok(
-    !botKillLogs.some((l) => l.includes("[economy] gold minted")),
-    "bot-victim kill must not log a gold-minted line",
+  assert.equal(
+    await store.getGold(killerKey, "deathmatch"),
+    goldBefore,
+    "deathmatch non-human victim must not mint gold",
   );
+  assert.equal(sentPublic.length, 0, "deathmatch non-human victim must not send economy messages");
   assert.ok(
-    !botKillLogs.some((l) => l.includes("[economy] kill item drops")),
-    "bot-victim kill must not log an item-drops line",
-  );
-  assert.ok(
-    botKillLogs.some((l) => l.includes("[economy] kill vs bot victim -> no reward")),
-    "bot-victim kill must log an explicit no-reward line (no silent no-op)",
+    noHumanLogs.some((l) => l.includes("[economy] kill vs bot victim -> no reward")),
+    "deathmatch non-human victim must log an explicit no-reward line",
   );
 
-  // --- Case 2: human kills a human victim -> unchanged behavior (gold minted
-  // in range, economy_gold_update sent, "gold minted" log line present). ---
+  // Human-vs-human in public still mints into deathmatch.
   const sentB: string[] = [];
-  await match.addHuman("human-b", fakeSocket(sentB), "VictimB", "victimb");
-
-  sentA.length = 0;
-  const humanKillLogs = await captureLogs(() => grantKillGold("human-a", "human-b"));
-
-  const goldAfterHumanKill = await store.getGold(killerKey);
-  const totalGained = goldAfterHumanKill - goldAfterBotKill;
+  await publicMatch.addHuman("human-b", fakeSocket(sentB), "VictimB", "victimb");
+  sentPublic.length = 0;
+  const humanKillLogs = await captureLogs(() => grantPublic("human-a", "human-b"));
+  const goldAfterHuman = await store.getGold(killerKey, "deathmatch");
+  const totalGained = goldAfterHuman - goldBefore;
   assert.ok(
     totalGained >= GOLD_DROP_MIN && totalGained <= GOLD_DROP_MAX * 2,
-    // Upper bound is generous (2x GOLD_DROP_MAX) because an item-drop
-    // overflow can add substitutedGold on top of the primary roll; the
-    // primary roll alone is always within [GOLD_DROP_MIN, GOLD_DROP_MAX].
-    `human-victim kill must mint gold, got ${totalGained}`,
+    `human-victim deathmatch kill must mint gold, got ${totalGained}`,
   );
   assert.ok(
-    humanKillLogs.some((l) => l.includes("[economy] gold minted")),
-    "human-victim kill must log a gold-minted line",
+    humanKillLogs.some((l) => l.includes("[economy] gold minted") && l.includes("scope=deathmatch")),
+    "human-victim kill must log gold-minted with deathmatch scope",
   );
-  const goldUpdateMsg = sentA
-    .map((raw) => JSON.parse(raw) as { type: string; gold?: number; gained?: number })
-    .find((m) => m.type === "economy_gold_update");
-  assert.ok(goldUpdateMsg, "human-victim kill must send economy_gold_update to the killer");
-  assert.equal(goldUpdateMsg!.gold, goldAfterHumanKill, "economy_gold_update.gold must match store balance");
-  assert.equal(goldUpdateMsg!.gained, totalGained, "economy_gold_update.gained must match total minted");
+  assert.equal(
+    (await store.getGold(killerKey, "sandbox")),
+    0,
+    "deathmatch human kill must not write sandbox gold",
+  );
+
+  // --- Case 2: bots/sandbox — bot victim rewards sandbox only (EPIC 35). ---
+  const botsMatch = new Match({
+    id: "bot-kill-sandbox-reward",
+    mode: "bots",
+    economy: store,
+  });
+  const grantBots = (
+    botsMatch as unknown as {
+      grantKillGold: (shooterId: string, victimId: string) => Promise<void>;
+    }
+  ).grantKillGold.bind(botsMatch);
+
+  const sentSandbox: string[] = [];
+  await botsMatch.addHuman("human-s", fakeSocket(sentSandbox), "SandboxKiller", "sandboxkiller");
+  const sbKey = (await store.getOrCreateProfile("SandboxKiller", "sandbox")).nicknameKey;
+  const sbBefore = await store.getGold(sbKey, "sandbox");
+  const dmBefore = await store.getGold(sbKey, "deathmatch");
+
+  sentSandbox.length = 0;
+  const botKillLogs = await captureLogs(() => grantBots("human-s", "Bot 1"));
+  const sbAfter = await store.getGold(sbKey, "sandbox");
+  const dmAfter = await store.getGold(sbKey, "deathmatch");
+
+  assert.ok(sbAfter > sbBefore, "sandbox bot-victim kill must mint sandbox gold");
+  assert.equal(dmAfter, dmBefore, "sandbox bot-victim kill must not change deathmatch gold");
+  assert.ok(
+    botKillLogs.some((l) => l.includes("[economy] gold minted") && l.includes("scope=sandbox")),
+    "sandbox bot kill must log gold-minted with sandbox scope",
+  );
+  assert.ok(
+    !botKillLogs.some((l) => l.includes("kill vs bot victim -> no reward")),
+    "sandbox bot kill must not use the deathmatch no-reward path",
+  );
 
   await store.flushNamespace();
   await store.close();

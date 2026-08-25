@@ -631,9 +631,18 @@ export interface EconomyRepairKitDto {
  * hatch / stim / gem / amulet / item drops / move / discard.
  * All fields are server-authoritative.
  */
+/** Which isolated economy pool a profile snapshot belongs to (EPIC 35). */
+export type EconomyPool = "deathmatch" | "sandbox";
+
 export interface EconomyProfileMessage {
   type: "economy_profile";
   nickname: string;
+  /**
+   * Server-authored pool label (EPIC 35). Derived from match mode on the
+   * server — never client-supplied. Deathmatch = public PvP pool; Sandbox =
+   * bots/endless pool. Pools never cross-contaminate.
+   */
+  economyPool: EconomyPool;
   gold: number;
   pets: EconomyPetDto[];
   eggs: EconomyEggDto[];
