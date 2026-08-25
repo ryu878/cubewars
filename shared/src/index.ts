@@ -852,6 +852,42 @@ export interface EconomyGoldUpdateMessage {
 }
 
 /**
+ * Server-authored kill-loot kinds for world VFX (EPIC 44).
+ * Only kinds the server actually granted for that kill — never client-invented.
+ */
+export type KillLootFxKind =
+  | "gold"
+  | "gem"
+  | "shard"
+  | "amulet"
+  | "egg"
+  | "stimulator"
+  | "repair_kit";
+
+/** One granted loot entry shown in kill-loot VFX (EPIC 44). */
+export interface KillLootFxGrant {
+  kind: KillLootFxKind;
+  /** Optional cosmetic hint (e.g. gem type) — display only. */
+  detail?: string;
+}
+
+/**
+ * Server -> match broadcast (EPIC 44): cosmetic kill-loot flyout.
+ * Lists only kinds actually minted/granted for this kill. Clients must not
+ * invent extra kinds. Does not grant inventory — economy_* profile/gold
+ * messages remain authoritative for bag/gold state.
+ */
+export interface EconomyKillLootFxMessage {
+  type: "economy_kill_loot_fx";
+  killerId: string;
+  victimId: string;
+  /** World positions at grant time (server registry). */
+  victimPosition: Vector3;
+  killerPosition: Vector3;
+  grants: KillLootFxGrant[];
+}
+
+/**
  * Server -> owning connection only (EPIC 24/25/38): result of an economy action.
  * On success the server also pushes a fresh `economy_profile`.
  * On failure `ok` is false and `code` explains why.
@@ -1028,6 +1064,7 @@ export type ServerMessage =
   | ProjectileImpactEvent
   | EconomyProfileMessage
   | EconomyGoldUpdateMessage
+  | EconomyKillLootFxMessage
   | EconomyActionResultMessage
   | EconomyAuctionStateMessage
   | EconomyGroundStateMessage

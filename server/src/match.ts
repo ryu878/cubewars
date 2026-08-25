@@ -38,7 +38,9 @@ import {
   type EconomyActionResultMessage,
   type EconomyGoldUpdateMessage,
   type EconomyGroundStateMessage,
+  type EconomyKillLootFxMessage,
   type EconomyTradeStateMessage,
+  type KillLootFxGrant,
   type FireBroadcastEvent,
   type InventoryItemType,
   type HitEvent,
@@ -800,6 +802,39 @@ export class Match {
           ` kinds=${drops.substitutedKinds.join(",")}` +
           ` -> ${killer.nickname} (total gold ${profile.gold})` +
           ` [scope=${scope} match=${this.id}]`,
+      );
+    }
+
+    // EPIC 44: cosmetic kill-loot VFX — only kinds actually granted (never
+    // failed rolls that became substitute gold as fake item kinds).
+    const grants: KillLootFxGrant[] = [];
+    if (primaryGained > 0 || drops.substitutedGold > 0) {
+      grants.push({ kind: "gold" });
+    }
+    if (drops.egg) grants.push({ kind: "egg" });
+    if (drops.stimulator) grants.push({ kind: "stimulator" });
+    if (drops.gem) grants.push({ kind: "gem", detail: drops.gem.gemType });
+    if (drops.shard) grants.push({ kind: "shard" });
+    if (drops.amulet) grants.push({ kind: "amulet" });
+    if (drops.repairKit) grants.push({ kind: "repair_kit" });
+
+    if (grants.length > 0) {
+      const victimPosition: Vector3 = victimPlayer
+        ? { ...victimPlayer.position }
+        : { x: 0, y: 0, z: 0 };
+      const killerPosition: Vector3 = { ...killer.position };
+      const fxMessage: EconomyKillLootFxMessage = {
+        type: "economy_kill_loot_fx",
+        killerId: shooterId,
+        victimId,
+        victimPosition,
+        killerPosition,
+        grants,
+      };
+      this.broadcast(fxMessage);
+      console.log(
+        `[economy] kill_loot_fx kinds=${grants.map((g) => g.kind).join(",")}` +
+          ` ${shooterId} <- ${victimId} [scope=${scope} match=${this.id}]`,
       );
     }
   }
