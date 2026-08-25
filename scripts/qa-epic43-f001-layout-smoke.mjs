@@ -17,11 +17,12 @@ const REPO_ROOT = join(__dirname, "..");
 const CLIENT_ROOT = join(REPO_ROOT, "client");
 const OUT_DIR = join(REPO_ROOT, "qa-artifacts", "epic-43");
 
-const SERVER_PORT = 7798;
-const CLIENT_PORT = 5218;
+const SERVER_PORT = 7800;
+const CLIENT_PORT = 5220;
 const CLIENT_URL = `http://127.0.0.1:${CLIENT_PORT}/`;
 const WS_URL = `ws://127.0.0.1:${SERVER_PORT}`;
 const BEFORE_CELL_PX = 56.5;
+const CRYPTIC = /\b(STM|PET|AMU|SHD|KIT|EGG|GEM)\b/;
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -56,17 +57,22 @@ function waitForReady(child, label, marker) {
 
 function stop(child) {
   return new Promise((resolve) => {
-    if (!child || child.killed) return resolve();
-    child.once("exit", () => resolve());
-    child.kill("SIGTERM");
+    if (!child || child.killed || child.exitCode != null) return resolve();
+    const done = () => resolve();
+    child.once("exit", done);
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      return resolve();
+    }
     setTimeout(() => {
       try {
-        child.kill("SIGKILL");
+        if (child.exitCode == null) child.kill("SIGKILL");
       } catch {
         /* ignore */
       }
+      resolve();
     }, 3000);
-    resolve();
   });
 }
 
@@ -249,7 +255,51 @@ async function main() {
     );
     await sleep(400);
 
+    // Light regression: icons + no cryptic primary labels + English tooltips.
+    const gridSnap = await page.evaluate((crypticSrc) => {
+      const CRYPTIC_SRC = new RegExp(crypticSrc);
+      const items = [...document.querySelectorAll("#inventoryGrid .inv-item")];
+      return {
+        itemCount: items.length,
+        iconCount: items.filter((el) => el.querySelector(".inv-icon")).length,
+        crypticPrimary: items
+          .map((el) => {
+            const clone = el.cloneNode(true);
+            clone.querySelectorAll(".inv-item-meta,.inv-icon").forEach((n) => n.remove());
+            return (clone.textContent || "").trim();
+          })
+          .filter((t) => CRYPTIC_SRC.test(t)),
+        tooltips: items.map((el) => el.dataset.tooltip || ""),
+      };
+    }, CRYPTIC.source);
+    summary.regression = gridSnap;
+    if (gridSnap.itemCount < 1) summary.failures.push("no bag items after seed");
+    if (gridSnap.iconCount < gridSnap.itemCount) {
+      summary.failures.push(`missing icons: ${gridSnap.iconCount}/${gridSnap.itemCount}`);
+    }
+    if (gridSnap.crypticPrimary.length) {
+      summary.failures.push(`cryptic primary: ${gridSnap.crypticPrimary.join(" | ")}`);
+    }
+    if (gridSnap.tooltips.some((t) => !t || CRYPTIC.test(t))) {
+      summary.failures.push(`bad tooltips: ${JSON.stringify(gridSnap.tooltips)}`);
+    }
+
     const item = page.locator("#inventoryGrid .inv-item").first();
+    await item.hover();
+    await sleep(200);
+    const hoverTip = await page.evaluate(() => {
+      const el = document.querySelector("#inventoryGrid .inv-item");
+      return el?.dataset.tooltip || "";
+    });
+    summary.hoverTooltip = hoverTip;
+    if (!hoverTip || CRYPTIC.test(hoverTip)) {
+      summary.failures.push(`hover tooltip bad: ${hoverTip}`);
+    }
+    await page.screenshot({
+      path: join(OUT_DIR, "08-f001-hover-tooltip-regression.png"),
+      fullPage: false,
+    });
+
     await item.click();
     await sleep(300);
 
@@ -260,6 +310,9 @@ async function main() {
 
     if (!report.titleInViewport) summary.failures.push("detail title not in viewport");
     if (!report.actionInViewport) summary.failures.push("action button not in viewport");
+    if ((report.panelScrollTop ?? 0) !== 0) {
+      summary.failures.push(`panelScrollTop not 0: ${report.panelScrollTop}`);
+    }
     if (!report.detailTitle || /^(STM|PET|AMU|SHD|KIT|EGG|GEM)\b/.test(report.detailTitle)) {
       summary.failures.push(`bad detail title: ${report.detailTitle}`);
     }
@@ -291,6 +344,7 @@ async function main() {
       await stop(stack.client);
       await stop(stack.server);
     }
+    process.exit(process.exitCode ?? 0);
   }
 }
 
