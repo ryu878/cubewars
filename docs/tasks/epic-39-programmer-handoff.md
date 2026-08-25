@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-25 |
 | Author (Pusya) | Pusya |
 | Task / Story / EPIC | EPIC 39: Visible Companion Pets + Pet Color Customization |
-| Branch / commit / PR | `task/epic-39-visible-companion-pets` @ `c0d388975359909dff7fceae731a38d1e05b2202` (pushed to origin; PR create via `gh` failed — wrong GitHub account; open manually: https://github.com/ryu878/cubewars/pull/new/task/epic-39-visible-companion-pets) |
+| Branch / commit / PR | `task/epic-39-visible-companion-pets` @ `d878b9ae0d26c1dc931bbe45e5a8b832f7b3c8b6` (origin push confirmed; feature commit `c0d3889`; `gh pr create` failed — open manually: https://github.com/ryu878/cubewars/pull/new/task/epic-39-visible-companion-pets) |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
