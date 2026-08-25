@@ -239,9 +239,9 @@ export type FireOutcome =
        * The weapon that was actually fired (EPIC 14 "Sound System" Story
        * 14.4), captured from the pre-auto-switch local `weapon` below —
        * present on every branch that represents a REAL fire attempt.
-       * Deliberately ABSENT on the very first early bail (`!shooter ||
-       * !shooter.alive`) below, since no real trigger pull happened
-       * server-side in that case — the caller (match.ts resolveFire())
+       * Deliberately ABSENT on the early bails that mean no real trigger
+       * pull happened server-side (`!shooter || !shooter.alive`, and EPIC 41
+       * spawn-protected shooter) — the caller (match.ts resolveFire())
        * uses "is `weapon` present" as its own gate for whether to
        * broadcast a FireBroadcastEvent at all.
        */
@@ -650,6 +650,11 @@ export class PlayerRegistry {
   fire(shooterId: string): FireOutcome {
     const shooter = this.players.get(shooterId);
     if (!shooter || !shooter.alive) return { hit: false, dry: false };
+    // EPIC 41: spawn-protected shooters cannot fire — no ammo consume, no
+    // hitscan/projectile, and no `weapon` on the outcome so resolveFire()
+    // does not emit fire_broadcast. Same no-op shape as the dead-shooter
+    // early bail above. Incoming immunity (EPIC 36) is unchanged.
+    if (isSpawnProtected(shooter)) return { hit: false, dry: false };
 
     // `weapon`/`stats` are captured here, before any possible auto-switch
     // below, and this shot's own damage/hit outcome is resolved exclusively

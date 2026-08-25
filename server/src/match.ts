@@ -985,8 +985,8 @@ export class Match {
 
     // EPIC 14 "Sound System" Story 14.4: broadcast a presentational-only
     // FireBroadcastEvent for every REAL fire attempt (hit, miss, OR dry —
-    // `outcome.weapon` is only absent on the effectively-unreachable
-    // no-shooter/dead-shooter early bail in registry.fire(), see its doc
+    // `outcome.weapon` is only absent on no-shooter/dead-shooter and EPIC 41
+    // spawn-protected-shooter early bails in registry.fire(), see its doc
     // comment) so every connected client can play that shooter's
     // weapon-specific gunshot sound, not just the local shooter's own.
     // Deliberately broadcast BEFORE the hit/dry/miss-specific branches below

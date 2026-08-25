@@ -1,6 +1,9 @@
-// EPIC 36 regression: post-spawn / post-respawn protection window.
-// Server-authoritative — protected players take no damage and produce no hit
-// event; unprotected players remain hittable; damage resumes after the window.
+// EPIC 36 + EPIC 41 regression: post-spawn / post-respawn protection window.
+// Server-authoritative —
+//   EPIC 36: protected players take no damage and produce no hit event;
+//            unprotected players remain hittable; damage resumes after the window.
+//   EPIC 41: protected shooters cannot fire (no ammo consume, no hit, no weapon
+//            on outcome so no fire_broadcast); fire works after the window.
 
 import assert from "node:assert/strict";
 import { COMBAT, EYE_HEIGHT, WEAPON_STATS } from "@cubewars/shared";
@@ -31,6 +34,9 @@ function placeFacing(registry: PlayerRegistry, shooterId: string, targetId: stri
   aimAt(shooter, { x: 0, y: 1.15, z: -2 });
   shooter.equippedWeapon = "pistol";
   shooter.ownedWeapons.add("pistol");
+  // EPIC 41: most cases need an unprotected shooter so target-immunity tests
+  // still exercise hitscan; dedicated shooter-blocked cases re-arm protection.
+  shooter.spawnProtectedUntilMs = 0;
 }
 
 {
@@ -190,6 +196,76 @@ function placeFacing(registry: PlayerRegistry, shooterId: string, targetId: stri
   assert.equal(outcome.hit, true);
   if (!outcome.hit) throw new Error("unreachable");
   assert.equal(outcome.damage, WEAPON_STATS.pistol.damage); // body zone multiplier 1
+}
+
+// --- EPIC 41: spawn-protected shooter cannot fire ---
+
+{
+  // Protected shooter: no-op (no ammo loss, no hit, no weapon → no fire_broadcast).
+  const registry = new PlayerRegistry();
+  const shooter = registry.spawn("ghost-shooter");
+  const target = registry.spawn("open-target");
+  placeFacing(registry, "ghost-shooter", "open-target");
+  target.spawnProtectedUntilMs = 0;
+  // Re-arm shooter protection after placeFacing cleared it.
+  shooter.spawnProtectedUntilMs = Date.now() + 5_000;
+  shooter.equippedWeapon = "rifle";
+  shooter.ownedWeapons.add("rifle");
+  shooter.ammo.rifle = 12;
+  const ammoBefore = shooter.ammo.rifle;
+  const targetHealthBefore = target.health;
+
+  const outcome = registry.fire(shooter.id);
+  assert.equal(outcome.hit, false, "protected shooter must not register a hit");
+  assert.equal(outcome.dry, false, "protection block is not a dry-fire");
+  assert.equal(
+    "weapon" in outcome && outcome.weapon !== undefined,
+    false,
+    "protected shooter outcome must omit weapon (no fire_broadcast)",
+  );
+  assert.equal(shooter.ammo.rifle, ammoBefore, "protected shooter must not consume ammo");
+  assert.equal(target.health, targetHealthBefore, "target health unchanged when shooter is protected");
+  assert.ok(
+    isSpawnProtected(shooter),
+    "attempting to fire must not clear or shorten spawn protection",
+  );
+}
+
+{
+  // After shooter protection expires, fire works normally (ammo + hit).
+  const registry = new PlayerRegistry();
+  const shooter = registry.spawn("ready-shooter");
+  const target = registry.spawn("open-target");
+  placeFacing(registry, "ready-shooter", "open-target");
+  target.spawnProtectedUntilMs = 0;
+  const now = Date.now();
+  shooter.spawnProtectedUntilMs = now; // deadline == now → not protected (strict <)
+  assert.equal(isSpawnProtected(shooter, now), false);
+  shooter.equippedWeapon = "rifle";
+  shooter.ownedWeapons.add("rifle");
+  shooter.ammo.rifle = 12;
+
+  const outcome = registry.fire(shooter.id);
+  assert.equal(outcome.hit, true, "unprotected shooter must be able to hit");
+  if (!outcome.hit) throw new Error("unreachable");
+  assert.equal(outcome.weapon, "rifle");
+  assert.equal(shooter.ammo.rifle, 11, "accepted shot must consume one rifle round");
+  assert.equal(target.health, 100 - outcome.damage);
+}
+
+{
+  // Humans and bots share registry.fire() — same no-op for a protected bot id.
+  const registry = new PlayerRegistry();
+  const bot = registry.spawn("bot-ghost");
+  const target = registry.spawn("open-target");
+  placeFacing(registry, "bot-ghost", "open-target");
+  target.spawnProtectedUntilMs = 0;
+  bot.spawnProtectedUntilMs = Date.now() + 5_000;
+  const healthBefore = target.health;
+  const outcome = registry.fire(bot.id);
+  assert.equal(outcome.hit, false);
+  assert.equal("weapon" in outcome && outcome.weapon !== undefined, false);
+  assert.equal(target.health, healthBefore);
 }
 
 console.log("[spawn-protection] PASS");
