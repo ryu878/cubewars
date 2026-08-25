@@ -6,6 +6,7 @@ import type {
   EconomyGroundStateMessage,
   Vector3,
 } from "@cubewars/shared";
+import { shouldIgnoreGameHotkey } from "./uiInput";
 
 type SendFn = (message: ClientMessage) => void;
 
@@ -21,7 +22,7 @@ export class GroundHud {
     this.el = document.getElementById("groundHud") as HTMLElement;
     window.addEventListener("keydown", (event) => {
       if (event.code !== "KeyF" || event.repeat) return;
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+      if (shouldIgnoreGameHotkey(event)) return;
       const nearest = this.nearest();
       if (!nearest) return;
       event.preventDefault();

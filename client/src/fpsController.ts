@@ -14,6 +14,7 @@ import {
   resolveSteppedMovement,
   type MapBox,
 } from "@cubewars/shared";
+import { shouldIgnoreGameHotkey } from "./uiInput";
 
 const MOUSE_SENSITIVITY = 0.0025;
 
@@ -153,6 +154,8 @@ export class FpsController {
     });
 
     window.addEventListener("keydown", (event) => {
+      // Don't capture WASD/Space while typing email/nickname on the lobby.
+      if (shouldIgnoreGameHotkey(event)) return;
       this.keys.add(event.code);
       // EPIC 8 Story 8.2: latch a genuine Space key-down (event.repeat
       // guards against the OS's own key-repeat firing this while held,
@@ -166,7 +169,10 @@ export class FpsController {
         this.spacePressPending = true;
       }
     });
-    window.addEventListener("keyup", (event) => this.keys.delete(event.code));
+    window.addEventListener("keyup", (event) => {
+      if (shouldIgnoreGameHotkey(event)) return;
+      this.keys.delete(event.code);
+    });
     // Avoid a "stuck key" if the window loses focus while a key is held.
     window.addEventListener("blur", () => this.keys.clear());
   }

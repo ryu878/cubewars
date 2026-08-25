@@ -26,6 +26,7 @@ import { WeaponViewmodel } from "./viewmodel";
 import { buildSkyDome, buildWallTextures } from "./textures";
 import { SoundManager } from "./audio/soundManager";
 import { CombatEffects } from "./combatEffects";
+import { shouldIgnoreGameHotkey } from "./uiInput";
 
 const statusEl = document.getElementById("status") as HTMLDivElement;
 const hintEl = document.getElementById("hint") as HTMLDivElement;
@@ -251,6 +252,7 @@ const pickupRenderer = new PickupRenderer(scene, {
 // comment, shared/src/index.ts).
 window.addEventListener("keydown", (event) => {
   if (event.code !== "KeyE" || event.repeat) return;
+  if (shouldIgnoreGameHotkey(event)) return;
   if (!fps.isLocked()) return;
   connection.send({ type: "switch_weapon" });
 });
@@ -529,7 +531,7 @@ groundHud = new GroundHud((message) => connection.send(message));
 // EPIC 38: T opens trade with the nearest other alive human in the match.
 window.addEventListener("keydown", (event) => {
   if (event.code !== "KeyT" || event.repeat) return;
-  if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+  if (shouldIgnoreGameHotkey(event)) return;
   if (!selfId) return;
   const self = lastWorldPlayers.find((p) => p.id === selfId);
   if (!self) return;

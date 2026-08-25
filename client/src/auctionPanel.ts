@@ -8,6 +8,7 @@ import type {
   EconomyProfileMessage,
   InventoryItemType,
 } from "@cubewars/shared";
+import { shouldIgnoreGameHotkey } from "./uiInput";
 
 type SendFn = (message: ClientMessage) => void;
 
@@ -33,7 +34,7 @@ export class AuctionPanel {
 
     window.addEventListener("keydown", (event) => {
       if (event.code !== "KeyU" || event.repeat) return;
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+      if (shouldIgnoreGameHotkey(event)) return;
       event.preventDefault();
       this.setOpen(!this.open);
     });

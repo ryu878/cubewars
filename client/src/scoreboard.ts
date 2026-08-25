@@ -9,6 +9,7 @@
 // stack's "no UI framework" rule.
 
 import type { PlayerScore } from "@cubewars/shared";
+import { shouldIgnoreGameHotkey } from "./uiInput";
 
 export class Scoreboard {
   private panelEl: HTMLElement;
@@ -21,6 +22,7 @@ export class Scoreboard {
 
     window.addEventListener("keydown", (event) => {
       if (event.code !== "Tab") return;
+      if (shouldIgnoreGameHotkey(event)) return;
       event.preventDefault(); // don't let Tab shift page focus while pointer-locked/playing
       this.panelEl.classList.add("visible");
     });

@@ -33,6 +33,7 @@ import {
   cloneAvatarColors,
   defaultAvatarColors,
 } from "@cubewars/shared";
+import { shouldIgnoreGameHotkey } from "./uiInput";
 
 type SendFn = (message: ClientMessage) => void;
 
@@ -126,6 +127,8 @@ export class InventoryOverlay {
 
     window.addEventListener("keydown", (event) => {
       if ((event.code !== "KeyI" && event.code !== "KeyP") || event.repeat) return;
+      // Lobby / email / nickname typing must not open inventory (e.g. "i" in gmail).
+      if (shouldIgnoreGameHotkey(event)) return;
       event.preventDefault();
       this.setOpen(!this.open);
     });
