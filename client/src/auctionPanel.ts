@@ -95,7 +95,8 @@ export class AuctionPanel {
     if (this.profile.economyPool !== "deathmatch") {
       idEl.innerHTML = "";
       this.statusEl.textContent =
-        "Listing uses Deathmatch bag items. Open auction from a Deathmatch match (or lobby after joining Deathmatch once).";
+        "Listing uses Deathmatch bag items. Bind Deathmatch from the lobby (Inventory or Auction) or open auction from a Deathmatch match.";
+      return;
     }
     const fill = () => {
       const itemType = typeEl.value as InventoryItemType;

@@ -9,6 +9,7 @@
 
 import {
   normalizeNickname,
+  type EconomyPool,
   type EndlessLeaderboardEntry,
   type LeaderboardEntry,
   type LobbyMatchSummary,
@@ -28,7 +29,9 @@ export class ModeSelect {
   private publicBtn: HTMLButtonElement;
   private botsBtn: HTMLButtonElement;
   private endlessBtn: HTMLButtonElement;
-  private inventoryBtn: HTMLButtonElement;
+  private deathmatchInventoryBtn: HTMLButtonElement;
+  private botsInventoryBtn: HTMLButtonElement;
+  private auctionBtn: HTMLButtonElement;
   private nicknameInput: HTMLInputElement;
   private lobbyListEl: HTMLElement;
   private leaderboardListEl: HTMLElement;
@@ -40,18 +43,24 @@ export class ModeSelect {
 
   /**
    * `onSelect` fires when a mode join button is clicked.
-   * `onInventory` fires when the lobby Inventory button is clicked with a
-   * valid nickname (EPIC 42) — main.ts binds nickname + opens overlay.
+   * `onInventory` fires when a lobby inventory button is clicked with a valid
+   * nickname (EPIC 42/45) — main.ts binds nickname + pool and opens overlay.
+   * `onAuction` fires when the lobby Auction button is clicked (EPIC 45).
    */
   constructor(
     private onSelect: (selection: JoinSelection) => void,
-    private onInventory: () => void = () => undefined,
+    private onInventory: (pool: EconomyPool) => void = () => undefined,
+    private onAuction: () => void = () => undefined,
   ) {
     this.overlayEl = document.getElementById("modeSelect") as HTMLElement;
     this.publicBtn = document.getElementById("modePublicBtn") as HTMLButtonElement;
     this.botsBtn = document.getElementById("modeBotsBtn") as HTMLButtonElement;
     this.endlessBtn = document.getElementById("modeEndlessBtn") as HTMLButtonElement;
-    this.inventoryBtn = document.getElementById("lobbyInventoryBtn") as HTMLButtonElement;
+    this.deathmatchInventoryBtn = document.getElementById(
+      "lobbyDeathmatchInventoryBtn",
+    ) as HTMLButtonElement;
+    this.botsInventoryBtn = document.getElementById("lobbyBotsInventoryBtn") as HTMLButtonElement;
+    this.auctionBtn = document.getElementById("lobbyAuctionBtn") as HTMLButtonElement;
     this.nicknameInput = document.getElementById("nicknameInput") as HTMLInputElement;
     this.lobbyListEl = document.getElementById("lobbyList") as HTMLElement;
     this.leaderboardListEl = document.getElementById("leaderboardList") as HTMLElement;
@@ -64,7 +73,11 @@ export class ModeSelect {
     this.publicBtn.addEventListener("click", () => this.select("public"));
     this.botsBtn.addEventListener("click", () => this.select("bots"));
     this.endlessBtn.addEventListener("click", () => this.select("endless"));
-    this.inventoryBtn.addEventListener("click", () => this.requestInventory());
+    this.deathmatchInventoryBtn.addEventListener("click", () =>
+      this.requestInventory("deathmatch"),
+    );
+    this.botsInventoryBtn.addEventListener("click", () => this.requestInventory("sandbox"));
+    this.auctionBtn.addEventListener("click", () => this.requestAuction());
     this.nicknameInput.addEventListener("input", () => {
       this.errorEl.textContent = "";
       this.updateButtons();
@@ -205,8 +218,8 @@ export class ModeSelect {
     }
   }
 
-  /** EPIC 42: open lobby inventory after local nickname / auth UX checks. */
-  private requestInventory(): void {
+  /** EPIC 42/45: open lobby inventory for the chosen pool after nickname / auth checks. */
+  private requestInventory(pool: EconomyPool): void {
     if (!this.enabled) {
       this.errorEl.textContent = "Sign in first to open inventory";
       return;
@@ -218,7 +231,23 @@ export class ModeSelect {
     }
     this.errorEl.textContent = "";
     localStorage.setItem(NICKNAME_STORAGE_KEY, normalized.nickname);
-    this.onInventory();
+    this.onInventory(pool);
+  }
+
+  /** EPIC 45: open Deathmatch auction from lobby after nickname / auth checks. */
+  private requestAuction(): void {
+    if (!this.enabled) {
+      this.errorEl.textContent = "Sign in first to open auction";
+      return;
+    }
+    const normalized = normalizeNickname(this.nicknameInput.value);
+    if (!normalized.ok) {
+      this.errorEl.textContent = "Enter a valid nickname to open auction";
+      return;
+    }
+    this.errorEl.textContent = "";
+    localStorage.setItem(NICKNAME_STORAGE_KEY, normalized.nickname);
+    this.onAuction();
   }
 
   private select(mode: MatchMode, matchId?: string): void {
@@ -241,8 +270,11 @@ export class ModeSelect {
     this.publicBtn.disabled = disabled;
     this.botsBtn.disabled = disabled;
     this.endlessBtn.disabled = disabled;
-    // Inventory stays clickable after auth so invalid nickname can show a clear error.
-    this.inventoryBtn.disabled = !this.enabled || this.pending;
+    // Lobby economy buttons stay clickable after auth so invalid nickname can show a clear error.
+    const lobbyDisabled = !this.enabled || this.pending;
+    this.deathmatchInventoryBtn.disabled = lobbyDisabled;
+    this.botsInventoryBtn.disabled = lobbyDisabled;
+    this.auctionBtn.disabled = lobbyDisabled;
     for (const button of this.lobbyListEl.querySelectorAll("button")) {
       if (button.textContent !== "Full") {
         button.disabled = disabled;

@@ -10,6 +10,7 @@ import {
   type AccountLoginResultMessage,
   type AccountSessionResultMessage,
   type ClientMessage,
+  type EconomyPool,
   type EndlessLeaderboardMessage,
   type JoinAcceptedMessage,
   type JoinRejectedMessage,
@@ -390,8 +391,18 @@ wss.on("connection", (socket: WebSocket) => {
   let match: Match | null = null;
   let nickname: string = playerId;
   let nicknameKey: string = playerId.toLocaleLowerCase();
-  /** True after a successful join this connection — gates lobby auction. */
+  /** True after a successful join or lobby bind — gates lobby auction/inventory. */
   let nicknameReady = false;
+  /**
+   * EPIC 45: which economy pool lobby inventory mutations use. Set by the last
+   * successful `lobby_bind_nickname`. Auction always uses Deathmatch regardless.
+   */
+  let lobbyEconomyPool: EconomyPool = "deathmatch";
+  /**
+   * EPIC 45 F-001: incremented on every successful lobby bind sync path so
+   * in-flight async profile pushes from an older bind are cancelled.
+   */
+  let lobbyBindGeneration = 0;
   /** EPIC 34: authenticated account for this connection (session-scoped). */
   let accountId: string | null = null;
   lobbySockets.add(socket);
@@ -657,8 +668,8 @@ wss.on("connection", (socket: WebSocket) => {
       return;
     }
 
-    // EPIC 38: auction house is Deathmatch-pool global — available in lobby
-    // after a nickname has been established via join, and inside any match.
+    // EPIC 38/45: auction house is Deathmatch-pool global — available in lobby
+    // after nicknameReady (join or lobby_bind_nickname), and inside any match.
     // Always mutates deathmatch pool only (never sandbox).
     const isAuctionMsg =
       parsed.type === "economy_auction_list" ||
@@ -763,14 +774,28 @@ wss.on("connection", (socket: WebSocket) => {
       return;
     }
 
-    // EPIC 42: bind nickname in lobby without joining a match, then push
-    // Deathmatch economy_profile so inventory can open pre-match.
+    // EPIC 42/45: bind nickname in lobby without joining a match, then push
+    // the requested pool's economy_profile so inventory/auction can open pre-match.
     if (parsed.type === "lobby_bind_nickname") {
       if (match) {
         // Already in a match — refresh the live match-scoped profile only.
         void match.sendEconomyProfile(playerId, nickname);
         sendJson(socket, { type: "economy_action_result", action: "lobby_bind", ok: true });
         return;
+      }
+      const rawPool = (parsed as { economyPool?: unknown }).economyPool;
+      let requestedPool: EconomyPool = "deathmatch";
+      if (rawPool !== undefined) {
+        if (rawPool !== "deathmatch" && rawPool !== "sandbox") {
+          sendJson(socket, {
+            type: "economy_action_result",
+            action: "lobby_bind",
+            ok: false,
+            code: "pool_invalid",
+          });
+          return;
+        }
+        requestedPool = rawPool;
       }
       const normalized = normalizeNickname(parsed.nickname);
       if (!normalized.ok) {
@@ -785,14 +810,42 @@ wss.on("connection", (socket: WebSocket) => {
       nickname = normalized.nickname;
       nicknameKey = normalized.key;
       nicknameReady = true;
+      lobbyEconomyPool = requestedPool;
+      const bindGeneration = ++lobbyBindGeneration;
       void (async () => {
         try {
-          const profile = await economyStore.getFullProfile(nickname, "deathmatch");
-          sendJson(socket, toEconomyProfileMessage(profile, "deathmatch"));
+          // Test-only stall so overlapping dual-bind races are reproducible in
+          // regression (CUBEWARS_TEST_LOBBY_BIND_STALL_MS / _STALL_POOL).
+          const stallMs = Number(process.env.CUBEWARS_TEST_LOBBY_BIND_STALL_MS ?? 0);
+          const stallPool = process.env.CUBEWARS_TEST_LOBBY_BIND_STALL_POOL;
+          if (
+            Number.isFinite(stallMs) &&
+            stallMs > 0 &&
+            (!stallPool || stallPool === requestedPool)
+          ) {
+            await new Promise((resolve) => setTimeout(resolve, stallMs));
+          }
+          if (bindGeneration !== lobbyBindGeneration) {
+            console.log(
+              `[lobby/${requestedPool}] skipping stale bind profile (gen ${bindGeneration} < ${lobbyBindGeneration})`,
+            );
+            return;
+          }
+          const profile = await economyStore.getFullProfile(nickname, requestedPool);
+          if (bindGeneration !== lobbyBindGeneration) {
+            console.log(
+              `[lobby/${requestedPool}] skipping stale bind profile after fetch (gen ${bindGeneration} < ${lobbyBindGeneration})`,
+            );
+            return;
+          }
+          sendJson(socket, toEconomyProfileMessage(profile, requestedPool));
           sendJson(socket, { type: "economy_action_result", action: "lobby_bind", ok: true });
-          console.log(`[lobby] nickname bound for inventory: ${nickname} (${playerId})`);
+          console.log(
+            `[lobby/${requestedPool}] nickname bound for inventory: ${nickname} (${playerId})`,
+          );
         } catch (err) {
-          console.error(`[lobby] bind profile failed for ${playerId}:`, err);
+          if (bindGeneration !== lobbyBindGeneration) return;
+          console.error(`[lobby/${requestedPool}] bind profile failed for ${playerId}:`, err);
           sendJson(socket, {
             type: "economy_action_result",
             action: "lobby_bind",
@@ -804,9 +857,9 @@ wss.on("connection", (socket: WebSocket) => {
       return;
     }
 
-    // EPIC 42: inventory-family + appearance from lobby when nicknameReady
-    // and not yet in a match. Always Deathmatch pool. Drop/trade/ground stay
-    // match-only (clear reject below).
+    // EPIC 42/45: inventory-family + appearance from lobby when nicknameReady
+    // and not yet in a match. Mutations use the connection's bound lobby pool
+    // only (never cross pools). Drop/trade/ground stay match-only.
     if (!match && nicknameReady) {
       const lobbyInventory = parseLobbyInventoryIntent(parsed);
       if (lobbyInventory === "malformed") {
@@ -815,11 +868,12 @@ wss.on("connection", (socket: WebSocket) => {
       }
       if (lobbyInventory) {
         const intent = lobbyInventory;
+        const pool = lobbyEconomyPool;
         void (async () => {
           const result = await applyInventoryEconomyAction(
             economyStore,
             nickname,
-            "deathmatch",
+            pool,
             intent.action,
             intent.payload,
             Date.now(),
@@ -831,11 +885,13 @@ wss.on("connection", (socket: WebSocket) => {
             code: result.ok ? undefined : result.code,
           });
           if (result.ok) {
-            const profile = await economyStore.getFullProfile(nickname, "deathmatch");
-            sendJson(socket, toEconomyProfileMessage(profile, "deathmatch"));
-            console.log(`[economy] ${intent.action} ok for ${nickname} [lobby/deathmatch]`);
+            const profile = await economyStore.getFullProfile(nickname, pool);
+            sendJson(socket, toEconomyProfileMessage(profile, pool));
+            console.log(`[economy] ${intent.action} ok for ${nickname} [lobby/${pool}]`);
           } else {
-            console.warn(`[economy] ${intent.action} rejected for ${nickname} [lobby]: ${result.code}`);
+            console.warn(
+              `[economy] ${intent.action} rejected for ${nickname} [lobby/${pool}]: ${result.code}`,
+            );
           }
         })();
         return;

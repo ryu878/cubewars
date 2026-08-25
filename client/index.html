@@ -696,25 +696,38 @@
         font-weight: 600;
         font-size: 12px;
       }
-      /* EPIC 42: lobby Inventory button (opens existing inventory overlay). */
-      #modeSelect #lobbyInventoryBtn {
-        display: block;
-        width: 100%;
+      /* EPIC 45: dual lobby inventories + Deathmatch auction (mode-select). */
+      #modeSelect .lobby-economy-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
         margin: 0 0 14px;
-        padding: 10px 14px;
+      }
+      #modeSelect .lobby-economy-actions button {
+        flex: 1 1 140px;
+        margin: 0;
+        padding: 10px 12px;
         border: 1px solid rgba(230, 195, 92, 0.45);
         border-radius: 8px;
         background: rgba(230, 195, 92, 0.12);
         color: #ffe082;
-        font: 700 14px system-ui, sans-serif;
+        font: 700 13px system-ui, sans-serif;
         cursor: pointer;
       }
-      #modeSelect #lobbyInventoryBtn:hover:not(:disabled) {
+      #modeSelect .lobby-economy-actions button:hover:not(:disabled) {
         background: rgba(230, 195, 92, 0.22);
       }
-      #modeSelect #lobbyInventoryBtn:disabled {
+      #modeSelect .lobby-economy-actions button:disabled {
         opacity: 0.45;
         cursor: not-allowed;
+      }
+      #modeSelect #lobbyAuctionBtn {
+        border-color: rgba(138, 180, 196, 0.5);
+        background: rgba(138, 180, 196, 0.12);
+        color: #c5e4f0;
+      }
+      #modeSelect #lobbyAuctionBtn:hover:not(:disabled) {
+        background: rgba(138, 180, 196, 0.22);
       }
       /* Lobby footer: community / developers Telegram (opens in new tab). */
       #modeSelect .lobby-telegram {
@@ -1653,7 +1666,11 @@
         <label for="nicknameInput">Nickname</label>
         <input id="nicknameInput" type="text" maxlength="16" autocomplete="nickname" placeholder="Player" />
         <div id="lobbyGold">Gold: <span id="lobbyGoldValue">—</span> <span id="lobbyGoldPoolHint">(Deathmatch pool)</span></div>
-        <button id="lobbyInventoryBtn" type="button" disabled>Inventory</button>
+        <div class="lobby-economy-actions">
+          <button id="lobbyDeathmatchInventoryBtn" type="button" disabled>Deathmatch Inventory</button>
+          <button id="lobbyBotsInventoryBtn" type="button" disabled>Bots Inventory</button>
+          <button id="lobbyAuctionBtn" type="button" disabled>Auction</button>
+        </div>
         <div class="mode-section-title">Games</div>
         <div id="lobbyList" aria-live="polite"></div>
         <div class="mode-section-title">Leaderboard</div>
