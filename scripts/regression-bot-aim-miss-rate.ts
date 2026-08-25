@@ -49,6 +49,10 @@ function runAtDistance(distance: number, attempts: number): DistanceResult {
   // there's guaranteed clear line-of-sight at every tested distance.
   const bot = registry.getPlayer(botId)!;
   const target = registry.getPlayer(targetId)!;
+  // EPIC 36: clear spawn protection so aim-miss statistics measure aim jitter,
+  // not the post-spawn invincibility window.
+  bot.spawnProtectedUntilMs = 0;
+  target.spawnProtectedUntilMs = 0;
   bot.position.x = -distance / 2;
   bot.position.z = 0;
   target.position.x = distance / 2;
@@ -63,6 +67,7 @@ function runAtDistance(distance: number, attempts: number): DistanceResult {
     // for the bot behaves like a fresh engagement each time.
     target.health = 100;
     target.alive = true;
+    target.spawnProtectedUntilMs = 0;
     target.position.x = distance / 2;
     target.position.z = 0;
     bot.position.x = -distance / 2;

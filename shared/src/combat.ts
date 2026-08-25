@@ -105,6 +105,13 @@ export const COMBAT = {
   maxHealth: 100,
   /** Delay between death and automatic respawn, ms. */
   respawnDelayMs: 3000,
+  /**
+   * EPIC 36: post-spawn / post-respawn invincibility window (ms). While
+   * `Date.now() < player.spawnProtectedUntilMs`, the player is excluded from
+   * hitscan/splash/projectile target candidates and `applyDamage` is a no-op.
+   * Broadcast as a deadline timestamp; clients use it for display only.
+   */
+  spawnProtectionMs: 2000,
   /** Maximum hitscan ray length, in world units. Comfortably exceeds the arena's ~105-unit diagonal (shared/src/mapData.ts ARENA_BOUNDS) so no in-bounds shot is ever truncated early. */
   hitscanMaxRange: 150,
   /** EPIC 7 "Health & Armor Pickups" Section 2: HP restored per health pickup, capped at maxHealth. */

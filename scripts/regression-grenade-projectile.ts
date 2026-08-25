@@ -36,6 +36,8 @@ function equip(match: Match, id: string, weapon: WeaponType): void {
   if (!WEAPON_STATS[weapon].infiniteAmmo) player.ammo[weapon] = 2;
   player.health = 100;
   player.armor = 0;
+  // EPIC 36: clear spawn protection so projectile damage cases remain valid.
+  player.spawnProtectedUntilMs = 0;
 }
 
 function stepProjectiles(match: Match, steps: number): void {

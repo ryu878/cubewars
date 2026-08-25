@@ -968,6 +968,31 @@
       #ratingsHud[hidden] {
         display: none;
       }
+      /* EPIC 36: local-player spawn-protection cue, near health readout. */
+      #spawnProtectionHud {
+        position: fixed;
+        bottom: 180px;
+        left: 9%;
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        padding: 6px 12px;
+        background: rgba(40, 90, 140, 0.65);
+        border-radius: 8px;
+        z-index: 10;
+        pointer-events: none;
+        white-space: nowrap;
+        color: #b8e0ff;
+        font: 700 14px system-ui, sans-serif;
+        letter-spacing: 0.04em;
+      }
+      #spawnProtectionHud[hidden] {
+        display: none;
+      }
+      #spawnProtectionValue {
+        font-variant-numeric: tabular-nums;
+        color: #e8f6ff;
+      }
     </style>
   </head>
   <body>
@@ -1001,6 +1026,9 @@
     </div>
     <div id="healthHud" data-low="false">
       <span class="hud-label">HP</span><span id="healthValue" class="hud-value">100</span>
+    </div>
+    <div id="spawnProtectionHud" hidden>
+      <span>SPAWN PROTECTED</span><span id="spawnProtectionValue">2.0</span>s
     </div>
     <div id="armorHud" data-zero="true">
       <span class="hud-label">ARMOR</span><span id="armorValue" class="hud-value">0</span>

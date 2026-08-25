@@ -19,6 +19,8 @@ const ARM_WIDTH = 0.18;
 const FEET_Y = 0;
 const RUN_SPEED_THRESHOLD = 0.45;
 const RUN_PHASE_SPEED = 9;
+/** EPIC 36: low opacity while spawn-protected — reads as a ghost, not a solid target. */
+const SPAWN_PROTECTION_OPACITY = 0.35;
 
 // EPIC 31 "Randomized Bot Equipment Loadouts" Section 3.4: small, cheap
 // visual tell for equipped pets/amulet, applied uniformly to any PlayerState
@@ -70,6 +72,8 @@ interface AvatarState {
   /** EPIC 31: last-applied pet-tell types, compared by joined-string equality to skip redundant material swaps (mirrors the currentWeapon discipline above). */
   currentPetTypesKey: string;
   currentHasAmulet: boolean;
+  /** EPIC 36: last applied protection opacity state (avoids redundant material writes). */
+  spawnProtected: boolean;
 }
 
 const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x2d6cdf, roughness: 0.7 });
@@ -166,9 +170,11 @@ function buildGrenadeLauncherProp(): THREE.Group {
 function buildFace(): THREE.Group {
   const face = new THREE.Group();
   face.name = "avatar:face";
-  const eyeLeft = box(0.07, 0.07, 0.025, faceMaterial);
-  const eyeRight = box(0.07, 0.07, 0.025, faceMaterial);
-  const mouth = box(0.18, 0.035, 0.025, faceMaterial);
+  // Clone so per-avatar EPIC 36 opacity does not mutate the shared template.
+  const faceMat = faceMaterial.clone();
+  const eyeLeft = box(0.07, 0.07, 0.025, faceMat);
+  const eyeRight = box(0.07, 0.07, 0.025, faceMat);
+  const mouth = box(0.18, 0.035, 0.025, faceMat);
   eyeLeft.name = "avatar:left-eye";
   eyeRight.name = "avatar:right-eye";
   mouth.name = "avatar:mouth";
@@ -184,29 +190,31 @@ function buildAvatar(): AvatarPartSet {
   const root = new THREE.Group();
   root.name = "remote-avatar";
 
-  const torso = box(BODY_WIDTH, TORSO_HEIGHT, BODY_DEPTH, bodyMaterial);
+  // EPIC 36: clone shared template materials so per-avatar opacity (and any
+  // future per-avatar color work, EPIC 33) cannot leak across every player.
+  const torso = box(BODY_WIDTH, TORSO_HEIGHT, BODY_DEPTH, bodyMaterial.clone());
   torso.name = "avatar:torso";
   torso.position.y = FEET_Y + LEG_HEIGHT + TORSO_HEIGHT / 2;
 
-  const backpack = box(BODY_WIDTH * 0.7, TORSO_HEIGHT * 0.68, 0.08, backpackMaterial);
+  const backpack = box(BODY_WIDTH * 0.7, TORSO_HEIGHT * 0.68, 0.08, backpackMaterial.clone());
   backpack.name = "avatar:backpack";
   backpack.position.set(0, torso.position.y + 0.02, BODY_DEPTH / 2 + 0.045);
 
-  const head = box(HEAD_SIZE, HEAD_SIZE, HEAD_SIZE, headMaterial);
+  const head = box(HEAD_SIZE, HEAD_SIZE, HEAD_SIZE, headMaterial.clone());
   head.name = "avatar:head";
   head.position.y = torso.position.y + TORSO_HEIGHT / 2 + HEAD_SIZE / 2;
   const face = buildFace();
   head.add(face);
 
-  const leftLeg = box(LEG_WIDTH, LEG_HEIGHT, LEG_WIDTH, limbMaterial);
-  const rightLeg = box(LEG_WIDTH, LEG_HEIGHT, LEG_WIDTH, limbMaterial);
+  const leftLeg = box(LEG_WIDTH, LEG_HEIGHT, LEG_WIDTH, limbMaterial.clone());
+  const rightLeg = box(LEG_WIDTH, LEG_HEIGHT, LEG_WIDTH, limbMaterial.clone());
   leftLeg.name = "avatar:left-leg";
   rightLeg.name = "avatar:right-leg";
   leftLeg.position.set(-0.18, FEET_Y + LEG_HEIGHT / 2, 0);
   rightLeg.position.set(0.18, FEET_Y + LEG_HEIGHT / 2, 0);
 
-  const leftArm = box(ARM_WIDTH, ARM_HEIGHT, ARM_WIDTH, limbMaterial);
-  const rightArm = box(ARM_WIDTH, ARM_HEIGHT, ARM_WIDTH, limbMaterial);
+  const leftArm = box(ARM_WIDTH, ARM_HEIGHT, ARM_WIDTH, limbMaterial.clone());
+  const rightArm = box(ARM_WIDTH, ARM_HEIGHT, ARM_WIDTH, limbMaterial.clone());
   leftArm.name = "avatar:left-arm";
   rightArm.name = "avatar:right-arm";
   leftArm.position.set(-BODY_WIDTH / 2 - ARM_WIDTH / 2, FEET_Y + LEG_HEIGHT + TORSO_HEIGHT * 0.55, -0.03);
@@ -230,8 +238,9 @@ function buildAvatar(): AvatarPartSet {
 
   // EPIC 31 pet-tell orbs: small spheres near the shoulder/backpack, one per
   // slot, hidden until a loadout arrives (applyPetVisual() below).
+  // Clone materials so EPIC 36 opacity is per-avatar.
   const petOrbs: THREE.Mesh[] = PET_ORB_LOCAL_POSITIONS.map(([x, , z]) => {
-    const orb = new THREE.Mesh(new THREE.SphereGeometry(PET_ORB_RADIUS, 10, 10), petOrbMaterials.dog);
+    const orb = new THREE.Mesh(new THREE.SphereGeometry(PET_ORB_RADIUS, 10, 10), petOrbMaterials.dog.clone());
     orb.name = "avatar:pet-orb";
     orb.position.set(x, backpack.position.y + TORSO_HEIGHT * 0.22, z);
     orb.visible = false;
@@ -243,7 +252,7 @@ function buildAvatar(): AvatarPartSet {
   // from "has pet" at a glance (spec Section 3.4).
   const amuletPendant = new THREE.Mesh(
     new THREE.TorusGeometry(AMULET_RING_OUTER_RADIUS, AMULET_RING_TUBE_RADIUS, 8, 16),
-    amuletMaterial,
+    amuletMaterial.clone(),
   );
   amuletPendant.name = "avatar:amulet-pendant";
   amuletPendant.position.set(0, torso.position.y + TORSO_HEIGHT * 0.42, -BODY_DEPTH / 2 - 0.02);
@@ -274,12 +283,34 @@ function applyPetVisual(parts: AvatarPartSet, petTypes: readonly PetType[], hasA
     const type = petTypes[slot];
     if (type) {
       orb.visible = true;
-      orb.material = petOrbMaterials[type];
+      // Recolor the per-avatar cloned material in place (do not swap back to
+      // the shared petOrbMaterials singleton — that would break EPIC 36 opacity).
+      const mat = orb.material as THREE.MeshStandardMaterial;
+      mat.color.setHex(PET_ORB_COLORS[type]);
+      mat.emissive.setHex(PET_ORB_COLORS[type]);
     } else {
       orb.visible = false;
     }
   }
   parts.amuletPendant.visible = hasAmulet;
+}
+
+/** EPIC 36: set opacity on every mesh material under this avatar (body + weapons + tells). */
+function applySpawnProtectionVisual(parts: AvatarPartSet, protectedNow: boolean): void {
+  const opacity = protectedNow ? SPAWN_PROTECTION_OPACITY : 1;
+  const transparent = protectedNow;
+  parts.root.traverse((obj) => {
+    if (!(obj instanceof THREE.Mesh)) return;
+    const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
+    for (const mat of materials) {
+      if (!mat || !("opacity" in mat)) continue;
+      const std = mat as THREE.MeshStandardMaterial;
+      std.transparent = transparent;
+      std.opacity = opacity;
+      // Avoid z-fighting / incorrect sorting while translucent.
+      std.depthWrite = !transparent;
+    }
+  });
 }
 
 function petTypesKey(petTypes: readonly PetType[]): string {
@@ -346,6 +377,7 @@ export class RemotePlayers {
           currentWeapon: player.equippedWeapon,
           currentPetTypesKey: petTypesKey(player.equippedPetTypes),
           currentHasAmulet: player.hasAmulet,
+          spawnProtected: false,
         };
         this.avatars.set(player.id, avatar);
       } else {
@@ -367,6 +399,14 @@ export class RemotePlayers {
         avatar.currentPetTypesKey = nextPetTypesKey;
         avatar.currentHasAmulet = player.hasAmulet;
         applyPetVisual(avatar.parts, player.equippedPetTypes, player.hasAmulet);
+      }
+
+      // EPIC 36: opacity from server-broadcast deadline vs this tick's
+      // serverTimeMs only — no local free-running countdown.
+      const protectedNow = serverTimeMs < player.spawnProtectedUntilMs;
+      if (avatar.spawnProtected !== protectedNow) {
+        avatar.spawnProtected = protectedNow;
+        applySpawnProtectionVisual(avatar.parts, protectedNow);
       }
 
       avatar.parts.root.position.set(player.position.x, player.position.y, player.position.z);
