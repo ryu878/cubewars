@@ -51,6 +51,8 @@ export class CombatHud {
   private ammoValueEl: HTMLElement;
   private goldEl: HTMLElement;
   private goldValueEl: HTMLElement;
+  private spawnProtectionEl: HTMLElement;
+  private spawnProtectionValueEl: HTMLElement;
 
   private hitMarkerTimer: { handle: number | undefined } = { handle: undefined };
   private damageFlashTimer: { handle: number | undefined } = { handle: undefined };
@@ -70,6 +72,8 @@ export class CombatHud {
     this.ammoValueEl = document.getElementById("ammoValue") as HTMLElement;
     this.goldEl = document.getElementById("goldHud") as HTMLElement;
     this.goldValueEl = document.getElementById("goldValue") as HTMLElement;
+    this.spawnProtectionEl = document.getElementById("spawnProtectionHud") as HTMLElement;
+    this.spawnProtectionValueEl = document.getElementById("spawnProtectionValue") as HTMLElement;
   }
 
   /** Update the on-screen health readout (Story 4.3 AC: "Current health is visible on screen and updates when damaged"). Always driven by the server's own PlayerState.health — never a locally-guessed value. EPIC 13 Story 13.4: writes only the number into the dedicated #healthValue child span (label span is static markup, index.html), not a combined "Health: N" string on the whole badge. */
@@ -92,6 +96,22 @@ export class CombatHud {
     const clamped = Math.max(0, Math.round(armor));
     this.armorValueEl.textContent = String(clamped);
     this.armorEl.dataset.zero = clamped <= 0 ? "true" : "false";
+  }
+
+  /**
+   * EPIC 36: brief local-player cue while spawn-protected. Driven only by
+   * comparing WorldStateMessage.serverTimeMs to the local player's
+   * spawnProtectedUntilMs — remaining seconds are recomputed every tick from
+   * the broadcast deadline (no free-running client timer).
+   */
+  setSpawnProtection(remainingMs: number | null): void {
+    if (remainingMs === null || remainingMs <= 0) {
+      this.spawnProtectionEl.hidden = true;
+      return;
+    }
+    const seconds = Math.max(0.1, remainingMs / 1000);
+    this.spawnProtectionValueEl.textContent = seconds.toFixed(1);
+    this.spawnProtectionEl.hidden = false;
   }
 
   /**

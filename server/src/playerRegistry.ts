@@ -34,7 +34,7 @@ import {
   type Vector3,
   type WeaponType,
 } from "@cubewars/shared";
-import { buildShotTrace, findGrenadeSplashCandidates, performHitscan } from "./combat.js";
+import { buildShotTrace, findGrenadeSplashCandidates, isSpawnProtected, performHitscan } from "./combat.js";
 
 /** Sanity bound so a malformed/runaway input can never send a player to infinity — a coarse outer clamp, independent of (and checked before) the precise wall/crate collision resolution below. */
 const WORLD_BOUND = 200;
@@ -137,6 +137,12 @@ export interface PlayerRecord {
   alive: boolean;
   /** Server timestamp (Date.now()-based) at which a dead player should respawn; null while alive. */
   respawnAtMs: number | null;
+  /**
+   * EPIC 36: server clock deadline until which this player cannot take damage
+   * and is excluded from hitscan/splash/projectile target candidates.
+   * 0 or a past timestamp = not protected. Broadcast via PlayerState.
+   */
+  spawnProtectedUntilMs: number;
   /** Confirmed kill count (EPIC 5 Story 5.2), in-memory only — resets on server restart, no persistence in this scope. Incremented exclusively in fire() below, the same place death is resolved, so this can never drift from what actually killed a player. */
   kills: number;
   /**
@@ -412,6 +418,9 @@ export class PlayerRegistry {
       hasAmulet: false,
       alive: true,
       respawnAtMs: null,
+      // EPIC 36: freshly-joined / freshly-spawned players get the same grace
+      // window as a post-death respawn — "just became alive."
+      spawnProtectedUntilMs: Date.now() + COMBAT.spawnProtectionMs,
       kills: 0,
       // Placeholder values, immediately overwritten below by
       // applyBaselineLoadout() — the same pistol-only baseline (plus zeroed
@@ -632,6 +641,11 @@ export class PlayerRegistry {
     const scaledBase = scaleWeaponDamage(stats.damage, shooter);
     const damage = computeDirectDamage(scaledBase, hitZone);
     const damageEvent = this.applyDamage(shooter, target, damage, "direct", hitZone, result.point);
+    // EPIC 36: applyDamage is a no-op null if the target is somehow still
+    // protected — treat as a miss so no HitEvent / hit-marker fires.
+    if (!damageEvent) {
+      return { hit: false, dry: false, autoSwitchedTo, weapon, damageEvents: [], shotTrace: result.trace };
+    }
 
     return {
       hit: true,
@@ -660,11 +674,15 @@ export class PlayerRegistry {
     const shooter = this.players.get(shooterId);
     const target = this.players.get(targetId);
     if (!shooter || !shooter.alive || !target || !target.alive) return [];
+    // EPIC 36: defensive — projectile step should already skip protected
+    // targets; if somehow reached, produce no hit event at all.
+    if (isSpawnProtected(target)) return [];
     const damage = computeDirectDamage(
       scaleWeaponDamage(WEAPON_STATS.grenade_launcher.damage, shooter),
       hitZone,
     );
-    return [this.applyDamage(shooter, target, damage, "direct", hitZone, point)];
+    const event = this.applyDamage(shooter, target, damage, "direct", hitZone, point);
+    return event ? [event] : [];
   }
 
   applyGrenadeSplashImpact(shooterId: string, explosionPoint: Vector3): DamageEvent[] {
@@ -683,7 +701,8 @@ export class PlayerRegistry {
       if (!target || !target.alive) continue;
       const damage = computeGrenadeSplashDamage(scaledBase, candidate.distance);
       if (damage <= 0) continue;
-      events.push(this.applyDamage(shooter, target, damage, "splash", "splash", explosionPoint));
+      const event = this.applyDamage(shooter, target, damage, "splash", "splash", explosionPoint);
+      if (event) events.push(event);
     }
     return events;
   }
@@ -696,7 +715,11 @@ export class PlayerRegistry {
     hitZone: DamageZone,
     point: Vector3,
     countKill: boolean = true,
-  ): DamageEvent {
+  ): DamageEvent | null {
+    // EPIC 36 safety net: even if a caller somehow still targets a protected
+    // player, deal no damage and emit no DamageEvent (no hit marker/sound).
+    if (isSpawnProtected(target)) return null;
+
     // EPIC 24: pet %DR applies to raw damage BEFORE EPIC 7 absorptive armor.
     const afterDr = applyArmorDr(damage, target.petRatings.armorRating);
     // EPIC 7 damage-absorption order remains unchanged under EPIC 18:
@@ -923,6 +946,8 @@ export class PlayerRegistry {
       player.health = player.maxHealth;
       player.alive = true;
       player.respawnAtMs = null;
+      // EPIC 36: post-death respawn gets the same protection window as initial spawn.
+      player.spawnProtectedUntilMs = nowMs + COMBAT.spawnProtectionMs;
       player.intent = { moveForward: 0, moveRight: 0, jump: false };
       applyBaselineLoadout(player);
 
@@ -1135,6 +1160,7 @@ export class PlayerRegistry {
         equippedPetTypes: [...player.equippedPetTypes],
         hasAmulet: player.hasAmulet,
         alive: player.alive,
+        spawnProtectedUntilMs: player.spawnProtectedUntilMs,
       });
     }
     return states;

@@ -60,7 +60,7 @@ import { PlayerRegistry, type DamageEvent, type FireOutcome } from "./playerRegi
 import { PickupSpawner } from "./pickupSpawner.js";
 import { BotAI } from "./botAI.js";
 import { EndlessWorld } from "./endlessWorld.js";
-import { classifyHitZone, pointOnRay } from "./combat.js";
+import { classifyHitZone, isSpawnProtected, pointOnRay } from "./combat.js";
 import {
   economyScopeFromMatchMode,
   type EconomyActionError,
@@ -875,6 +875,10 @@ export class Match {
 
       for (const candidate of this.registry.alivePlayerPositions()) {
         if (candidate.id === projectile.shooterId) continue;
+        // EPIC 36: spawn-protected players are ghosts to projectiles too —
+        // grenades pass through rather than detonating on them.
+        const candidateRecord = this.registry.getPlayer(candidate.id);
+        if (candidateRecord && isSpawnProtected(candidateRecord)) continue;
         const distance = rayIntersectsAabb(ray, playerHitboxBounds(candidate.position), nearestDistance);
         if (distance !== null && distance < nearestDistance) {
           nearestDistance = distance;

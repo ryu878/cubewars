@@ -97,14 +97,26 @@ export interface SplashCandidate {
   distance: number;
 }
 
+/** EPIC 36: true while the server clock is still inside the spawn-protection window. */
+export function isSpawnProtected(
+  player: Pick<PlayerRecord, "spawnProtectedUntilMs">,
+  nowMs: number = Date.now(),
+): boolean {
+  return nowMs < player.spawnProtectedUntilMs;
+}
+
 export function findGrenadeSplashCandidates(
   explosionPoint: Vector3,
   shooterId: string,
   allPlayers: Iterable<PlayerRecord>,
+  nowMs: number = Date.now(),
 ): SplashCandidate[] {
   const candidates: SplashCandidate[] = [];
   for (const candidate of allPlayers) {
     if (candidate.id === shooterId || !candidate.alive) continue;
+    // EPIC 36: protected players are not splash targets (shots pass through —
+    // no 0-damage hit event).
+    if (isSpawnProtected(candidate, nowMs)) continue;
     const distance = distancePointToPlayerAabb(explosionPoint, candidate);
     if (distance <= GRENADE_SPLASH.radius) {
       candidates.push({ targetId: candidate.id, distance });
@@ -130,6 +142,7 @@ export function performHitscan(
   shooter: PlayerRecord,
   allPlayers: Iterable<PlayerRecord>,
   geometry: readonly MapBox[] = ARENA_GEOMETRY,
+  nowMs: number = Date.now(),
 ): HitscanResult {
   const ray = buildAimRay(shooter);
 
@@ -152,6 +165,9 @@ export function performHitscan(
 
   for (const candidate of allPlayers) {
     if (candidate.id === shooter.id || !candidate.alive) continue;
+    // EPIC 36: spawn-protected players are not hittable — ray continues as if
+    // they were not there (ghost), so the shooter gets no hit marker/sound.
+    if (isSpawnProtected(candidate, nowMs)) continue;
     const bounds = playerHitboxBounds(candidate.position);
     const dist = rayIntersectsAabb(ray, bounds, nearestDistance);
     if (dist !== null && dist < nearestDistance) {

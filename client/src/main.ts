@@ -377,6 +377,10 @@ const connection = new GameConnection(wsUrl, {
         // pattern as health above — see PlayerState.armor doc comment
         // (shared/src/index.ts).
         hud.setArmor(self.armor);
+        // EPIC 36: spawn-protection cue from broadcast deadline vs this
+        // tick's serverTimeMs only (no local free-running countdown).
+        const protectRemaining = self.spawnProtectedUntilMs - message.serverTimeMs;
+        hud.setSpawnProtection(protectRemaining > 0 ? protectRemaining : null);
         hud.setDead(!self.alive);
       }
     }

@@ -353,6 +353,13 @@ export interface PlayerState {
   hasAmulet: boolean;
   /** False while dead and waiting to respawn — server stops applying movement/combat for this player while false. */
   alive: boolean;
+  /**
+   * EPIC 36: server clock deadline (Date.now()-based) until which this player
+   * is spawn-protected (invincible + rendered transparent). Clients compare
+   * against WorldStateMessage.serverTimeMs every tick — never a local free-
+   * running countdown. 0 or a past timestamp = not protected.
+   */
+  spawnProtectedUntilMs: number;
 }
 
 /** Full world snapshot, broadcast to every connected client on a fixed server tick. */

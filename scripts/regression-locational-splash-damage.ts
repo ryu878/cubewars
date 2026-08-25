@@ -24,6 +24,11 @@ function setup(weapon: WeaponType = "pistol") {
   const registry = new PlayerRegistry();
   const shooter = registry.spawn("shooter");
   const target = registry.spawn("target");
+  // EPIC 36: clear spawn protection so these combat-math cases exercise
+  // unprotected hit registration (protection itself is covered by
+  // regression-spawn-protection.ts).
+  shooter.spawnProtectedUntilMs = 0;
+  target.spawnProtectedUntilMs = 0;
   shooter.position = { x: 0, y: 0, z: 2 };
   target.position = { x: 0, y: 0, z: -2 };
   shooter.yaw = 0;
