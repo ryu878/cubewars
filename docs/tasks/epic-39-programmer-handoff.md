@@ -9,34 +9,32 @@
 | Date / time (UTC optional) | 2026-08-25 |
 | Author (Pusya) | Pusya |
 | Task / Story / EPIC | EPIC 39: Visible Companion Pets + Pet Color Customization |
-| Branch / commit / PR | `task/epic-39-visible-companion-pets` (origin tip; feature `c0d3889`); PR: open manually at https://github.com/ryu878/cubewars/pull/new/task/epic-39-visible-companion-pets (`gh` auth account cannot resolve repo) |
-| Revision round (if this is a Critic/Judge fix, not first pass) | no |
+| Branch / commit / PR | `task/epic-39-visible-companion-pets` (origin tip); PR: https://github.com/ryu878/cubewars/pull/new/task/epic-39-visible-companion-pets |
+| Revision round (if this is a Critic/Judge fix, not first pass) | yes — finding IDs: F-001, F-002 |
 
 ## What was done (brief)
 
-1. Replaced EPIC 31 abstract pet orbs with low-poly dog/cat/bird/lion companion meshes + soft cyan additive glow; left/right side + palette color from server `equippedPetsVisual`.
-2. Persisted `colorIndex` on economy pets (Redis); added `economy_set_pet_color`; inventory Pet colors swatches; bots get random pet colors at loadout; spawn-protection opacity still fades companions with the owner.
+1. **F-001:** Dual-equip companions always get opposite sides (slot2 forced opposite of slot1 when they would collide); regression asserts opposite sides across many dual rolls + bot dual-equip.
+2. **F-002:** On companion body rebuild, dispose geometry/materials of the removed subtree to avoid GPU leaks.
 
 ## Changed files / areas
 
-- `shared/` — `EquippedPetVisual`, `PetSide`, `economy_set_pet_color`, `PlayerState.equippedPetsVisual`, `EconomyPetDto.colorIndex`
-- `server/` — economy persist/set color; `setEquipmentVisual` side stability by pet slot id; bot random colors; broadcast
-- `client/src/remotePlayers.ts` — companion meshes + glow + bob; EPIC 36 opacity compose
-- `client/src/inventoryOverlay.ts` + `client/index.html` — pet color swatches
-- `scripts/regression-epic39-companion-pets.ts` + package script
+- `server/src/playerRegistry.ts` — side deconflict in `setEquipmentVisual`
+- `client/src/remotePlayers.ts` — `disposeCompanionSubtree` on rebuild
+- `scripts/regression-epic39-companion-pets.ts` — F-001 opposite-side assertions
 
 ## How to verify (steps for Trusya)
 
-1. Join a bots/public match with equipped pets (or watch bots): companions should read as type silhouettes with cyan aura, sitting left or right of the avatar.
-2. Inventory (I) → Pet colors: change a pet swatch; rejoin / re-equip — color persists; other clients see the new color on equipped companions.
-3. Shoot through companions — no hit/block (client cosmetic only). While spawn-protected, companions fade with the owner.
-4. Run: `npm run typecheck`, `npm run build`, `npm run regression:epic39-companion-pets`, `npm run regression:epic31-bot-loadouts`.
+1. Equip two pets (or watch archetype-D bots): companions must sit on **opposite** sides (never stacked).
+2. Change one pet / recolor: sides stay opposite; same pet ids keep prior sides when still valid.
+3. Re-run: `npm run typecheck`, `npm run regression:epic39-companion-pets`.
+4. Optional smoke: long session with frequent pet type changes — no growing GPU memory from companion rebuilds (F-002).
 
 ## Build and run
 
 - Build command: `npm run typecheck && npm run build`
-- Run command: `npm run dev` (or docker compose per README)
-- Expected smoke result: remote avatars with pets show companions; world_state includes `equippedPetsVisual`; regressions PASS
+- Run command: `npm run dev`
+- Expected smoke result: dual pets on opposite shoulders; regressions PASS
 
 ## Configuration
 
@@ -45,18 +43,17 @@
 
 ## Logs / observability
 
-- Where to look at logs: server stdout
-- Key success messages: `[economy] set_pet_color ok for <nick>`, `[bots] ... pets=[type#value@cN] ...`
+- Where to look at logs: server stdout (unchanged)
+- Key success messages: unchanged from first pass
 
 ## Server-authority note (if gameplay-relevant state is touched)
 
-- What is validated/computed server-side: pet ownership + palette index for `economy_set_pet_color`; companion `side` (stable until pet id change) and `colorIndex` broadcast; bot colors assigned server-side
-- What the client is allowed to predict/render only: companion meshes, glow, bob; never hitscan/collision/damage
+- What is validated/computed server-side: companion `side` assignment + dual-equip deconflict
+- What the client is allowed to predict/render only: meshes/glow/bob; dispose on rebuild is client-local
 
 ## Risks / known limitations
 
-- Companion silhouettes are low-poly (intentional); not high-poly art assets
-- Pets remain non-solid; no pet combat AI
+- When deconflicting, slot2 yields to slot1 (may flip slot2 side if both rolled the same)
 
 ## Status
 

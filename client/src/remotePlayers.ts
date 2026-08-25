@@ -460,6 +460,21 @@ function applyWeapon(parts: AvatarPartSet, weapon: WeaponType): void {
 }
 
 /**
+ * Dispose geometries/materials under a removed companion body (F-002).
+ * Each rebuild allocates fresh meshes + materials — must not leak GPU resources.
+ */
+function disposeCompanionSubtree(root: THREE.Object3D): void {
+  root.traverse((obj) => {
+    if (!(obj instanceof THREE.Mesh)) return;
+    obj.geometry?.dispose();
+    const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
+    for (const mat of materials) {
+      mat?.dispose?.();
+    }
+  });
+}
+
+/**
  * EPIC 39: show/hide companion meshes from server-broadcast equippedPetsVisual
  * (type + palette color + left/right side). Falls back to equippedPetTypes
  * for incomplete fixtures. Cosmetic only — never solid.
@@ -482,7 +497,10 @@ function applyPetVisual(
 
     const hex = resolveAvatarColor(visual.colorIndex);
     const oldBody = companion.getObjectByName("avatar:pet-body");
-    if (oldBody) companion.remove(oldBody);
+    if (oldBody) {
+      companion.remove(oldBody);
+      disposeCompanionSubtree(oldBody);
+    }
 
     const mat = petBodyMaterial(hex);
     const body = buildCompanionBody(visual.type, mat);

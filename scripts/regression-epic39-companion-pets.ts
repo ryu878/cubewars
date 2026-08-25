@@ -77,24 +77,45 @@ import { PlayerRegistry } from "../server/src/playerRegistry.js";
 }
 
 {
-  // Two slots broadcast independently.
+  // Two slots: opposite sides (F-001 — never stack on the same shoulder).
   const registry = new PlayerRegistry();
   registry.spawn("player-a");
+  for (let trial = 0; trial < 40; trial++) {
+    registry.setEquipmentVisual(
+      "player-a",
+      [
+        { slotId: `pet:a-${trial}`, type: "dog", colorIndex: 0 },
+        { slotId: `pet:b-${trial}`, type: "bird", colorIndex: 7 },
+      ],
+      true,
+    );
+    const state = registry.toWorldState().find((p) => p.id === "player-a")!;
+    assert.equal(state.equippedPetsVisual.length, 2);
+    assert.notEqual(
+      state.equippedPetsVisual[0]!.side,
+      state.equippedPetsVisual[1]!.side,
+      `dual-equip sides must differ (trial ${trial})`,
+    );
+  }
+  // Re-apply same ids: sides stay opposite and stable for slot1.
+  const before = registry.toWorldState().find((p) => p.id === "player-a")!;
+  const side0 = before.equippedPetsVisual[0]!.side;
+  const side1 = before.equippedPetsVisual[1]!.side;
   registry.setEquipmentVisual(
     "player-a",
     [
-      { slotId: "pet:1", type: "dog", colorIndex: 0 },
-      { slotId: "pet:2", type: "bird", colorIndex: 7 },
+      { slotId: "pet:a-39", type: "dog", colorIndex: 0 },
+      { slotId: "pet:b-39", type: "bird", colorIndex: 7 },
     ],
     true,
   );
-  const state = registry.toWorldState().find((p) => p.id === "player-a")!;
-  assert.equal(state.hasAmulet, true);
-  assert.deepEqual(state.equippedPetTypes, ["dog", "bird"]);
-  assert.equal(state.equippedPetsVisual.length, 2);
-  assert.equal(state.equippedPetsVisual[0]!.type, "dog");
-  assert.equal(state.equippedPetsVisual[1]!.type, "bird");
-  assert.equal(state.equippedPetsVisual[1]!.colorIndex, 7);
+  const after = registry.toWorldState().find((p) => p.id === "player-a")!;
+  assert.equal(after.equippedPetsVisual[0]!.side, side0);
+  assert.equal(after.equippedPetsVisual[1]!.side, side1);
+  assert.notEqual(after.equippedPetsVisual[0]!.side, after.equippedPetsVisual[1]!.side);
+  assert.equal(after.hasAmulet, true);
+  assert.deepEqual(after.equippedPetTypes, ["dog", "bird"]);
+  assert.equal(after.equippedPetsVisual[1]!.colorIndex, 7);
 }
 
 {
@@ -141,6 +162,13 @@ import { PlayerRegistry } from "../server/src/playerRegistry.js";
       assert.ok(visual.side === "left" || visual.side === "right");
     }
     if (state.equippedPetsVisual.length > 0) withPets += 1;
+    if (state.equippedPetsVisual.length === 2) {
+      assert.notEqual(
+        state.equippedPetsVisual[0]!.side,
+        state.equippedPetsVisual[1]!.side,
+        "bot dual-equip sides must differ (F-001)",
+      );
+    }
   }
   assert.ok(withPets >= 1, "expected at least one bot with companion visuals");
 }

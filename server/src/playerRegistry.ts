@@ -493,7 +493,8 @@ export class PlayerRegistry {
    *
    * `pets` is slot-ordered; each entry's `slotId` is compared against the
    * previous assignment so `side` is rerolled only when that slot's pet
-   * identity changes (server-authoritative left/right).
+   * identity changes (server-authoritative left/right). When two pets are
+   * equipped, sides are forced opposite so companions never stack (F-001).
    */
   setEquipmentVisual(
     playerId: string,
@@ -516,6 +517,10 @@ export class PlayerRegistry {
         side,
       });
       nextIds.push(pet.slotId);
+    }
+    // F-001: dual-equip must use opposite sides (slot2 yields to slot1).
+    if (nextVisual.length === 2 && nextVisual[0]!.side === nextVisual[1]!.side) {
+      nextVisual[1]!.side = nextVisual[0]!.side === "left" ? "right" : "left";
     }
     player.equippedPetTypes = nextVisual.map((v) => v.type);
     player.equippedPetsVisual = nextVisual;
