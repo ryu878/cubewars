@@ -104,6 +104,13 @@ Combat is server-authoritative too: firing sends a bare "fire" event, and the se
 
 ## Current status
 
+EPIC 30 (Weapon Viewmodel & Pickup Visual Polish, Round 2) — see `docs/tasks/epic-30-weapon-pickup-visual-polish.md`. User feedback: held weapons and map pickups still looked crude after EPIC 10; armor still read as a generic shape.
+
+- **Viewmodels:** pistol / rifle / grenade launcher rebuilt as multi-material composites (grip/stock accents, metallic barrel tips, sights, magazine/foregrip/barrel-rim details) while keeping sway, recoil, muzzle flash, and empty-dim behavior.
+- **World pickups:** weapon pickups mirror that silhouette language; ammo crates get a weapon-color lid accent; armor is a breastplate with strap + rivets (not an abstract gem/plate).
+- **Scope:** client-only mesh/material polish in `client/src/viewmodel.ts` and `client/src/pickups.ts` — no server/shared/protocol changes.
+- Verified via Playwright selfcheck + live smoke (`qa-artifacts/epic-30/`), `npm run typecheck`, and `npm run build`.
+
 EPIC 38 (Auction, P2P Trade & Ground Item Drops) — see `docs/tasks/epic-38-auction-trade-ground.md`.
 
 - **Deathmatch pool only:** auction, same-match P2P trade, and ground drops never touch Sandbox gold/items.
