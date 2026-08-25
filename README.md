@@ -104,6 +104,14 @@ Combat is server-authoritative too: firing sends a bare "fire" event, and the se
 
 ## Current status
 
+EPIC 34 (Email + Code Stub Auth, Persistent Sessions) — see `docs/tasks/epic-34-account-auth-sessions.md`.
+
+- **Account identity:** register with an email over the existing WebSocket; the server generates a one-time `NNN-NNN` display code (shown on screen only — not emailed yet), stores a **bcrypt** hash, and issues a long-lived session token (180-day sliding TTL, token stored as SHA-256 digest in Redis).
+- **Login / resume:** re-enter email + code to get a new session; reload with a stored `cubewars_session_token` in `localStorage` resumes silently. Nickname/join flow is unchanged and still separate from the account.
+- **Redis keys:** `${prefix}:account:v1:email:…`, `:id:…`, `:session:…` — same Redis as economy/avatar, separate namespace. Economy keying is **not** migrated to `accountId` in this EPIC.
+- **Anti-brute-force:** failed `account_login` attempts are rate-limited per email (5) and per connection (10) within 15 minutes.
+- Verified via `npm run regression:account-auth`, `npm run typecheck`, and `npm run build`.
+
 EPIC 35 (Split Economy — Deathmatch vs Sandbox Pools) — see `docs/tasks/epic-35-split-economy-deathmatch-sandbox.md`.
 
 - **Two isolated pools per nickname:** Redis keys are `${prefix}:economy:v1:{deathmatch|sandbox}:${nicknameKey}`. Gold, pets, gems, amulets, shards, and inventory never cross between pools. Scope is derived **server-side only** from match mode (`public` → deathmatch; `bots`/`endless` → sandbox).

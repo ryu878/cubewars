@@ -33,6 +33,7 @@
     "regression:epic31-bot-loadouts": "tsx scripts/regression-epic31-bot-loadouts.ts",
     "regression:spawn-protection": "tsx scripts/regression-spawn-protection.ts",
     "regression:avatar-colors": "tsx scripts/regression-avatar-colors.ts",
+    "regression:account-auth": "tsx scripts/regression-account-auth.ts",
     "regression:fire-input-drop-rate": "node scripts/regression-fire-input-drop-rate.mjs",
     "qa:epic17-avatar-selfcheck": "node scripts/qa-epic17-avatar-selfcheck.mjs",
     "qa:epic18-hold-fire": "node scripts/qa-epic18-hold-fire.mjs",

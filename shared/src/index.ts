@@ -312,6 +312,37 @@ export interface AvatarSetColorMessage {
   paletteIndex: number;
 }
 
+/**
+ * Client -> server: register a new account by email (EPIC 34).
+ * Server generates a one-time display code (stub — not emailed), hashes it,
+ * issues a session token, and returns both via `account_created`. If the
+ * email is already registered, the server responds with
+ * `account_login_result` (`reason: "code_required"`) instead of duplicating.
+ */
+export interface AccountRegisterMessage {
+  type: "account_register";
+  email: string;
+}
+
+/**
+ * Client -> server: log in with email + display code (EPIC 34).
+ * Code is treated like a password: verified against the stored hash only.
+ */
+export interface AccountLoginMessage {
+  type: "account_login";
+  email: string;
+  code: string;
+}
+
+/**
+ * Client -> server: resume a prior session from a stored bearer token (EPIC 34).
+ * Used on page load so reconnects skip the email/code UI.
+ */
+export interface AccountSessionResumeMessage {
+  type: "account_session_resume";
+  token: string;
+}
+
 export type ClientMessage =
   | PlayerInputMessage
   | FireEvent
@@ -329,7 +360,10 @@ export type ClientMessage =
   | EconomyRepairAmuletMessage
   | EconomyMoveItemMessage
   | EconomyDiscardItemMessage
-  | AvatarSetColorMessage;
+  | AvatarSetColorMessage
+  | AccountRegisterMessage
+  | AccountLoginMessage
+  | AccountSessionResumeMessage;
 
 /** A single player's authoritative, server-computed state as broadcast to all clients. */
 export interface PlayerState {
@@ -724,6 +758,59 @@ export interface EconomyActionResultMessage {
   code?: string;
 }
 
+/**
+ * Server -> registering connection only (EPIC 34).
+ * TEMPORARY stub: `code` is returned in plaintext because real email delivery
+ * is not built yet. Future email delivery should stop including `code` here
+ * and send it out-of-band instead — account/session model stays unchanged.
+ */
+export interface AccountCreatedMessage {
+  type: "account_created";
+  accountId: string;
+  email: string;
+  /** One-time display code (NNN-NNN). Never re-sent by the server. */
+  code: string;
+  token: string;
+}
+
+/** Failure / success reasons for account_login_result (EPIC 34). */
+export type AccountLoginReason =
+  | "invalid_credentials"
+  | "rate_limited"
+  | "code_required"
+  | "invalid_email"
+  | "already_authenticated";
+
+/**
+ * Server -> connection: login attempt result (EPIC 34).
+ * Also used when `account_register` hits an already-registered email
+ * (`reason: "code_required"`) so the client can prompt for the code.
+ * Failures use generic reasons — do not reveal whether the email exists.
+ */
+export interface AccountLoginResultMessage {
+  type: "account_login_result";
+  ok: boolean;
+  accountId?: string;
+  email?: string;
+  token?: string;
+  reason?: AccountLoginReason;
+}
+
+/** Failure reasons for account_session_result (EPIC 34). */
+export type AccountSessionReason = "invalid_token" | "already_authenticated";
+
+/**
+ * Server -> connection: session resume result (EPIC 34).
+ * On success returns account identity so the client can skip the email/code UI.
+ */
+export interface AccountSessionResultMessage {
+  type: "account_session_result";
+  ok: boolean;
+  accountId?: string;
+  email?: string;
+  reason?: AccountSessionReason;
+}
+
 export type ServerMessage =
   | WelcomeMessage
   | WorldStateMessage
@@ -745,4 +832,7 @@ export type ServerMessage =
   | ProjectileImpactEvent
   | EconomyProfileMessage
   | EconomyGoldUpdateMessage
-  | EconomyActionResultMessage;
+  | EconomyActionResultMessage
+  | AccountCreatedMessage
+  | AccountLoginResultMessage
+  | AccountSessionResultMessage;

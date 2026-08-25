@@ -17,6 +17,7 @@ import { KillFeed } from "./killFeed";
 import { Scoreboard } from "./scoreboard";
 import { PickupRenderer } from "./pickups";
 import { ModeSelect } from "./modeSelect";
+import { AccountAuth } from "./accountAuth";
 import { InventoryOverlay } from "./inventoryOverlay";
 import { WeaponViewmodel } from "./viewmodel";
 import { buildSkyDome, buildWallTextures } from "./textures";
@@ -304,6 +305,9 @@ const scoreboard = new Scoreboard(() => selfId);
 // the server's own independent gate (server/src/index.ts join-gating;
 // belt-and-suspenders, not a substitute for it — the server never trusts
 // the client to behave, per security-baseline.mdc).
+//
+// EPIC 34: mode-select buttons stay disabled until account auth succeeds
+// (session resume / register / login). Nickname join flow is unchanged.
 const modeSelect = new ModeSelect((selection) => {
   connection.send({ type: "join", ...selection });
 });
@@ -315,13 +319,20 @@ const connection = new GameConnection(wsUrl, {
   },
   onWelcome: (playerId) => {
     selfId = playerId;
-    statusEl.textContent = `connected — choose nickname`;
+    statusEl.textContent = `connected — sign in`;
     statusEl.dataset.state = "connected";
-    // EPIC 9 Story 9.2: only now is it safe to let the player pick a mode —
-    // GameConnection.send() silently drops anything sent before the socket
-    // is OPEN, and "welcome" is the server's confirmation this connection is
-    // live and has an id.
-    modeSelect.enable();
+    // EPIC 34: attempt session resume (or show email UI). Mode-select is
+    // enabled only after onAuthenticated below.
+    accountAuth.onWelcome();
+  },
+  onAccountCreated: (message) => {
+    accountAuth.handleAccountCreated(message);
+  },
+  onAccountLoginResult: (message) => {
+    accountAuth.handleLoginResult(message);
+  },
+  onAccountSessionResult: (message) => {
+    accountAuth.handleSessionResult(message);
   },
   onLobbyState: (message) => {
     modeSelect.setLobby(message.matches);
@@ -468,6 +479,25 @@ const connection = new GameConnection(wsUrl, {
     statusEl.dataset.state = "error";
   },
 });
+
+// EPIC 34: lobby email/code auth — gates mode-select until authenticated.
+const accountAuth = new AccountAuth(
+  (message) => {
+    if (message.type === "account_register" && message.email) {
+      connection.send({ type: "account_register", email: message.email });
+    } else if (message.type === "account_login" && message.email && message.code) {
+      connection.send({ type: "account_login", email: message.email, code: message.code });
+    } else if (message.type === "account_session_resume" && message.token) {
+      connection.send({ type: "account_session_resume", token: message.token });
+    }
+  },
+  {
+    onAuthenticated: ({ email }) => {
+      statusEl.textContent = `signed in as ${email} — choose nickname`;
+      modeSelect.enable();
+    },
+  },
+);
 
 // EPIC 29: I opens/closes the inventory overlay; P keeps working as an alias
 // (see InventoryOverlay's own keydown listener) — the overlay owns its own

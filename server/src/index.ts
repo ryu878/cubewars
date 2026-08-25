@@ -4,6 +4,9 @@ import {
   BROADCAST_TICK_HZ,
   PROTOCOL_VERSION,
   normalizeNickname,
+  type AccountCreatedMessage,
+  type AccountLoginResultMessage,
+  type AccountSessionResultMessage,
   type ClientMessage,
   type EndlessLeaderboardMessage,
   type JoinAcceptedMessage,
@@ -16,15 +19,21 @@ import { MatchManager } from "./matchManager.js";
 import type { Match } from "./match.js";
 import { EconomyStore } from "./economy/index.js";
 import { AvatarProfileStore } from "./avatarProfile.js";
+import { AccountStore } from "./accounts/index.js";
 
 const PORT = Number(process.env.CUBEWARS_SERVER_PORT ?? 7777);
 
 async function main(): Promise<void> {
   let economyStore: EconomyStore;
   let avatarProfile: AvatarProfileStore;
+  let accountStore: AccountStore;
   try {
     economyStore = await EconomyStore.open();
     avatarProfile = await AvatarProfileStore.open({
+      redisUrl: economyStore.redisUrl,
+      keyPrefix: economyStore.keyPrefix,
+    });
+    accountStore = await AccountStore.open({
       redisUrl: economyStore.redisUrl,
       keyPrefix: economyStore.keyPrefix,
     });
@@ -217,7 +226,10 @@ function sendJson(
     | LeaderboardMessage
     | EndlessLeaderboardMessage
     | JoinAcceptedMessage
-    | JoinRejectedMessage,
+    | JoinRejectedMessage
+    | AccountCreatedMessage
+    | AccountLoginResultMessage
+    | AccountSessionResultMessage,
 ): void {
   if (socket.readyState === socket.OPEN) {
     socket.send(JSON.stringify(message));
@@ -264,6 +276,8 @@ wss.on("connection", (socket: WebSocket) => {
   let match: Match | null = null;
   let nickname: string = playerId;
   let nicknameKey: string = playerId.toLocaleLowerCase();
+  /** EPIC 34: authenticated account for this connection (session-scoped). */
+  let accountId: string | null = null;
   lobbySockets.add(socket);
 
   const welcome: WelcomeMessage = {
@@ -319,6 +333,139 @@ wss.on("connection", (socket: WebSocket) => {
 
     if (!parsed || typeof parsed !== "object") {
       unknownTypeDropTracker.record(playerId, now);
+      return;
+    }
+
+    // EPIC 34: account auth runs in the lobby (before join). These messages
+    // must NOT be gated on match membership — they are identity, not gameplay.
+    if (parsed.type === "account_register") {
+      const email = parsed.email;
+      void (async () => {
+        if (accountId) {
+          sendJson(socket, {
+            type: "account_login_result",
+            ok: false,
+            reason: "already_authenticated",
+          });
+          return;
+        }
+        const result = await accountStore.register(email);
+        if (result.status === "invalid_email") {
+          sendJson(socket, {
+            type: "account_login_result",
+            ok: false,
+            reason: "invalid_email",
+          });
+          return;
+        }
+        if (result.status === "exists") {
+          // Ask the client for the code without revealing anything else.
+          sendJson(socket, {
+            type: "account_login_result",
+            ok: false,
+            reason: "code_required",
+          });
+          return;
+        }
+        accountId = result.account.accountId;
+        sendJson(socket, {
+          type: "account_created",
+          accountId: result.account.accountId,
+          email: result.account.email,
+          code: result.code,
+          token: result.token,
+        });
+      })().catch((err) => {
+        console.error(`[server] account_register failed for ${playerId}:`, err);
+        sendJson(socket, {
+          type: "account_login_result",
+          ok: false,
+          reason: "invalid_credentials",
+        });
+      });
+      return;
+    }
+
+    if (parsed.type === "account_login") {
+      const email = parsed.email;
+      const code = parsed.code;
+      void (async () => {
+        if (accountId) {
+          sendJson(socket, {
+            type: "account_login_result",
+            ok: false,
+            reason: "already_authenticated",
+          });
+          return;
+        }
+        const result = await accountStore.login(email, code, playerId);
+        if (result.status === "ok") {
+          accountId = result.account.accountId;
+          sendJson(socket, {
+            type: "account_login_result",
+            ok: true,
+            accountId: result.account.accountId,
+            email: result.account.email,
+            token: result.token,
+          });
+          return;
+        }
+        sendJson(socket, {
+          type: "account_login_result",
+          ok: false,
+          reason:
+            result.status === "rate_limited"
+              ? "rate_limited"
+              : result.status === "invalid_email"
+                ? "invalid_email"
+                : "invalid_credentials",
+        });
+      })().catch((err) => {
+        console.error(`[server] account_login failed for ${playerId}:`, err);
+        sendJson(socket, {
+          type: "account_login_result",
+          ok: false,
+          reason: "invalid_credentials",
+        });
+      });
+      return;
+    }
+
+    if (parsed.type === "account_session_resume") {
+      const token = parsed.token;
+      void (async () => {
+        if (accountId) {
+          sendJson(socket, {
+            type: "account_session_result",
+            ok: false,
+            reason: "already_authenticated",
+          });
+          return;
+        }
+        const result = await accountStore.resumeSession(token);
+        if (result.status === "ok") {
+          accountId = result.account.accountId;
+          sendJson(socket, {
+            type: "account_session_result",
+            ok: true,
+            accountId: result.account.accountId,
+            email: result.account.email,
+          });
+          return;
+        }
+        sendJson(socket, {
+          type: "account_session_result",
+          ok: false,
+          reason: "invalid_token",
+        });
+      })().catch((err) => {
+        console.error(`[server] account_session_resume failed for ${playerId}:`, err);
+        sendJson(socket, {
+          type: "account_session_result",
+          ok: false,
+          reason: "invalid_token",
+        });
+      });
       return;
     }
 
@@ -649,13 +796,18 @@ wss.on("error", (err) => {
 
 process.on("SIGINT", () => {
   console.log("[server] shutting down");
-  void avatarProfile
+  void accountStore
     .close()
     .catch(() => undefined)
     .finally(() => {
-      void economyStore.close().finally(() => {
-        wss.close(() => process.exit(0));
-      });
+      void avatarProfile
+        .close()
+        .catch(() => undefined)
+        .finally(() => {
+          void economyStore.close().finally(() => {
+            wss.close(() => process.exit(0));
+          });
+        });
     });
 });
 } // end main()
