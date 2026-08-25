@@ -505,8 +505,11 @@ export class Match {
   }
 
   /**
-   * EPIC 23–26: mint kill gold into the human killer's nickname profile, and
-   * on human victims only roll egg/stim/gem/shard/amulet/repair drops.
+   * EPIC 23–26, EPIC 32: mint kill gold into the human killer's nickname
+   * profile and roll egg/stim/gem/shard/amulet/repair drops — but only when
+   * the victim is human. Bot-victim kills grant nothing at all (no gold, no
+   * items) so bots (which respawn indefinitely with no risk to the killer)
+   * cannot act as a riskless gold/item faucet (EPIC 32).
    * Overflow (rolled item cannot grant) substitutes additional gold.
    * Skips fog deaths, self-kills, and non-human shooters (bots have no socket).
    */
@@ -520,6 +523,17 @@ export class Match {
     const killer = this.registry.getPlayer(shooterId);
     if (!killer) return;
 
+    // EPIC 32: bot-victim kills grant no economy reward at all (gold or
+    // items) — only a human-victim kill feeds the economy. Compute this gate
+    // before minting anything, not just before item-drop resolution.
+    const victimIsHuman = this.sockets.has(victimId) && !this.botAI?.isBot(victimId);
+    if (!victimIsHuman) {
+      console.log(
+        `[economy] kill vs bot victim -> no reward (${shooterId} -> ${victimId}) [match=${this.id}]`,
+      );
+      return;
+    }
+
     const primaryGained = randomInt(GOLD_DROP_MIN, GOLD_DROP_MAX + 1);
     await economy.addGold(killer.nickname, primaryGained);
     console.log(
@@ -527,9 +541,7 @@ export class Match {
         `[match=${this.id} kill ${shooterId} -> ${victimId}]`,
     );
 
-    // Item drops: human victims only (bots remain gold-only for items).
-    const victimIsHuman = this.sockets.has(victimId) && !this.botAI?.isBot(victimId);
-    const victimPlayer = victimIsHuman ? this.registry.getPlayer(victimId) : null;
+    const victimPlayer = this.registry.getPlayer(victimId);
     let alreadyGrantedShard = false;
     const killerProfile = await economy.getOrCreateProfile(killer.nickname);
     if (victimPlayer) {

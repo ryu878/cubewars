@@ -4,6 +4,8 @@ Spec format per `ai-office/task-intake.md`.
 Product TZ: `docs/product/emerald-wasteland-economy-tz-v2.1.md`.  
 Depends on: EPIC 23 (merged tip / branch base `task/epic-23-economy-foundation`).
 
+> **Superseded by EPIC 32:** "gold still from EPIC 23" (Section 4 below, egg-drop bullet) assumed a bot-victim kill still mints gold. As of EPIC 32, a bot-victim kill grants **no** gold (and no items) — only a human-victim kill feeds the economy. See `docs/tasks/epic-32-bot-kill-no-economy-reward.md`.
+
 ## 1. EPIC
 
 | Field | Value |

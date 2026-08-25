@@ -4,6 +4,8 @@ Spec format per `ai-office/task-intake.md`.
 Product TZ: `docs/product/emerald-wasteland-economy-tz-v2.1.md`.  
 Depends on: EPIC 24 (`task/epic-24-pets-eggs-equip`).
 
+> **Superseded by EPIC 32:** Section 2.7's "(human victim only)" scoping below covered item drops only — it inherited EPIC 23/24's assumption that gold still mints from a bot-victim kill. As of EPIC 32, a bot-victim kill grants **no** gold either (and no items) — only a human-victim kill feeds the economy. See `docs/tasks/epic-32-bot-kill-no-economy-reward.md`.
+
 ## 1. EPIC
 
 | Field | Value |

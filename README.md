@@ -104,6 +104,13 @@ Combat is server-authoritative too: firing sends a bare "fire" event, and the se
 
 ## Current status
 
+EPIC 32 (Bot Kills Grant No Economy Reward) — see `docs/tasks/epic-32-bot-kill-no-economy-reward.md`. User decision (Russian, translated): "Then don't let gold drop from bots either, or the economy will collapse."
+
+- **Bot-victim kills grant nothing:** killing a bot (any match mode) mints **zero gold and zero items** — this reverses the prior EPIC 23/26 "bots are gold-only for items" design. Only a **human-victim** kill feeds the economy (gold in `[GOLD_DROP_MIN, GOLD_DROP_MAX]` plus normal item-drop resolution, unchanged from before).
+- **Why:** bots respawn indefinitely with no risk to the killer (no death penalty, no gear loss), so unconditional gold-per-bot-kill was an infinite, riskless gold faucet in "vs Bots"/"endless" modes.
+- **Server-only, single-function change:** `grantKillGold()` in `server/src/match.ts` now computes the existing `victimIsHuman` gate before minting anything and returns early (with an explicit `[economy] kill vs bot victim -> no reward` log line, not a silent no-op) when the victim is a bot. No protocol/client changes.
+- Verified via `npm run regression:bot-kill-no-reward` (new — drives `Match.grantKillGold()` directly for both the bot-victim-zero-reward case and the human-victim-unchanged case), `npm run regression:economy-gold`, `npm run regression:economy-persistence`, `npm run typecheck`, and `npm run build`.
+
 EPIC 29 (Inventory Grid UI) — see `docs/tasks/epic-29-inventory-grid.md`.
 
 - **8×8 grid, server-authoritative:** every bag item (gem, egg, stimulator, repair kit, shard stack — 1 cell; pet, amulet — 2 contiguous cells in the same row) carries a `slotAnchor` (0-63) persisted in the Redis economy document (same profile store as EPIC 27). Legacy profiles without anchors are auto-packed once on load and saved.
@@ -150,7 +157,7 @@ EPIC 23 (Economy Persistence Foundation) — see `docs/tasks/epic-23-economy-per
 
 - **Shared economy config:** gold drop band 1–500, item caps, and drop-chance constants live in `shared/src/economy.ts`.
 - **Profiles:** keyed by nickname; as of EPIC 27 stored in Redis (legacy SQLite import optional).
-- **Gold on kill:** confirmed human kills (including bot victims; endless included) mint random gold into the killer's profile and push `economy_gold_update` to that connection. Fog/self deaths do not grant gold.
+- **Gold on kill:** confirmed human kills mint random gold into the killer's profile and push `economy_gold_update` to that connection. Fog/self deaths do not grant gold. **Superseded by EPIC 32:** bot-victim kills used to be gold-only (no items) — as of EPIC 32 a bot victim grants **nothing at all** (no gold, no items); only a human-victim kill feeds the economy.
 - **Client readout:** lobby + HUD show server-provided gold only.
 - Verified via `npm run regression:economy-gold`, `npm run typecheck`, and `npm run build`.
 
