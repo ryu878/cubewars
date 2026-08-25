@@ -104,6 +104,13 @@ Combat is server-authoritative too: firing sends a bare "fire" event, and the se
 
 ## Current status
 
+EPIC 31 (Randomized Bot Equipment Loadouts) — see `docs/tasks/epic-31-bot-equipment-loadouts.md`.
+
+- **Bot loadout archetypes:** each bot (`bots` and `endless` modes alike) is assigned one of 4 archetypes uniform-randomly at spawn, fixed for its lifetime including across its own respawns: A — bare (no pet, no amulet, today's baseline); B — one pet in slot 1 (100% contribution); C — amulet + one pet in slot 2 (40% contribution, demonstrating the amulet-gates-slot-2 rule on its own); D — amulet + two pets (slot 1 100% + slot 2 40%, full loadout). Pet type is random (`dog`/`cat`/`bird`/`lion`) and `baseValue` is random in `[1, 200]`, the same band human pet hatches use; bot pets carry no gems (out of scope).
+- **Combat stats via the shared path, no parallel math:** a bot's loadout is fed through the exact same `aggregateEquippedRatings()` (`shared/src/economy.ts`) and `PlayerRegistry.applyPetRatings()` (`server/src/playerRegistry.ts`) that humans' equipped pets/amulets already go through — max HP, %DR, move speed, and weapon damage modifiers are computed identically for bots and humans, in-memory only (no Redis/persistent bot economy profile). Bot AI targeting/movement/aim (`BotAI.updateOne()`) is unchanged; only what stats a bot has changed, not how it decides to move/aim/fire.
+- **Avatar visual tell:** `PlayerState` broadcasts a cosmetic-only `equippedPetTypes` (pet-type list, slot order) and `hasAmulet` flag for every player, human or bot, mirroring the EPIC 17 `equippedWeapon` reveal precedent — server-computed and read-only, never sent or inferred by the client. `client/src/remotePlayers.ts` renders a small pet-type-colored orb per equipped pet plus a distinct amulet pendant/ring accent, so any avatar (bot or human) visibly telegraphs its loadout at engagement range.
+- Verified via `npm run regression:epic31-bot-loadouts`, `npm run qa:epic31-bot-loadouts`, `npm run typecheck`, and `npm run build`.
+
 EPIC 29 (Inventory Grid UI) — see `docs/tasks/epic-29-inventory-grid.md`.
 
 - **8×8 grid, server-authoritative:** every bag item (gem, egg, stimulator, repair kit, shard stack — 1 cell; pet, amulet — 2 contiguous cells in the same row) carries a `slotAnchor` (0-63) persisted in the Redis economy document (same profile store as EPIC 27). Legacy profiles without anchors are auto-packed once on load and saved.
