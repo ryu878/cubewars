@@ -42,12 +42,15 @@ export const DROP_CHANCE = {
   growthStimulator: 0.08,
 } as const;
 
-/** Auction fee split (TZ §3.1) — reserved for EPIC 28. */
+/** Auction fee split (TZ §3.1 / EPIC 38). */
 export const AUCTION_FEE = {
   totalFraction: 0.1,
   burnFraction: 0.05,
   developerFraction: 0.05,
 } as const;
+
+/** Bidding window for an auction lot (TZ §3.2 / EPIC 38). */
+export const AUCTION_DURATION_MS = 24 * 60 * 60 * 1000;
 
 /** Incubation / stimulator timings (TZ §2.3–2.4). */
 export const INCUBATION = {
@@ -55,7 +58,7 @@ export const INCUBATION = {
   stimulatorMaxRemainingMs: 60 * 60 * 1000,
 } as const;
 
-/** Ground drop TTL (TZ §2.9 / §3.3) — reserved for EPIC 28. */
+/** Ground drop TTL (TZ §2.9 / §3.3 / EPIC 38). */
 export const GROUND_DROP_TTL_MS = 60_000;
 
 // --- Pets / ratings (EPIC 24) ---

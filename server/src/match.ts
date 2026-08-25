@@ -26,6 +26,7 @@ import {
   COMBAT,
   GOLD_DROP_MAX,
   GOLD_DROP_MIN,
+  GROUND_DROP_TTL_MS,
   MAX_PUBLIC_PLAYERS_PER_MATCH,
   PICKUP_RADIUS,
   SPAWN_POINTS,
@@ -36,7 +37,9 @@ import {
   type DeathEvent,
   type EconomyActionResultMessage,
   type EconomyGoldUpdateMessage,
+  type EconomyGroundStateMessage,
   type EconomyProfileMessage,
+  type EconomyTradeStateMessage,
   type FireBroadcastEvent,
   type InventoryItemType,
   type HitEvent,
@@ -66,11 +69,18 @@ import { EndlessWorld } from "./endlessWorld.js";
 import { classifyHitZone, isSpawnProtected, pointOnRay } from "./combat.js";
 import {
   economyScopeFromMatchMode,
-  type EconomyActionError,
+  EconomyActionError,
   type EconomyScope,
   type EconomyStore,
 } from "./economy/index.js";
 import type { AvatarProfileStore } from "./avatarProfile.js";
+import {
+  MatchGroundItems,
+  MatchTradeSessions,
+  executeAtomicTrade,
+  type TradeOfferItem,
+} from "./matchMarket.js";
+import type { EscrowPayload } from "./economy/escrow.js";
 
 // Same tick rate/derivation as the pre-EPIC-9 single global loop
 // (server/src/index.ts) — every Match now runs its own independent copy of
@@ -138,6 +148,10 @@ export class Match {
    * nickname_keys already granted. Not durable across match teardown.
    */
   private matchShardGrants = new Map<string, Set<string>>();
+  /** EPIC 38: ground drops (Deathmatch/public only). */
+  private groundItems = new MatchGroundItems();
+  /** EPIC 38: same-match P2P trades (Deathmatch/public only). */
+  private trades = new MatchTradeSessions();
 
   constructor(private options: MatchOptions) {
     this.id = options.id;
@@ -208,6 +222,7 @@ export class Match {
     await this.sendEconomyProfile(connectionId, nickname);
     this.broadcastScoreboard();
     this.broadcastPickupState();
+    this.broadcastGroundState();
     this.sendEndlessState();
   }
 
@@ -218,6 +233,10 @@ export class Match {
    * don't outlive their one human).
    */
   removeHuman(connectionId: string): void {
+    const cancelled = this.trades.cancelForPlayer(connectionId);
+    if (cancelled) {
+      this.sendTradeState(cancelled, "cancelled");
+    }
     this.registry.remove(connectionId);
     this.sockets.delete(connectionId);
     this.broadcastScoreboard();
@@ -563,6 +582,220 @@ export class Match {
           : "not_found";
       this.sendEconomyActionResult(playerId, action, false, code);
       console.warn(`[economy] ${action} rejected for ${nickname}: ${code}`);
+    }
+  }
+
+  /** EPIC 38: auction/trade/ground only on Deathmatch (public) matches. */
+  private assertDeathmatchMarket(): void {
+    if (this.mode !== "public") {
+      throw new EconomyActionError("not_deathmatch", "auction/trade/ground require Deathmatch");
+    }
+  }
+
+  broadcastGroundState(): void {
+    if (this.mode !== "public") return;
+    const message: EconomyGroundStateMessage = {
+      type: "economy_ground_state",
+      items: this.groundItems.toDtoList(),
+    };
+    this.broadcast(message);
+  }
+
+  private sendTradeState(
+    session: NonNullable<ReturnType<MatchTradeSessions["get"]>>,
+    status: EconomyTradeStateMessage["status"],
+  ): void {
+    for (const playerId of [session.a.playerId, session.b.playerId]) {
+      const socket = this.sockets.get(playerId);
+      if (!socket || socket.readyState !== socket.OPEN) continue;
+      socket.send(JSON.stringify(this.trades.toStateMessage(session, playerId, status)));
+    }
+  }
+
+  async handleDropItem(
+    playerId: string,
+    nickname: string,
+    itemType: InventoryItemType,
+    itemId: number,
+  ): Promise<void> {
+    const economy = this.options.economy;
+    if (!economy) {
+      this.sendEconomyActionResult(playerId, "drop_item", false, "not_found");
+      return;
+    }
+    try {
+      this.assertDeathmatchMarket();
+      const player = this.registry.getPlayer(playerId);
+      if (!player) {
+        this.sendEconomyActionResult(playerId, "drop_item", false, "not_found");
+        return;
+      }
+      const payload: EscrowPayload = await economy.extractBagItem(
+        nickname,
+        itemType,
+        itemId,
+        Date.now(),
+        "deathmatch",
+      );
+      this.groundItems.drop(payload, { ...player.position }, playerId, Date.now(), GROUND_DROP_TTL_MS);
+      this.sendEconomyActionResult(playerId, "drop_item", true);
+      await this.sendEconomyProfile(playerId, nickname);
+      this.broadcastGroundState();
+      console.log(`[ground] drop ${itemType}#${itemId} by ${nickname} [match=${this.id}]`);
+    } catch (err) {
+      const code =
+        err && typeof err === "object" && "code" in err
+          ? String((err as EconomyActionError).code)
+          : "not_found";
+      this.sendEconomyActionResult(playerId, "drop_item", false, code);
+    }
+  }
+
+  async handlePickupGround(playerId: string, nickname: string, groundId: number): Promise<void> {
+    const economy = this.options.economy;
+    if (!economy) {
+      this.sendEconomyActionResult(playerId, "pickup_ground", false, "not_found");
+      return;
+    }
+    // F-001: claim synchronously before any await so concurrent pickups cannot
+    // both pass assertCanAccept and insert reminted duplicates.
+    let claimed: ReturnType<MatchGroundItems["claim"]> | undefined;
+    try {
+      this.assertDeathmatchMarket();
+      claimed = this.groundItems.claim(groundId);
+      if (!claimed) {
+        this.sendEconomyActionResult(playerId, "pickup_ground", false, "not_found");
+        return;
+      }
+      if (Date.now() >= claimed.expiresAtMs) {
+        // Expired — already removed by claim; do not restore (TTL destroy).
+        this.broadcastGroundState();
+        this.sendEconomyActionResult(playerId, "pickup_ground", false, "not_found");
+        claimed = undefined;
+        return;
+      }
+      await economy.assertCanAcceptEscrow(nickname, claimed.payload, "deathmatch");
+      await economy.insertEscrowItem(nickname, claimed.payload, Date.now(), "deathmatch");
+      claimed = undefined; // granted — do not restore
+      this.sendEconomyActionResult(playerId, "pickup_ground", true);
+      await this.sendEconomyProfile(playerId, nickname);
+      this.broadcastGroundState();
+      console.log(`[ground] pickup ground#${groundId} by ${nickname} [match=${this.id}]`);
+    } catch (err) {
+      if (claimed) {
+        this.groundItems.restore(claimed);
+        this.broadcastGroundState();
+      }
+      const code =
+        err && typeof err === "object" && "code" in err
+          ? String((err as EconomyActionError).code)
+          : "not_found";
+      this.sendEconomyActionResult(playerId, "pickup_ground", false, code);
+    }
+  }
+
+  async handleTradeOpen(playerId: string, nickname: string, partnerId: string): Promise<void> {
+    try {
+      this.assertDeathmatchMarket();
+      if (!this.sockets.has(partnerId) || this.botAI?.isBot(partnerId)) {
+        this.sendEconomyActionResult(playerId, "trade_open", false, "trade_invalid");
+        return;
+      }
+      const partner = this.registry.getPlayer(partnerId);
+      if (!partner) {
+        this.sendEconomyActionResult(playerId, "trade_open", false, "trade_invalid");
+        return;
+      }
+      const session = this.trades.open(playerId, nickname, partnerId, partner.nickname);
+      this.sendEconomyActionResult(playerId, "trade_open", true);
+      this.sendEconomyActionResult(partnerId, "trade_open", true);
+      this.sendTradeState(session, "open");
+    } catch (err) {
+      const code =
+        err && typeof err === "object" && "code" in err
+          ? String((err as EconomyActionError).code)
+          : "trade_invalid";
+      this.sendEconomyActionResult(playerId, "trade_open", false, code);
+    }
+  }
+
+  async handleTradeOffer(
+    playerId: string,
+    nickname: string,
+    tradeId: string,
+    gold: number,
+    items: TradeOfferItem[],
+  ): Promise<void> {
+    try {
+      this.assertDeathmatchMarket();
+      const session = this.trades.setOffer(tradeId, playerId, gold, items);
+      this.sendEconomyActionResult(playerId, "trade_offer", true);
+      this.sendTradeState(session, "open");
+      void nickname;
+    } catch (err) {
+      const code =
+        err && typeof err === "object" && "code" in err
+          ? String((err as EconomyActionError).code)
+          : "trade_invalid";
+      this.sendEconomyActionResult(playerId, "trade_offer", false, code);
+    }
+  }
+
+  async handleTradeConfirm(playerId: string, nickname: string, tradeId: string): Promise<void> {
+    const economy = this.options.economy;
+    if (!economy) {
+      this.sendEconomyActionResult(playerId, "trade_confirm", false, "not_found");
+      return;
+    }
+    try {
+      this.assertDeathmatchMarket();
+      const session = this.trades.confirm(tradeId, playerId);
+      this.sendTradeState(session, "open");
+      if (!this.trades.bothConfirmed(session)) {
+        this.sendEconomyActionResult(playerId, "trade_confirm", true);
+        return;
+      }
+      await executeAtomicTrade(economy, session, Date.now());
+      this.trades.cancel(tradeId);
+      this.sendEconomyActionResult(session.a.playerId, "trade_confirm", true);
+      this.sendEconomyActionResult(session.b.playerId, "trade_confirm", true);
+      this.sendTradeState(session, "completed");
+      await this.sendEconomyProfile(session.a.playerId, session.a.nickname);
+      await this.sendEconomyProfile(session.b.playerId, session.b.nickname);
+      void nickname;
+    } catch (err) {
+      const code =
+        err && typeof err === "object" && "code" in err
+          ? String((err as EconomyActionError).code)
+          : "trade_invalid";
+      this.sendEconomyActionResult(playerId, "trade_confirm", false, code);
+      const session = this.trades.get(tradeId);
+      if (session) {
+        session.a.confirmed = false;
+        session.b.confirmed = false;
+        this.sendTradeState(session, "open");
+      }
+    }
+  }
+
+  async handleTradeCancel(playerId: string, tradeId: string): Promise<void> {
+    try {
+      this.assertDeathmatchMarket();
+      const session = this.trades.get(tradeId);
+      if (!session || (session.a.playerId !== playerId && session.b.playerId !== playerId)) {
+        this.sendEconomyActionResult(playerId, "trade_cancel", false, "trade_invalid");
+        return;
+      }
+      this.trades.cancel(tradeId);
+      this.sendEconomyActionResult(session.a.playerId, "trade_cancel", true);
+      this.sendEconomyActionResult(session.b.playerId, "trade_cancel", true);
+      this.sendTradeState(session, "cancelled");
+    } catch (err) {
+      const code =
+        err && typeof err === "object" && "code" in err
+          ? String((err as EconomyActionError).code)
+          : "trade_invalid";
+      this.sendEconomyActionResult(playerId, "trade_cancel", false, code);
     }
   }
 
@@ -1035,6 +1268,11 @@ export class Match {
 
     if (pickupStateChanged) {
       this.broadcastPickupState();
+    }
+
+    // EPIC 38: expire ground drops (destroy — same as discard).
+    if (this.mode === "public" && this.groundItems.expire(nowMs) > 0) {
+      this.broadcastGroundState();
     }
 
     const worldState: WorldStateMessage = {

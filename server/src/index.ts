@@ -13,11 +13,12 @@ import {
   type JoinRejectedMessage,
   type LeaderboardMessage,
   type LobbyStateMessage,
+  type ServerMessage,
   type WelcomeMessage,
 } from "@cubewars/shared";
 import { MatchManager } from "./matchManager.js";
 import type { Match } from "./match.js";
-import { EconomyStore } from "./economy/index.js";
+import { EconomyStore, AuctionHouse } from "./economy/index.js";
 import { AvatarProfileStore } from "./avatarProfile.js";
 import { AccountStore } from "./accounts/index.js";
 
@@ -42,6 +43,14 @@ async function main(): Promise<void> {
     process.exit(1);
     return;
   }
+
+  const auctionHouse = AuctionHouse.fromStore(economyStore);
+  // Settle expired lots periodically (24h window; tests use CUBEWARS_AUCTION_MS).
+  setInterval(() => {
+    void auctionHouse.tick().catch((err) => {
+      console.error("[auction] tick failed:", err);
+    });
+  }, 5_000);
 
   // Flood guard: bound the total number of ANY client messages (input, fire,
 // join, binary, oversized, non-JSON, unrecognized-type — literally anything
@@ -218,19 +227,7 @@ function endlessLeaderboardMessage(): EndlessLeaderboardMessage {
   return { type: "endless_leaderboard", entries: matchManager.listEndlessLeaderboard() };
 }
 
-function sendJson(
-  socket: WebSocket,
-  message:
-    | WelcomeMessage
-    | LobbyStateMessage
-    | LeaderboardMessage
-    | EndlessLeaderboardMessage
-    | JoinAcceptedMessage
-    | JoinRejectedMessage
-    | AccountCreatedMessage
-    | AccountLoginResultMessage
-    | AccountSessionResultMessage,
-): void {
+function sendJson(socket: WebSocket, message: ServerMessage): void {
   if (socket.readyState === socket.OPEN) {
     socket.send(JSON.stringify(message));
   }
@@ -276,6 +273,8 @@ wss.on("connection", (socket: WebSocket) => {
   let match: Match | null = null;
   let nickname: string = playerId;
   let nicknameKey: string = playerId.toLocaleLowerCase();
+  /** True after a successful join this connection — gates lobby auction. */
+  let nicknameReady = false;
   /** EPIC 34: authenticated account for this connection (session-scoped). */
   let accountId: string | null = null;
   lobbySockets.add(socket);
@@ -486,6 +485,7 @@ wss.on("connection", (socket: WebSocket) => {
       }
       nickname = normalized.nickname;
       nicknameKey = normalized.key;
+      nicknameReady = true;
 
       void (async () => {
         if (parsed.type !== "join") return;
@@ -537,6 +537,156 @@ wss.on("connection", (socket: WebSocket) => {
         match = null;
         lobbySockets.add(socket);
       });
+      return;
+    }
+
+    // EPIC 38: auction house is Deathmatch-pool global — available in lobby
+    // after a nickname has been established via join, and inside any match.
+    // Always mutates deathmatch pool only (never sandbox).
+    const isAuctionMsg =
+      parsed.type === "economy_auction_list" ||
+      parsed.type === "economy_auction_bid" ||
+      parsed.type === "economy_auction_buyout" ||
+      parsed.type === "economy_auction_browse";
+    if (isAuctionMsg) {
+      if (!nicknameReady) {
+        notJoinedDropTracker.record(playerId, now);
+        return;
+      }
+      void (async () => {
+        const sendResult = (
+          action: import("@cubewars/shared").EconomyActionResultMessage["action"],
+          ok: boolean,
+          code?: string,
+        ) => {
+          sendJson(socket, { type: "economy_action_result", action, ok, code });
+        };
+        const pushAuctionState = async () => {
+          const state = await auctionHouse.listActiveLots(nickname);
+          sendJson(socket, {
+            type: "economy_auction_state",
+            lots: state.lots,
+            developerGoldLedger: state.developerGoldLedger,
+          });
+        };
+        const pushDeathmatchProfileIfSafe = async () => {
+          // Only overwrite the client's inventory snapshot when they are in a
+          // Deathmatch match (or lobby) — never clobber a Sandbox profile.
+          if (match && match.mode !== "public") return;
+          const profile = await economyStore.getFullProfile(nickname, "deathmatch");
+          sendJson(socket, {
+            type: "economy_profile",
+            nickname: profile.nickname,
+            economyPool: "deathmatch" as const,
+            gold: profile.gold,
+            pets: profile.pets.map((p) => ({
+              id: p.id,
+              type: p.type,
+              baseValue: p.baseValue,
+              equipSlot: p.equipSlot,
+              slotAnchor: p.slotAnchor,
+            })),
+            eggs: profile.eggs.map((e) => ({
+              id: e.id,
+              hatchDeadlineMs: e.hatchDeadlineMs,
+              slotAnchor: e.slotAnchor,
+            })),
+            stimulatorCount: profile.stimulatorCount,
+            stimulators: profile.stimulators.map((s) => ({
+              id: s.id,
+              slotAnchor: s.slotAnchor,
+            })),
+            gems: profile.gems.map((g) => ({
+              id: g.id,
+              gemType: g.gemType,
+              value: g.value,
+              petId: g.petId,
+              slotAnchor: g.slotAnchor,
+            })),
+            amulets: profile.amulets.map((a) => ({
+              id: a.id,
+              durability: a.durability,
+              equipped: a.equipped,
+              slotAnchor: a.slotAnchor,
+            })),
+            shardCount: profile.shardCount,
+            shardSlotAnchor: profile.shardSlotAnchor,
+            repairKitCount: profile.repairKitCount,
+            repairKits: profile.repairKits.map((k) => ({
+              id: k.id,
+              slotAnchor: k.slotAnchor,
+            })),
+            ratings: profile.ratings,
+            slot2Enabled: profile.slot2Enabled,
+          });
+        };
+        try {
+          if (parsed.type === "economy_auction_browse") {
+            sendResult("auction_browse", true);
+            await pushAuctionState();
+            return;
+          }
+          if (parsed.type === "economy_auction_list") {
+            if (
+              typeof parsed.itemType !== "string" ||
+              typeof parsed.itemId !== "number" ||
+              typeof parsed.startPrice !== "number"
+            ) {
+              sendResult("auction_list", false, "invalid_price");
+              return;
+            }
+            await auctionHouse.listItem(
+              nickname,
+              parsed.itemType,
+              parsed.itemId,
+              parsed.startPrice,
+              parsed.buyoutPrice ?? null,
+              Date.now(),
+              parsed.shardQuantity,
+            );
+            sendResult("auction_list", true);
+            await pushDeathmatchProfileIfSafe();
+            await pushAuctionState();
+            return;
+          }
+          if (parsed.type === "economy_auction_bid") {
+            if (typeof parsed.lotId !== "number" || typeof parsed.amount !== "number") {
+              sendResult("auction_bid", false, "invalid_price");
+              return;
+            }
+            await auctionHouse.bid(nickname, parsed.lotId, parsed.amount, Date.now());
+            sendResult("auction_bid", true);
+            await pushDeathmatchProfileIfSafe();
+            await pushAuctionState();
+            return;
+          }
+          if (parsed.type === "economy_auction_buyout") {
+            if (typeof parsed.lotId !== "number") {
+              sendResult("auction_buyout", false, "invalid_price");
+              return;
+            }
+            await auctionHouse.buyout(nickname, parsed.lotId, Date.now());
+            sendResult("auction_buyout", true);
+            await pushDeathmatchProfileIfSafe();
+            await pushAuctionState();
+            return;
+          }
+        } catch (err) {
+          const action =
+            parsed.type === "economy_auction_list"
+              ? "auction_list"
+              : parsed.type === "economy_auction_bid"
+                ? "auction_bid"
+                : parsed.type === "economy_auction_buyout"
+                  ? "auction_buyout"
+                  : "auction_browse";
+          const code =
+            err && typeof err === "object" && "code" in err
+              ? String((err as { code: string }).code)
+              : "not_found";
+          sendResult(action, false, code);
+        }
+      })();
       return;
     }
 
@@ -734,6 +884,68 @@ wss.on("connection", (socket: WebSocket) => {
         itemType: parsed.itemType,
         itemId: parsed.itemId,
       });
+      return;
+    }
+
+    if (parsed.type === "economy_drop_item") {
+      if (
+        typeof parsed.itemType !== "string" ||
+        typeof parsed.itemId !== "number" ||
+        !Number.isInteger(parsed.itemId)
+      ) {
+        malformedInputDropTracker.record(playerId, now);
+        return;
+      }
+      void match.handleDropItem(playerId, nickname, parsed.itemType, parsed.itemId);
+      return;
+    }
+
+    if (parsed.type === "economy_pickup_ground") {
+      if (typeof parsed.groundId !== "number" || !Number.isInteger(parsed.groundId)) {
+        malformedInputDropTracker.record(playerId, now);
+        return;
+      }
+      void match.handlePickupGround(playerId, nickname, parsed.groundId);
+      return;
+    }
+
+    if (parsed.type === "economy_trade_open") {
+      if (typeof parsed.partnerId !== "string" || parsed.partnerId.length === 0) {
+        malformedInputDropTracker.record(playerId, now);
+        return;
+      }
+      void match.handleTradeOpen(playerId, nickname, parsed.partnerId);
+      return;
+    }
+
+    if (parsed.type === "economy_trade_offer") {
+      if (
+        typeof parsed.tradeId !== "string" ||
+        typeof parsed.gold !== "number" ||
+        !Array.isArray(parsed.items)
+      ) {
+        malformedInputDropTracker.record(playerId, now);
+        return;
+      }
+      void match.handleTradeOffer(playerId, nickname, parsed.tradeId, parsed.gold, parsed.items);
+      return;
+    }
+
+    if (parsed.type === "economy_trade_confirm") {
+      if (typeof parsed.tradeId !== "string") {
+        malformedInputDropTracker.record(playerId, now);
+        return;
+      }
+      void match.handleTradeConfirm(playerId, nickname, parsed.tradeId);
+      return;
+    }
+
+    if (parsed.type === "economy_trade_cancel") {
+      if (typeof parsed.tradeId !== "string") {
+        malformedInputDropTracker.record(playerId, now);
+        return;
+      }
+      void match.handleTradeCancel(playerId, parsed.tradeId);
       return;
     }
 

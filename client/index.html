@@ -1105,6 +1105,69 @@
         font-size: 12px;
         color: #c9a66b;
       }
+      /* EPIC 38: auction / trade / ground */
+      #auctionOverlay, #tradeOverlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 40;
+        background: rgba(0, 0, 0, 0.55);
+        align-items: center;
+        justify-content: center;
+      }
+      #auctionOverlay.visible, #tradeOverlay.visible {
+        display: flex;
+      }
+      #auctionPanel, #tradePanel {
+        width: min(560px, 92vw);
+        max-height: 80vh;
+        overflow: auto;
+        background: #1a1f24;
+        color: #e8e8e8;
+        border: 1px solid #445;
+        padding: 1rem 1.25rem;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+      }
+      #auctionPanel h2, #tradePanel h2 {
+        margin: 0 0 0.5rem;
+        font-size: 1.1rem;
+      }
+      .auction-lot {
+        border-top: 1px solid #334;
+        padding: 0.5rem 0;
+        font-size: 0.85rem;
+      }
+      #auctionPanel button, #tradePanel button {
+        margin: 0.25rem 0.25rem 0 0;
+        padding: 0.3rem 0.6rem;
+        cursor: pointer;
+      }
+      #auctionListForm label, #tradePanel label {
+        display: inline-block;
+        margin: 0.25rem 0.5rem 0.25rem 0;
+        font-size: 0.85rem;
+      }
+      #auctionListForm input, #auctionListForm select,
+      #tradePanel input, #tradePanel select {
+        margin-left: 0.25rem;
+      }
+      #groundHud {
+        display: none;
+        position: fixed;
+        left: 50%;
+        bottom: 4.5rem;
+        transform: translateX(-50%);
+        z-index: 15;
+        background: rgba(0, 0, 0, 0.65);
+        color: #f0e6c8;
+        padding: 0.35rem 0.75rem;
+        font-size: 0.8rem;
+        max-width: 90vw;
+        pointer-events: none;
+      }
+      #groundHud.visible {
+        display: block;
+      }
       #ratingsHud {
         position: fixed;
         top: 64px;
@@ -1207,7 +1270,7 @@
     <div id="hint">
       <div class="hint-box">
         <strong>Click to play</strong><br />
-        WASD move &middot; Mouse look &middot; Click to fire &middot; Space jump &middot; E switch weapon &middot; I inventory (P) &middot; Esc to release &middot; Hold Tab for scoreboard
+        WASD move &middot; Mouse look &middot; Click to fire &middot; Space jump &middot; E switch weapon &middot; I inventory (P) &middot; U auction &middot; T trade &middot; F pickup ground &middot; Esc to release &middot; Hold Tab for scoreboard
       </div>
     </div>
     <div id="modeSelect">

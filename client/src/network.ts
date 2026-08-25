@@ -7,8 +7,11 @@ import type {
   ClientMessage,
   DeathEvent,
   EconomyActionResultMessage,
+  EconomyAuctionStateMessage,
   EconomyGoldUpdateMessage,
+  EconomyGroundStateMessage,
   EconomyProfileMessage,
+  EconomyTradeStateMessage,
   EndlessLeaderboardMessage,
   EndlessStateMessage,
   FireBroadcastEvent,
@@ -63,6 +66,12 @@ export interface NetworkHandlers {
   onEconomyGoldUpdate?: (message: EconomyGoldUpdateMessage) => void;
   /** Result of an economy action (EPIC 24) — private, server-authored. */
   onEconomyActionResult?: (message: EconomyActionResultMessage) => void;
+  /** EPIC 38: auction catalog snapshot. */
+  onEconomyAuctionState?: (message: EconomyAuctionStateMessage) => void;
+  /** EPIC 38: ground items in the current match. */
+  onEconomyGroundState?: (message: EconomyGroundStateMessage) => void;
+  /** EPIC 38: P2P trade window state. */
+  onEconomyTradeState?: (message: EconomyTradeStateMessage) => void;
   /** EPIC 34: new account created (stub code returned once). */
   onAccountCreated?: (message: AccountCreatedMessage) => void;
   /** EPIC 34: login result (or register→code_required). */
@@ -126,6 +135,12 @@ export class GameConnection {
           handlers.onEconomyGoldUpdate?.(message);
         } else if (message.type === "economy_action_result") {
           handlers.onEconomyActionResult?.(message);
+        } else if (message.type === "economy_auction_state") {
+          handlers.onEconomyAuctionState?.(message);
+        } else if (message.type === "economy_ground_state") {
+          handlers.onEconomyGroundState?.(message);
+        } else if (message.type === "economy_trade_state") {
+          handlers.onEconomyTradeState?.(message);
         } else if (message.type === "account_created") {
           handlers.onAccountCreated?.(message);
         } else if (message.type === "account_login_result") {

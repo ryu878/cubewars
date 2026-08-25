@@ -25,6 +25,13 @@ export {
   type EconomyStoreOpenOptions,
 } from "./store.js";
 export {
+  AuctionHouse,
+  AUCTION_SCOPE,
+  resolveAuctionDurationMs,
+  type AuctionLotRecord,
+} from "./auction.js";
+export { escrowToDto, type EscrowPayload, type EscrowInsertRef } from "./escrow.js";
+export {
   findFit,
   occupiedCells,
   autoPackDocument,
