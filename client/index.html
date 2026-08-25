@@ -691,6 +691,18 @@
         color: #ffe082;
         font-variant-numeric: tabular-nums;
       }
+      #lobbyGoldPoolHint {
+        color: #9ab08e;
+        font-weight: 600;
+        font-size: 12px;
+      }
+      #modeSelect .mode-economy-hint {
+        margin: 10px 0 0;
+        font-size: 12px;
+        line-height: 1.35;
+        color: #9ab08e;
+        text-align: left;
+      }
 
       /*
        * EPIC 29: 8x8 inventory grid overlay — replaces the old EPIC 24/25
@@ -727,6 +739,19 @@
         font-size: 18px;
         font-weight: 800;
         letter-spacing: 0.02em;
+      }
+      .inv-pool-badge {
+        margin: 0 0 8px;
+        font-size: 13px;
+        font-weight: 700;
+        color: #c8e6a0;
+        letter-spacing: 0.02em;
+      }
+      .inv-pool-badge[data-pool="sandbox"] {
+        color: #9ec8ff;
+      }
+      .inv-pool-badge[data-pool="deathmatch"] {
+        color: #ffe082;
       }
       #inventoryCloseBtn {
         float: right;
@@ -957,6 +982,7 @@
       <div id="inventoryPanel">
         <button id="inventoryCloseBtn" type="button">Close</button>
         <h2>Inventory</h2>
+        <p id="inventoryPoolBadge" class="inv-pool-badge">Pool: —</p>
         <p class="inv-meta">
           Gold: <span id="inventoryGold">—</span> · Press I (or P) to toggle
         </p>
@@ -1023,7 +1049,7 @@
         <p>Choose a nickname and join a game</p>
         <label for="nicknameInput">Nickname</label>
         <input id="nicknameInput" type="text" maxlength="16" autocomplete="nickname" placeholder="Player" />
-        <div id="lobbyGold">Gold: <span id="lobbyGoldValue">—</span></div>
+        <div id="lobbyGold">Gold: <span id="lobbyGoldValue">—</span> <span id="lobbyGoldPoolHint">(Deathmatch pool)</span></div>
         <div class="mode-section-title">Games</div>
         <div id="lobbyList" aria-live="polite"></div>
         <div class="mode-section-title">Leaderboard</div>
@@ -1032,10 +1058,13 @@
         <div id="endlessLeaderboardList" aria-live="polite"></div>
         <div id="modeSelectError" aria-live="polite"></div>
         <div class="mode-select-buttons">
-          <button id="modePublicBtn" type="button" disabled>Quick Join</button>
-          <button id="modeBotsBtn" type="button" disabled>vs Bots</button>
-          <button id="modeEndlessBtn" type="button" disabled>Endless</button>
+          <button id="modePublicBtn" type="button" disabled>Quick Join — Deathmatch</button>
+          <button id="modeBotsBtn" type="button" disabled>vs Bots — Sandbox</button>
+          <button id="modeEndlessBtn" type="button" disabled>Endless — Sandbox</button>
         </div>
+        <p class="mode-economy-hint">
+          Deathmatch and Sandbox are separate gold/inventory pools. Sandbox farming cannot feed Deathmatch.
+        </p>
       </div>
     </div>
     <div id="endlessHud" aria-hidden="true">

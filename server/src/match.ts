@@ -61,7 +61,12 @@ import { PickupSpawner } from "./pickupSpawner.js";
 import { BotAI } from "./botAI.js";
 import { EndlessWorld } from "./endlessWorld.js";
 import { classifyHitZone, pointOnRay } from "./combat.js";
-import type { EconomyActionError, EconomyStore } from "./economy/index.js";
+import {
+  economyScopeFromMatchMode,
+  type EconomyActionError,
+  type EconomyScope,
+  type EconomyStore,
+} from "./economy/index.js";
 
 // Same tick rate/derivation as the pre-EPIC-9 single global loop
 // (server/src/index.ts) — every Match now runs its own independent copy of
@@ -274,16 +279,24 @@ export class Match {
     socket.send(JSON.stringify(message));
   }
 
+
+  /** EPIC 35: server-derived pool for this match — never from the client. */
+  private economyScope(): EconomyScope {
+    return economyScopeFromMatchMode(this.mode);
+  }
+
   /** Send durable economy snapshot to the owning human socket only (EPIC 23–25). */
   async sendEconomyProfile(playerId: string, nickname: string): Promise<void> {
     const economy = this.options.economy;
     if (!economy) return;
     const socket = this.sockets.get(playerId);
     if (!socket || socket.readyState !== socket.OPEN) return;
-    const profile = await economy.getFullProfile(nickname);
+    const scope = this.economyScope();
+    const profile = await economy.getFullProfile(nickname, scope);
     const message: EconomyProfileMessage = {
       type: "economy_profile",
       nickname: profile.nickname,
+      economyPool: scope,
       gold: profile.gold,
       pets: profile.pets.map((p) => ({
         id: p.id,
@@ -358,7 +371,7 @@ export class Match {
   async applyEconomyCombatToPlayer(playerId: string, nickname: string): Promise<void> {
     const economy = this.options.economy;
     if (!economy) return;
-    const full = await economy.getFullProfile(nickname);
+    const full = await economy.getFullProfile(nickname, this.economyScope());
     this.registry.applyPetRatings(playerId, full.ratings);
     const equippedPetTypes = full.pets
       .filter((pet) => pet.equipSlot === 1 || pet.equipSlot === 2)
@@ -392,6 +405,7 @@ export class Match {
       this.sendEconomyActionResult(playerId, action, false, "not_found");
       return;
     }
+    const scope = this.economyScope();
     try {
       if (action === "equip") {
         if (typeof payload.petId !== "number" || !Number.isInteger(payload.petId)) {
@@ -399,25 +413,25 @@ export class Match {
           return;
         }
         const slot = payload.slot ?? 1;
-        await economy.equipPet(nickname, payload.petId, slot);
+        await economy.equipPet(nickname, payload.petId, slot, Date.now(), scope);
       } else if (action === "unequip") {
         if (typeof payload.petId !== "number" || !Number.isInteger(payload.petId)) {
           this.sendEconomyActionResult(playerId, action, false, "not_found");
           return;
         }
-        await economy.unequipPet(nickname, payload.petId);
+        await economy.unequipPet(nickname, payload.petId, Date.now(), scope);
       } else if (action === "hatch") {
         if (typeof payload.eggId !== "number" || !Number.isInteger(payload.eggId)) {
           this.sendEconomyActionResult(playerId, action, false, "not_found");
           return;
         }
-        await economy.hatchEgg(nickname, payload.eggId);
+        await economy.hatchEgg(nickname, payload.eggId, Date.now(), undefined, scope);
       } else if (action === "stimulator") {
         if (typeof payload.eggId !== "number" || !Number.isInteger(payload.eggId)) {
           this.sendEconomyActionResult(playerId, action, false, "not_found");
           return;
         }
-        await economy.applyStimulator(nickname, payload.eggId);
+        await economy.applyStimulator(nickname, payload.eggId, Date.now(), scope);
       } else if (action === "socket_gem") {
         if (
           typeof payload.gemId !== "number" ||
@@ -428,33 +442,33 @@ export class Match {
           this.sendEconomyActionResult(playerId, action, false, "not_found");
           return;
         }
-        await economy.socketGem(nickname, payload.gemId, payload.petId);
+        await economy.socketGem(nickname, payload.gemId, payload.petId, Date.now(), scope);
       } else if (action === "unsocket_gem") {
         if (typeof payload.gemId !== "number" || !Number.isInteger(payload.gemId)) {
           this.sendEconomyActionResult(playerId, action, false, "not_found");
           return;
         }
-        await economy.unsocketGem(nickname, payload.gemId);
+        await economy.unsocketGem(nickname, payload.gemId, Date.now(), scope);
       } else if (action === "equip_amulet") {
         if (typeof payload.amuletId !== "number" || !Number.isInteger(payload.amuletId)) {
           this.sendEconomyActionResult(playerId, action, false, "not_found");
           return;
         }
-        await economy.equipAmulet(nickname, payload.amuletId);
+        await economy.equipAmulet(nickname, payload.amuletId, Date.now(), scope);
       } else if (action === "unequip_amulet") {
         if (typeof payload.amuletId !== "number" || !Number.isInteger(payload.amuletId)) {
           this.sendEconomyActionResult(playerId, action, false, "not_found");
           return;
         }
-        await economy.unequipAmulet(nickname, payload.amuletId);
+        await economy.unequipAmulet(nickname, payload.amuletId, Date.now(), scope);
       } else if (action === "craft_amulet") {
-        await economy.craftAmulet(nickname);
+        await economy.craftAmulet(nickname, Date.now(), scope);
       } else if (action === "repair_amulet") {
         if (typeof payload.amuletId !== "number" || !Number.isInteger(payload.amuletId)) {
           this.sendEconomyActionResult(playerId, action, false, "not_found");
           return;
         }
-        await economy.repairAmulet(nickname, payload.amuletId);
+        await economy.repairAmulet(nickname, payload.amuletId, Date.now(), scope);
       } else if (action === "move_item") {
         if (
           typeof payload.itemType !== "string" ||
@@ -466,7 +480,14 @@ export class Match {
           this.sendEconomyActionResult(playerId, action, false, "not_found");
           return;
         }
-        await economy.moveItem(nickname, payload.itemType, payload.itemId, payload.toAnchor);
+        await economy.moveItem(
+          nickname,
+          payload.itemType,
+          payload.itemId,
+          payload.toAnchor,
+          Date.now(),
+          scope,
+        );
       } else if (action === "discard_item") {
         if (
           typeof payload.itemType !== "string" ||
@@ -476,7 +497,13 @@ export class Match {
           this.sendEconomyActionResult(playerId, action, false, "not_found");
           return;
         }
-        await economy.discardItem(nickname, payload.itemType, payload.itemId);
+        await economy.discardItem(
+          nickname,
+          payload.itemType,
+          payload.itemId,
+          Date.now(),
+          scope,
+        );
       }
       await this.applyEconomyCombatToPlayer(playerId, nickname);
       this.sendEconomyActionResult(playerId, action, true);
@@ -504,7 +531,11 @@ export class Match {
     if (this.botAI?.isBot(victimId)) return;
     const victim = this.registry.getPlayer(victimId);
     if (!victim) return;
-    const result = await economy.applyHumanDeathPenalties(victim.nickname);
+    const result = await economy.applyHumanDeathPenalties(
+      victim.nickname,
+      Date.now(),
+      this.economyScope(),
+    );
     await this.applyEconomyCombatToPlayer(victimId, victim.nickname);
     await this.sendEconomyProfile(victimId, victim.nickname);
     console.log(
@@ -518,11 +549,14 @@ export class Match {
   }
 
   /**
-   * EPIC 23–26, EPIC 32: mint kill gold into the human killer's nickname
-   * profile and roll egg/stim/gem/shard/amulet/repair drops — but only when
-   * the victim is human. Bot-victim kills grant nothing at all (no gold, no
-   * items) so bots (which respawn indefinitely with no risk to the killer)
-   * cannot act as a riskless gold/item faucet (EPIC 32).
+   * EPIC 23–26, EPIC 32, EPIC 35: mint kill gold + item drops into the
+   * match-scoped economy pool (deathmatch | sandbox).
+   *
+   * - deathmatch (public): EPIC 32 gate — human victims only; bot victims
+   *   grant nothing (preserves competitive anti-farm).
+   * - sandbox (bots/endless): bot and human victims both grant rewards, but
+   *   only into the isolated sandbox pool (cannot feed deathmatch).
+   *
    * Overflow (rolled item cannot grant) substitutes additional gold.
    * Skips fog deaths, self-kills, and non-human shooters (bots have no socket).
    */
@@ -536,51 +570,62 @@ export class Match {
     const killer = this.registry.getPlayer(shooterId);
     if (!killer) return;
 
-    // EPIC 32: bot-victim kills grant no economy reward at all (gold or
-    // items) — only a human-victim kill feeds the economy. Compute this gate
-    // before minting anything, not just before item-drop resolution.
+    const scope = this.economyScope();
     const victimIsHuman = this.sockets.has(victimId) && !this.botAI?.isBot(victimId);
-    if (!victimIsHuman) {
+
+    // Deathmatch keeps EPIC 32: bot victims grant nothing. Sandbox rewards
+    // bot and human kills into the sandbox pool only.
+    if (scope === "deathmatch" && !victimIsHuman) {
       console.log(
-        `[economy] kill vs bot victim -> no reward (${shooterId} -> ${victimId}) [match=${this.id}]`,
+        `[economy] kill vs bot victim -> no reward (${shooterId} -> ${victimId})` +
+          ` [scope=${scope} match=${this.id}]`,
       );
       return;
     }
 
     const primaryGained = randomInt(GOLD_DROP_MIN, GOLD_DROP_MAX + 1);
-    await economy.addGold(killer.nickname, primaryGained);
+    await economy.addGold(killer.nickname, primaryGained, scope);
     console.log(
       `[economy] gold minted: +${primaryGained} -> ${killer.nickname} ` +
-        `[match=${this.id} kill ${shooterId} -> ${victimId}]`,
+        `[scope=${scope} match=${this.id} kill ${shooterId} -> ${victimId}]`,
     );
 
     const victimPlayer = this.registry.getPlayer(victimId);
     let alreadyGrantedShard = false;
-    const killerProfile = await economy.getOrCreateProfile(killer.nickname);
-    if (victimPlayer) {
+    const killerProfile = await economy.getOrCreateProfile(killer.nickname, scope);
+    // Never create economy profiles for bot nicknames (EPIC 31). Victim drop
+    // context (gem/amulet/shard copy) only applies to human victims.
+    if (victimIsHuman && victimPlayer) {
       const killerKey = killerProfile.nicknameKey;
-      const victimKey = (await economy.getOrCreateProfile(victimPlayer.nickname)).nicknameKey;
+      const victimKey = (await economy.getOrCreateProfile(victimPlayer.nickname, scope))
+        .nicknameKey;
       alreadyGrantedShard = this.matchShardGrants.get(killerKey)?.has(victimKey) ?? false;
     }
+    // Sandbox: full drop rolls even vs bots (EPIC 35). Deathmatch: human only
+    // (EPIC 32). resolveKillDrops still needs victimIsHuman-or-sandbox for the
+    // early gate; victim inventory copy only runs when victim context is set.
+    const dropsEligible = scope === "sandbox" || victimIsHuman;
     const drops = await economy.resolveKillDrops(
       killer.nickname,
-      victimIsHuman,
+      dropsEligible,
       {},
       Date.now(),
-      victimPlayer
+      victimIsHuman && victimPlayer
         ? {
             nickname: victimPlayer.nickname,
             alreadyGrantedShard,
           }
         : undefined,
+      scope,
     );
     // Consume once-per-victim shard opportunity on successful grant OR overflow→gold
     // substitute (EPIC 26 F-001: do not farm substitute gold from the same victim).
     const shardOpportunityConsumed =
       drops.shard || drops.substitutedKinds.includes("shard");
-    if (shardOpportunityConsumed && victimPlayer) {
+    if (shardOpportunityConsumed && victimIsHuman && victimPlayer) {
       const killerKey = killerProfile.nicknameKey;
-      const victimKey = (await economy.getOrCreateProfile(victimPlayer.nickname)).nicknameKey;
+      const victimKey = (await economy.getOrCreateProfile(victimPlayer.nickname, scope))
+        .nicknameKey;
       let set = this.matchShardGrants.get(killerKey);
       if (!set) {
         set = new Set();
@@ -589,7 +634,7 @@ export class Match {
       set.add(victimKey);
     }
 
-    const profile = await economy.getOrCreateProfile(killer.nickname);
+    const profile = await economy.getOrCreateProfile(killer.nickname, scope);
     const totalGained = primaryGained + drops.substitutedGold;
     this.sendEconomyGoldUpdate(shooterId, profile.gold, totalGained);
 
@@ -603,7 +648,7 @@ export class Match {
           `${drops.shard ? " shard" : ""}` +
           `${drops.amulet ? ` amulet#${drops.amulet.id}` : ""}` +
           `${drops.repairKit ? " repairKit" : ""}` +
-          ` [match=${this.id}]`,
+          ` [scope=${scope} match=${this.id}]`,
       );
     }
     if (drops.substitutedGold > 0) {
@@ -611,7 +656,8 @@ export class Match {
       console.log(
         `[economy] drop_substituted_gold total=+${drops.substitutedGold}` +
           ` kinds=${drops.substitutedKinds.join(",")}` +
-          ` -> ${killer.nickname} (total gold ${profile.gold}) [match=${this.id}]`,
+          ` -> ${killer.nickname} (total gold ${profile.gold})` +
+          ` [scope=${scope} match=${this.id}]`,
       );
     }
   }

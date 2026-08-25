@@ -65,6 +65,7 @@ export class InventoryOverlay {
   private overlayEl: HTMLElement;
   private gridEl: HTMLElement;
   private goldEl: HTMLElement;
+  private poolBadgeEl: HTMLElement;
   private ratingsEl: HTMLElement;
   private capsEl: HTMLElement;
   private railEl: HTMLElement;
@@ -101,6 +102,7 @@ export class InventoryOverlay {
     this.overlayEl = document.getElementById("inventoryOverlay") as HTMLElement;
     this.gridEl = document.getElementById("inventoryGrid") as HTMLElement;
     this.goldEl = document.getElementById("inventoryGold") as HTMLElement;
+    this.poolBadgeEl = document.getElementById("inventoryPoolBadge") as HTMLElement;
     this.ratingsEl = document.getElementById("inventoryRatings") as HTMLElement;
     this.capsEl = document.getElementById("inventoryCaps") as HTMLElement;
     this.railEl = document.getElementById("inventoryRail") as HTMLElement;
@@ -199,6 +201,8 @@ export class InventoryOverlay {
   private render(): void {
     if (!this.profile) {
       this.goldEl.textContent = "—";
+      this.poolBadgeEl.textContent = "Pool: Deathmatch (join a match to load)";
+      this.poolBadgeEl.dataset.pool = "deathmatch";
       this.ratingsEl.textContent = "Join a match to load your inventory.";
       this.capsEl.textContent = "";
       this.gridEl.replaceChildren();
@@ -206,6 +210,12 @@ export class InventoryOverlay {
       this.detailsEl.replaceChildren();
       return;
     }
+    const pool = this.profile.economyPool;
+    this.poolBadgeEl.dataset.pool = pool;
+    this.poolBadgeEl.textContent =
+      pool === "sandbox"
+        ? "Pool: Sandbox (bots / endless — separate from Deathmatch)"
+        : "Pool: Deathmatch (competitive)";
     this.goldEl.textContent = String(this.profile.gold);
     const r = this.profile.ratings;
     this.ratingsEl.textContent =
