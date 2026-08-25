@@ -15,13 +15,19 @@ import {
 import { MatchManager } from "./matchManager.js";
 import type { Match } from "./match.js";
 import { EconomyStore } from "./economy/index.js";
+import { AvatarProfileStore } from "./avatarProfile.js";
 
 const PORT = Number(process.env.CUBEWARS_SERVER_PORT ?? 7777);
 
 async function main(): Promise<void> {
   let economyStore: EconomyStore;
+  let avatarProfile: AvatarProfileStore;
   try {
     economyStore = await EconomyStore.open();
+    avatarProfile = await AvatarProfileStore.open({
+      redisUrl: economyStore.redisUrl,
+      keyPrefix: economyStore.keyPrefix,
+    });
   } catch (err) {
     console.error(err instanceof Error ? err.message : String(err));
     process.exit(1);
@@ -98,6 +104,7 @@ const matchManager = new MatchManager({
   onLeaderboardChanged: () => broadcastLobbyLeaderboard(),
   onEndlessLeaderboardChanged: () => broadcastLobbyEndlessLeaderboard(),
   economy: economyStore,
+  avatarProfile,
 });
 await matchManager.hydrateFromEconomy();
 
@@ -583,6 +590,22 @@ wss.on("connection", (socket: WebSocket) => {
       return;
     }
 
+    if (parsed.type === "avatar_set_color") {
+      void (async () => {
+        const ok = await match.handleAvatarSetColor(
+          playerId,
+          nickname,
+          nicknameKey,
+          parsed.part,
+          parsed.paletteIndex,
+        );
+        if (!ok) {
+          malformedInputDropTracker.record(playerId, Date.now());
+        }
+      })();
+      return;
+    }
+
     unknownTypeDropTracker.record(playerId, now);
   });
 
@@ -626,9 +649,14 @@ wss.on("error", (err) => {
 
 process.on("SIGINT", () => {
   console.log("[server] shutting down");
-  void economyStore.close().finally(() => {
-    wss.close(() => process.exit(0));
-  });
+  void avatarProfile
+    .close()
+    .catch(() => undefined)
+    .finally(() => {
+      void economyStore.close().finally(() => {
+        wss.close(() => process.exit(0));
+      });
+    });
 });
 } // end main()
 

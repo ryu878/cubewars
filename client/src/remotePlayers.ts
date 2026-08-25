@@ -3,7 +3,18 @@
 // never renders their own avatar.
 
 import * as THREE from "three";
-import { PET_TYPES, WEAPON_STATS, type PetType, type PlayerState, type Vector3, type WeaponType } from "@cubewars/shared";
+import {
+  PET_TYPES,
+  WEAPON_STATS,
+  avatarColorsKey,
+  defaultAvatarColors,
+  resolveAvatarColor,
+  type AvatarColors,
+  type PetType,
+  type PlayerState,
+  type Vector3,
+  type WeaponType,
+} from "@cubewars/shared";
 
 // Keep the avatar within the existing server hitbox's rough silhouette.
 // The server-side hitscan still uses the unchanged AABB approximation from
@@ -72,6 +83,8 @@ interface AvatarState {
   /** EPIC 31: last-applied pet-tell types, compared by joined-string equality to skip redundant material swaps (mirrors the currentWeapon discipline above). */
   currentPetTypesKey: string;
   currentHasAmulet: boolean;
+  /** EPIC 33: last-applied avatar palette key (skip redundant color writes). */
+  currentAvatarColorsKey: string;
   /** EPIC 36: last applied protection opacity state (avoids redundant material writes). */
   spawnProtected: boolean;
 }
@@ -190,8 +203,9 @@ function buildAvatar(): AvatarPartSet {
   const root = new THREE.Group();
   root.name = "remote-avatar";
 
-  // EPIC 36: clone shared template materials so per-avatar opacity (and any
-  // future per-avatar color work, EPIC 33) cannot leak across every player.
+  // EPIC 36: clone shared template materials so per-avatar opacity (and EPIC 33
+  // per-avatar colors) cannot leak across every player. Arms and legs get
+  // separate material clones so they can diverge by palette index.
   const torso = box(BODY_WIDTH, TORSO_HEIGHT, BODY_DEPTH, bodyMaterial.clone());
   torso.name = "avatar:torso";
   torso.position.y = FEET_Y + LEG_HEIGHT + TORSO_HEIGHT / 2;
@@ -295,6 +309,27 @@ function applyPetVisual(parts: AvatarPartSet, petTypes: readonly PetType[], hasA
   parts.amuletPendant.visible = hasAmulet;
 }
 
+function setMeshColor(mesh: THREE.Mesh, hex: number): void {
+  const mat = mesh.material as THREE.MeshStandardMaterial;
+  mat.color.setHex(hex);
+  // Color only — leave opacity / transparent / depthWrite for EPIC 36.
+}
+
+/**
+ * EPIC 33: apply palette indices to per-avatar body materials.
+ * Arms share one color (hands); legs share another — never mutates shared templates.
+ */
+function applyAvatarColors(parts: AvatarPartSet, colors: AvatarColors): void {
+  setMeshColor(parts.head, resolveAvatarColor(colors.head));
+  setMeshColor(parts.torso, resolveAvatarColor(colors.torso));
+  const handsHex = resolveAvatarColor(colors.hands);
+  setMeshColor(parts.leftArm, handsHex);
+  setMeshColor(parts.rightArm, handsHex);
+  const legsHex = resolveAvatarColor(colors.legs);
+  setMeshColor(parts.leftLeg, legsHex);
+  setMeshColor(parts.rightLeg, legsHex);
+}
+
 /** EPIC 36: set opacity on every mesh material under this avatar (body + weapons + tells). */
 function applySpawnProtectionVisual(parts: AvatarPartSet, protectedNow: boolean): void {
   const opacity = protectedNow ? SPAWN_PROTECTION_OPACITY : 1;
@@ -365,6 +400,8 @@ export class RemotePlayers {
       if (!avatar) {
         const parts = buildAvatar();
         parts.root.name = `remote-avatar:${player.id}`;
+        const colors = player.avatarColors ?? defaultAvatarColors();
+        applyAvatarColors(parts, colors);
         applyWeapon(parts, player.equippedWeapon);
         applyPetVisual(parts, player.equippedPetTypes, player.hasAmulet);
         this.scene.add(parts.root);
@@ -377,6 +414,7 @@ export class RemotePlayers {
           currentWeapon: player.equippedWeapon,
           currentPetTypesKey: petTypesKey(player.equippedPetTypes),
           currentHasAmulet: player.hasAmulet,
+          currentAvatarColorsKey: avatarColorsKey(colors),
           spawnProtected: false,
         };
         this.avatars.set(player.id, avatar);
@@ -399,6 +437,13 @@ export class RemotePlayers {
         avatar.currentPetTypesKey = nextPetTypesKey;
         avatar.currentHasAmulet = player.hasAmulet;
         applyPetVisual(avatar.parts, player.equippedPetTypes, player.hasAmulet);
+      }
+
+      const colors = player.avatarColors ?? defaultAvatarColors();
+      const nextColorsKey = avatarColorsKey(colors);
+      if (avatar.currentAvatarColorsKey !== nextColorsKey) {
+        avatar.currentAvatarColorsKey = nextColorsKey;
+        applyAvatarColors(avatar.parts, colors);
       }
 
       // EPIC 36: opacity from server-broadcast deadline vs this tick's

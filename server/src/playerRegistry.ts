@@ -14,7 +14,9 @@ import {
   WEAPON_ORDER,
   WEAPON_STATS,
   applyArmorDr,
+  cloneAvatarColors,
   damageMultiplierFromRatings,
+  defaultAvatarColors,
   emptyRatings,
   maxHealthBonusFromRatings,
   speedMultiplierFromRatings,
@@ -22,6 +24,7 @@ import {
   crateTopHeightAt,
   resolveHorizontalCollisions,
   resolveSteppedMovement,
+  type AvatarColors,
   type PickupCategory,
   type DamageKind,
   type DamageZone,
@@ -133,6 +136,12 @@ export interface PlayerRecord {
   equippedPetTypes: PetType[];
   /** EPIC 31: cosmetic-only reveal of whether an amulet is currently equipped (enables slot 2). Same non-combat, broadcast-only role as equippedPetTypes. */
   hasAmulet: boolean;
+  /**
+   * EPIC 33: cosmetic avatar palette indices (head/torso/hands/legs).
+   * Humans: loaded from AvatarProfileStore on join; bots: random at spawn.
+   * Broadcast via toWorldState(); never combat-relevant.
+   */
+  avatarColors: AvatarColors;
   /** False while dead and waiting to respawn. */
   alive: boolean;
   /** Server timestamp (Date.now()-based) at which a dead player should respawn; null while alive. */
@@ -416,6 +425,7 @@ export class PlayerRegistry {
       petRatings: emptyRatings(),
       equippedPetTypes: [],
       hasAmulet: false,
+      avatarColors: defaultAvatarColors(),
       alive: true,
       respawnAtMs: null,
       // EPIC 36: freshly-joined / freshly-spawned players get the same grace
@@ -473,6 +483,17 @@ export class PlayerRegistry {
     if (!player) return;
     player.equippedPetTypes = [...petTypes];
     player.hasAmulet = hasAmulet;
+  }
+
+  /**
+   * EPIC 33: set cosmetic avatar colors on a live PlayerRecord (humans after
+   * Redis load / avatar_set_color; bots after random assignment). Broadcast
+   * every tick via toWorldState() — same path as equippedWeapon.
+   */
+  setAvatarColors(playerId: string, colors: AvatarColors): void {
+    const player = this.players.get(playerId);
+    if (!player) return;
+    player.avatarColors = cloneAvatarColors(colors);
   }
 
   remove(id: string): void {
@@ -1159,6 +1180,7 @@ export class PlayerRegistry {
         equippedWeapon: player.equippedWeapon,
         equippedPetTypes: [...player.equippedPetTypes],
         hasAmulet: player.hasAmulet,
+        avatarColors: cloneAvatarColors(player.avatarColors),
         alive: player.alive,
         spawnProtectedUntilMs: player.spawnProtectedUntilMs,
       });

@@ -19,6 +19,7 @@ import {
   SPAWN_POINTS,
   aggregateEquippedRatings,
   boxBounds,
+  randomAvatarColors,
   rayIntersectsAabb,
   type EquippedPetInput,
   type PetType,
@@ -164,9 +165,13 @@ function applyBotLoadout(registry: PlayerRegistry, botId: string, loadout: BotLo
     loadout.pets.map((pet) => pet.type),
     loadout.hasAmulet,
   );
+  // EPIC 33: independently random palette index per body part (in-memory only).
+  const avatarColors = randomAvatarColors();
+  registry.setAvatarColors(botId, avatarColors);
   const petsLabel = loadout.pets.map((pet) => `${pet.type}#${pet.baseValue}`).join(",");
   console.log(
-    `[bots] ${botId} loadout: archetype=${loadout.archetype} pets=[${petsLabel}] amulet=${loadout.hasAmulet}`,
+    `[bots] ${botId} loadout: archetype=${loadout.archetype} pets=[${petsLabel}] amulet=${loadout.hasAmulet} ` +
+      `colors=h${avatarColors.head}/t${avatarColors.torso}/a${avatarColors.hands}/l${avatarColors.legs}`,
   );
 }
 

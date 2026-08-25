@@ -29,6 +29,8 @@ export * from "./weapons.js";
 export * from "./pickups.js";
 export * from "./nickname.js";
 export * from "./economy.js";
+export * from "./avatar.js";
+import type { AvatarBodyPart, AvatarColors } from "./avatar.js";
 
 export const PROTOCOL_VERSION = 1;
 
@@ -299,6 +301,17 @@ export interface EconomyDiscardItemMessage {
   itemId: number;
 }
 
+/**
+ * Client -> server: request a cosmetic avatar color change (EPIC 33).
+ * Server validates `part` + `paletteIndex` against the shared palette before
+ * persisting or broadcasting — never trust raw client colors into PlayerState.
+ */
+export interface AvatarSetColorMessage {
+  type: "avatar_set_color";
+  part: AvatarBodyPart;
+  paletteIndex: number;
+}
+
 export type ClientMessage =
   | PlayerInputMessage
   | FireEvent
@@ -315,7 +328,8 @@ export type ClientMessage =
   | EconomyCraftAmuletMessage
   | EconomyRepairAmuletMessage
   | EconomyMoveItemMessage
-  | EconomyDiscardItemMessage;
+  | EconomyDiscardItemMessage
+  | AvatarSetColorMessage;
 
 /** A single player's authoritative, server-computed state as broadcast to all clients. */
 export interface PlayerState {
@@ -351,6 +365,12 @@ export interface PlayerState {
   equippedPetTypes: PetType[];
   /** EPIC 31: whether this player currently has an amulet equipped (enables pet slot 2). Same cosmetic-reveal precedent as equippedPetTypes. */
   hasAmulet: boolean;
+  /**
+   * EPIC 33: palette indices for head/torso/hands/legs. Same cosmetic-reveal
+   * precedent as equippedWeapon / equippedPetTypes — server-computed,
+   * read-only on the wire; clients never inject claimed colors for others.
+   */
+  avatarColors: AvatarColors;
   /** False while dead and waiting to respawn — server stops applying movement/combat for this player while false. */
   alive: boolean;
   /**
