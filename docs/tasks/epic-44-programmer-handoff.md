@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-25 |
 | Author (Pusya) | Pusya (Programmer) |
 | Task / Story / EPIC | EPIC 44 — Kill Loot Drop VFX (Victim → Killer) |
-| Branch / commit / PR | `task/epic-44-kill-loot-drop-vfx` / (see git) / (PR if opened) |
+| Branch / commit / PR | `task/epic-44-kill-loot-drop-vfx` / `897f1016abe27ed50537d6adb700bef3187228ff` / PR not opened via `gh` (auth account cannot resolve `ryu878/cubewars`); branch pushed — open at https://github.com/ryu878/cubewars/pull/new/task/epic-44-kill-loot-drop-vfx |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
