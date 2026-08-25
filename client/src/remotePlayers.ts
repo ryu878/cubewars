@@ -3,7 +3,7 @@
 // never renders their own avatar.
 
 import * as THREE from "three";
-import { WEAPON_STATS, type PlayerState, type Vector3, type WeaponType } from "@cubewars/shared";
+import { PET_TYPES, WEAPON_STATS, type PetType, type PlayerState, type Vector3, type WeaponType } from "@cubewars/shared";
 
 // Keep the avatar within the existing server hitbox's rough silhouette.
 // The server-side hitscan still uses the unchanged AABB approximation from
@@ -20,6 +20,29 @@ const FEET_Y = 0;
 const RUN_SPEED_THRESHOLD = 0.45;
 const RUN_PHASE_SPEED = 9;
 
+// EPIC 31 "Randomized Bot Equipment Loadouts" Section 3.4: small, cheap
+// visual tell for equipped pets/amulet, applied uniformly to any PlayerState
+// carrying this data (bots and humans alike — one broadcast path, see
+// server/src/match.ts applyEconomyCombatToPlayer() / server/src/botAI.ts
+// applyBotLoadout()). Not required to be pixel-perfect, just readable at
+// typical engagement range (spec Section 3.4).
+const PET_ORB_RADIUS = 0.1;
+/** Slot-order shoulder/backpack anchor positions for up to 2 pet orbs (slot1, slot2) — mounted just outside the backpack's left/right edge, at the same depth as the backpack so they read as small satellite orbs riding beside it (not buried inside the torso silhouette). */
+const PET_ORB_LOCAL_POSITIONS: readonly [number, number, number][] = [
+  [-0.34, 0, 0.27],
+  [0.34, 0, 0.27],
+];
+const AMULET_RING_OUTER_RADIUS = 0.13;
+const AMULET_RING_TUBE_RADIUS = 0.028;
+
+/** Color per PetType (EPIC 31 spec Section 3.4: "color-coded by pet type") — matches each type's primary rating axis (shared/src/economy.ts PET_TYPE_RATING): dog/armor -> steel grey, cat/health -> red, bird/speed -> cyan, lion/damage -> orange. */
+const PET_ORB_COLORS: Record<PetType, number> = {
+  dog: 0x9aa0ab,
+  cat: 0xe0435c,
+  bird: 0x36c7e0,
+  lion: 0xf2a93b,
+};
+
 interface AvatarPartSet {
   root: THREE.Group;
   torso: THREE.Mesh;
@@ -31,6 +54,10 @@ interface AvatarPartSet {
   rightLeg: THREE.Mesh;
   weaponAnchor: THREE.Group;
   weapons: Record<WeaponType, THREE.Group>;
+  /** EPIC 31: up to 2 pet-tell orbs, slot order [slot1, slot2], hidden by default. */
+  petOrbs: THREE.Mesh[];
+  /** EPIC 31: amulet-tell pendant, hidden by default. */
+  amuletPendant: THREE.Mesh;
 }
 
 interface AvatarState {
@@ -40,6 +67,9 @@ interface AvatarState {
   running: boolean;
   runPhase: number;
   currentWeapon: WeaponType;
+  /** EPIC 31: last-applied pet-tell types, compared by joined-string equality to skip redundant material swaps (mirrors the currentWeapon discipline above). */
+  currentPetTypesKey: string;
+  currentHasAmulet: boolean;
 }
 
 const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x2d6cdf, roughness: 0.7 });
@@ -47,6 +77,28 @@ const limbMaterial = new THREE.MeshStandardMaterial({ color: 0x2b2d42, roughness
 const headMaterial = new THREE.MeshStandardMaterial({ color: 0xf2c197, roughness: 0.8 });
 const faceMaterial = new THREE.MeshStandardMaterial({ color: 0x101318, roughness: 0.5 });
 const backpackMaterial = new THREE.MeshStandardMaterial({ color: 0x1b1d2a, roughness: 0.75 });
+
+/** One glowing-orb material per PetType (EPIC 31) — swapped onto a shared orb mesh per slot rather than rebuilt per player, matching this file's existing per-type-material style (see weaponMaterial()). */
+const petOrbMaterials: Record<PetType, THREE.MeshStandardMaterial> = Object.fromEntries(
+  PET_TYPES.map((type) => [
+    type,
+    new THREE.MeshStandardMaterial({
+      color: PET_ORB_COLORS[type],
+      emissive: PET_ORB_COLORS[type],
+      emissiveIntensity: 0.5,
+      roughness: 0.4,
+    }),
+  ]),
+) as Record<PetType, THREE.MeshStandardMaterial>;
+
+/** Amulet pendant material (EPIC 31) — a distinct gold glow so it reads as "amulet", not "another pet orb", at a glance (spec Section 3.4). */
+const amuletMaterial = new THREE.MeshStandardMaterial({
+  color: 0xffd75e,
+  emissive: 0xffb300,
+  emissiveIntensity: 0.55,
+  metalness: 0.6,
+  roughness: 0.25,
+});
 
 function box(sizeX: number, sizeY: number, sizeZ: number, material: THREE.Material): THREE.Mesh {
   return new THREE.Mesh(new THREE.BoxGeometry(sizeX, sizeY, sizeZ), material);
@@ -176,8 +228,29 @@ function buildAvatar(): AvatarPartSet {
     weaponAnchor.add(weapon);
   }
 
-  root.add(torso, backpack, head, leftLeg, rightLeg, leftArm, rightArm, weaponAnchor);
-  return { root, torso, head, face, leftArm, rightArm, leftLeg, rightLeg, weaponAnchor, weapons };
+  // EPIC 31 pet-tell orbs: small spheres near the shoulder/backpack, one per
+  // slot, hidden until a loadout arrives (applyPetVisual() below).
+  const petOrbs: THREE.Mesh[] = PET_ORB_LOCAL_POSITIONS.map(([x, , z]) => {
+    const orb = new THREE.Mesh(new THREE.SphereGeometry(PET_ORB_RADIUS, 10, 10), petOrbMaterials.dog);
+    orb.name = "avatar:pet-orb";
+    orb.position.set(x, backpack.position.y + TORSO_HEIGHT * 0.22, z);
+    orb.visible = false;
+    return orb;
+  });
+
+  // EPIC 31 amulet-tell pendant: a small ring at the neck/chest, visually
+  // distinct (gold glow) from the pet orbs so "has amulet" reads separately
+  // from "has pet" at a glance (spec Section 3.4).
+  const amuletPendant = new THREE.Mesh(
+    new THREE.TorusGeometry(AMULET_RING_OUTER_RADIUS, AMULET_RING_TUBE_RADIUS, 8, 16),
+    amuletMaterial,
+  );
+  amuletPendant.name = "avatar:amulet-pendant";
+  amuletPendant.position.set(0, torso.position.y + TORSO_HEIGHT * 0.42, -BODY_DEPTH / 2 - 0.02);
+  amuletPendant.visible = false;
+
+  root.add(torso, backpack, head, leftLeg, rightLeg, leftArm, rightArm, weaponAnchor, ...petOrbs, amuletPendant);
+  return { root, torso, head, face, leftArm, rightArm, leftLeg, rightLeg, weaponAnchor, weapons, petOrbs, amuletPendant };
 }
 
 function clonePosition(position: Vector3): Vector3 {
@@ -192,6 +265,25 @@ function applyWeapon(parts: AvatarPartSet, weapon: WeaponType): void {
   for (const [type, group] of Object.entries(parts.weapons) as Array<[WeaponType, THREE.Group]>) {
     group.visible = type === weapon;
   }
+}
+
+/** EPIC 31 Section 3.4: show/hide + color the pet-tell orbs and amulet pendant from the server-broadcast, cosmetic-only PlayerState fields. */
+function applyPetVisual(parts: AvatarPartSet, petTypes: readonly PetType[], hasAmulet: boolean): void {
+  for (let slot = 0; slot < parts.petOrbs.length; slot++) {
+    const orb = parts.petOrbs[slot]!;
+    const type = petTypes[slot];
+    if (type) {
+      orb.visible = true;
+      orb.material = petOrbMaterials[type];
+    } else {
+      orb.visible = false;
+    }
+  }
+  parts.amuletPendant.visible = hasAmulet;
+}
+
+function petTypesKey(petTypes: readonly PetType[]): string {
+  return petTypes.join(",");
 }
 
 function poseStanding(parts: AvatarPartSet): void {
@@ -243,6 +335,7 @@ export class RemotePlayers {
         const parts = buildAvatar();
         parts.root.name = `remote-avatar:${player.id}`;
         applyWeapon(parts, player.equippedWeapon);
+        applyPetVisual(parts, player.equippedPetTypes, player.hasAmulet);
         this.scene.add(parts.root);
         avatar = {
           parts,
@@ -251,6 +344,8 @@ export class RemotePlayers {
           running: false,
           runPhase: 0,
           currentWeapon: player.equippedWeapon,
+          currentPetTypesKey: petTypesKey(player.equippedPetTypes),
+          currentHasAmulet: player.hasAmulet,
         };
         this.avatars.set(player.id, avatar);
       } else {
@@ -265,6 +360,13 @@ export class RemotePlayers {
       if (avatar.currentWeapon !== player.equippedWeapon) {
         avatar.currentWeapon = player.equippedWeapon;
         applyWeapon(avatar.parts, player.equippedWeapon);
+      }
+
+      const nextPetTypesKey = petTypesKey(player.equippedPetTypes);
+      if (avatar.currentPetTypesKey !== nextPetTypesKey || avatar.currentHasAmulet !== player.hasAmulet) {
+        avatar.currentPetTypesKey = nextPetTypesKey;
+        avatar.currentHasAmulet = player.hasAmulet;
+        applyPetVisual(avatar.parts, player.equippedPetTypes, player.hasAmulet);
       }
 
       avatar.parts.root.position.set(player.position.x, player.position.y, player.position.z);

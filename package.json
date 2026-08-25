@@ -27,10 +27,12 @@
     "regression:economy-persistence": "tsx scripts/regression-economy-persistence.ts",
     "regression:economy-redis-safety": "tsx scripts/regression-economy-redis-safety.ts",
     "regression:economy-inventory": "tsx scripts/regression-economy-inventory.ts",
+    "regression:epic31-bot-loadouts": "tsx scripts/regression-epic31-bot-loadouts.ts",
     "regression:fire-input-drop-rate": "node scripts/regression-fire-input-drop-rate.mjs",
     "qa:epic17-avatar-selfcheck": "node scripts/qa-epic17-avatar-selfcheck.mjs",
     "qa:epic18-hold-fire": "node scripts/qa-epic18-hold-fire.mjs",
-    "qa:epic19-combat-effects": "node scripts/qa-epic19-combat-effects.mjs"
+    "qa:epic19-combat-effects": "node scripts/qa-epic19-combat-effects.mjs",
+    "qa:epic31-bot-loadouts": "node scripts/qa-epic31-tester-playwright.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.0.1",

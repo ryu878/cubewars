@@ -15,9 +15,13 @@
 import {
   ARENA_GEOMETRY,
   EYE_HEIGHT,
+  PET_TYPES,
   SPAWN_POINTS,
+  aggregateEquippedRatings,
   boxBounds,
   rayIntersectsAabb,
+  type EquippedPetInput,
+  type PetType,
   type Ray,
   type MapBox,
   type Vector3,
@@ -62,6 +66,109 @@ const AIM_TOLERANCE_RAD = 0.08;
  * shots at the ~45-unit detection-range edge mostly miss.
  */
 const AIM_JITTER_RAD = 0.05;
+
+/**
+ * EPIC 31 "Randomized Bot Equipment Loadouts": the 4 documented archetypes
+ * (spec Section 3.1), uniform-random pick per bot spawn.
+ *
+ * A -- Bare: no pets, no amulet (today's baseline bot behavior, unchanged).
+ * B -- One pet in slot 1 (100% contribution), no amulet.
+ * C -- One pet in slot 2 (40% contribution, amulet-gated) + amulet.
+ * D -- Two pets, slot 1 (100%) + slot 2 (40%), + amulet.
+ */
+export type BotLoadoutArchetype = "A" | "B" | "C" | "D";
+
+const BOT_LOADOUT_ARCHETYPES: readonly BotLoadoutArchetype[] = ["A", "B", "C", "D"] as const;
+
+/** One pet slot in a generated bot loadout, ready to feed straight into aggregateEquippedRatings() (shared/src/economy.ts). */
+interface BotPetSlot {
+  type: PetType;
+  baseValue: number;
+  equipSlot: 1 | 2;
+}
+
+export interface BotLoadout {
+  archetype: BotLoadoutArchetype;
+  pets: BotPetSlot[];
+  hasAmulet: boolean;
+}
+
+/**
+ * Same [1, 200] inclusive band a freshly-hatched HUMAN pet gets
+ * (server/src/economy/store.ts randomBaseValue()) so a geared bot is
+ * comparable in power to a geared human, not a separate balance curve
+ * (EPIC 31 spec Section 3.1). Deliberately duplicated as a one-liner here
+ * rather than importing from economy/store.ts: that module is Redis/DB
+ * backed and bots must never gain any cross-module coupling into the
+ * economy store (see EPIC 31 spec Section 8 risk: "must not accidentally
+ * wire bots into the Redis economy store").
+ */
+function randomBotPetBaseValue(): number {
+  return 1 + Math.floor(Math.random() * 200);
+}
+
+function randomPetType(): PetType {
+  return PET_TYPES[Math.floor(Math.random() * PET_TYPES.length)]!;
+}
+
+/** Generate one bot's fixed-for-its-lifetime loadout (EPIC 31 spec Section 3.1) — pure, no registry/economy access. */
+export function generateBotLoadout(): BotLoadout {
+  const archetype = BOT_LOADOUT_ARCHETYPES[Math.floor(Math.random() * BOT_LOADOUT_ARCHETYPES.length)]!;
+  switch (archetype) {
+    case "A":
+      return { archetype, pets: [], hasAmulet: false };
+    case "B":
+      return {
+        archetype,
+        pets: [{ type: randomPetType(), baseValue: randomBotPetBaseValue(), equipSlot: 1 }],
+        hasAmulet: false,
+      };
+    case "C":
+      return {
+        archetype,
+        pets: [{ type: randomPetType(), baseValue: randomBotPetBaseValue(), equipSlot: 2 }],
+        hasAmulet: true,
+      };
+    case "D":
+      return {
+        archetype,
+        pets: [
+          { type: randomPetType(), baseValue: randomBotPetBaseValue(), equipSlot: 1 },
+          { type: randomPetType(), baseValue: randomBotPetBaseValue(), equipSlot: 2 },
+        ],
+        hasAmulet: true,
+      };
+  }
+}
+
+/**
+ * Apply a generated loadout to an already-spawned bot: aggregate ratings via
+ * the exact same pure function humans' computeRatings() uses
+ * (aggregateEquippedRatings(), shared/src/economy.ts — no new combat math),
+ * push them through registry.applyPetRatings() (the identical entry point
+ * applyEconomyCombatToPlayer() uses for humans in match.ts), and set the
+ * cosmetic visual-tell reveal (registry.setEquipmentVisual()) from the same
+ * loadout. Logs one line per bot spawn (EPIC 31 spec acceptance criteria:
+ * "server-side log line per bot spawn showing its assigned loadout").
+ */
+function applyBotLoadout(registry: PlayerRegistry, botId: string, loadout: BotLoadout): void {
+  const pets: EquippedPetInput[] = loadout.pets.map((pet) => ({
+    type: pet.type,
+    baseValue: pet.baseValue,
+    equipSlot: pet.equipSlot,
+  }));
+  const ratings = aggregateEquippedRatings(pets, loadout.hasAmulet);
+  registry.applyPetRatings(botId, ratings);
+  registry.setEquipmentVisual(
+    botId,
+    loadout.pets.map((pet) => pet.type),
+    loadout.hasAmulet,
+  );
+  const petsLabel = loadout.pets.map((pet) => `${pet.type}#${pet.baseValue}`).join(",");
+  console.log(
+    `[bots] ${botId} loadout: archetype=${loadout.archetype} pets=[${petsLabel}] amulet=${loadout.hasAmulet}`,
+  );
+}
 
 export type BotState = "SEEKING" | "ENGAGING";
 
@@ -151,6 +258,7 @@ export class BotAI {
     for (let i = 0; i < count; i++) {
       const id = `Bot ${this.bots.size + 1}`;
       this.registry.spawn(id, id, id.toLocaleLowerCase());
+      applyBotLoadout(this.registry, id, generateBotLoadout());
       this.bots.set(id, {
         id,
         state: "SEEKING",
@@ -165,6 +273,7 @@ export class BotAI {
 
   spawnBotAt(id: string, position: Vector3, nickname: string = id): void {
     this.registry.spawnAt(id, position, nickname, nickname.toLocaleLowerCase());
+    applyBotLoadout(this.registry, id, generateBotLoadout());
     this.bots.set(id, {
       id,
       state: "SEEKING",
