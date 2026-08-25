@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-25T18:25:00Z |
 | Author (Pusya) | Programmer (Pusya) |
 | Task / Story / EPIC | EPIC 43 — Inventory Cell Size, Icons, and Hover Tooltips (`docs/tasks/epic-43-inventory-icons-tooltips.md`) |
-| Branch / commit / PR | `task/epic-43-inventory-icons-tooltips` / tip `dca4a64` (feature `0b16d78`, handoff SHA note `dca4a64`) / pushed to origin; PR optional — Team Lead merges after chain |
+| Branch / commit / PR | `task/epic-43-inventory-icons-tooltips` (pushed to origin). Implementation: `0b16d78`. Handoff docs commits follow on the same branch. PR optional — Team Lead merges after chain. |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 | Base SHA (`master` at branch creation) | `a6e7aceb98209f4d1981697b45ea4332ff489997` |
 
