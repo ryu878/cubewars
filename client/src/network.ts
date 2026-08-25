@@ -1,6 +1,9 @@
 // Transport layer only — no game/simulation logic here (per global-standards.mdc).
 
 import type {
+  AccountCreatedMessage,
+  AccountLoginResultMessage,
+  AccountSessionResultMessage,
   ClientMessage,
   DeathEvent,
   EconomyActionResultMessage,
@@ -60,6 +63,12 @@ export interface NetworkHandlers {
   onEconomyGoldUpdate?: (message: EconomyGoldUpdateMessage) => void;
   /** Result of an economy action (EPIC 24) — private, server-authored. */
   onEconomyActionResult?: (message: EconomyActionResultMessage) => void;
+  /** EPIC 34: new account created (stub code returned once). */
+  onAccountCreated?: (message: AccountCreatedMessage) => void;
+  /** EPIC 34: login result (or register→code_required). */
+  onAccountLoginResult?: (message: AccountLoginResultMessage) => void;
+  /** EPIC 34: session resume result. */
+  onAccountSessionResult?: (message: AccountSessionResultMessage) => void;
   onClose?: () => void;
   onError?: (err: Event) => void;
 }
@@ -117,6 +126,12 @@ export class GameConnection {
           handlers.onEconomyGoldUpdate?.(message);
         } else if (message.type === "economy_action_result") {
           handlers.onEconomyActionResult?.(message);
+        } else if (message.type === "account_created") {
+          handlers.onAccountCreated?.(message);
+        } else if (message.type === "account_login_result") {
+          handlers.onAccountLoginResult?.(message);
+        } else if (message.type === "account_session_result") {
+          handlers.onAccountSessionResult?.(message);
         }
       } catch (err) {
         console.error("[client] failed to parse server message", err);

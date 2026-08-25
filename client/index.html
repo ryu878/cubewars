@@ -704,6 +704,102 @@
         text-align: left;
       }
 
+      /* EPIC 34: account email/code stub auth (above nickname/mode join). */
+      #accountAuth {
+        margin: 0 0 16px;
+        padding: 12px 14px;
+        text-align: left;
+        background: rgba(255, 255, 255, 0.06);
+        border-radius: 8px;
+      }
+      #accountAuth.hidden {
+        display: none;
+      }
+      #accountAuth .account-auth-title {
+        margin: 0 0 4px;
+        font-size: 14px;
+        font-weight: 650;
+        color: #e8efe9;
+      }
+      #accountAuth .account-auth-hint {
+        margin: 0 0 10px;
+        color: #9aa;
+        font-size: 11px;
+        line-height: 1.4;
+      }
+      #accountAuth label {
+        display: block;
+        margin: 0 0 6px;
+        font-size: 12px;
+        color: #ccc;
+        text-align: left;
+      }
+      #accountAuth input {
+        box-sizing: border-box;
+        width: 100%;
+        margin: 0 0 10px;
+        padding: 8px 10px;
+        border: 1px solid #444;
+        border-radius: 6px;
+        background: #1a1a1f;
+        color: #fff;
+        font-size: 14px;
+      }
+      #accountAuth button {
+        width: 100%;
+        margin: 0 0 4px;
+        padding: 9px 12px;
+        border: none;
+        border-radius: 6px;
+        background: #3d7a4f;
+        color: #fff;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      #accountAuth button:hover:not(:disabled) {
+        background: #4a915e;
+      }
+      #accountAuth button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      #accountAuthError {
+        min-height: 1.2em;
+        margin: 6px 0 0;
+        color: #f0a0a0;
+        font-size: 12px;
+      }
+      #accountRevealCode {
+        margin: 8px 0 12px;
+        padding: 10px 12px;
+        border-radius: 6px;
+        background: #111;
+        color: #9ec9a8;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-align: center;
+      }
+      #accountSignedIn {
+        margin: 0 0 14px;
+        padding: 8px 10px;
+        text-align: left;
+        color: #9ec9a8;
+        font-size: 12px;
+        background: rgba(62, 122, 79, 0.18);
+        border-radius: 6px;
+      }
+      #accountSignedIn.hidden {
+        display: none;
+      }
+      #accountEmailStep.hidden,
+      #accountCodeStep.hidden,
+      #accountCodeReveal.hidden {
+        display: none;
+      }
+
       /*
        * EPIC 29: 8x8 inventory grid overlay — replaces the old EPIC 24/25
        * list-only pets panel (client/src/petsPanel.ts, retired). Same dark
@@ -1136,7 +1232,36 @@
       </section>
       <div class="mode-select-box">
         <h1>cubewars</h1>
-        <p>Choose a nickname and join a game</p>
+        <p>Sign in, choose a nickname, and join a game</p>
+
+        <div id="accountSignedIn" class="hidden" aria-live="polite">
+          Signed in as <strong id="accountSignedInEmail"></strong>
+        </div>
+        <div id="accountAuth">
+          <div class="account-auth-title">Account</div>
+          <p class="account-auth-hint">
+            Email login code is shown on screen for now (not emailed). Save it — you will need it on another device.
+          </p>
+          <div id="accountEmailStep">
+            <label for="accountEmailInput">Email</label>
+            <input id="accountEmailInput" type="email" maxlength="254" autocomplete="email" placeholder="you@example.com" />
+            <button id="accountEmailBtn" type="button" disabled>Continue</button>
+          </div>
+          <div id="accountCodeStep" class="hidden">
+            <label for="accountCodeInput">Login code</label>
+            <input id="accountCodeInput" type="text" maxlength="16" autocomplete="one-time-code" placeholder="NNN-NNN" />
+            <button id="accountCodeBtn" type="button" disabled>Log in</button>
+          </div>
+          <div id="accountCodeReveal" class="hidden">
+            <p class="account-auth-hint">
+              Temporary stub: this code will not be shown again. It is not emailed yet — copy it now to log in later.
+            </p>
+            <div id="accountRevealCode" aria-live="polite"></div>
+            <button id="accountContinueBtn" type="button">I saved my code — continue</button>
+          </div>
+          <div id="accountAuthError" aria-live="polite"></div>
+        </div>
+
         <label for="nicknameInput">Nickname</label>
         <input id="nicknameInput" type="text" maxlength="16" autocomplete="nickname" placeholder="Player" />
         <div id="lobbyGold">Gold: <span id="lobbyGoldValue">—</span> <span id="lobbyGoldPoolHint">(Deathmatch pool)</span></div>
