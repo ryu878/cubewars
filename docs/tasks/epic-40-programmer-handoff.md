@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-25 |
 | Author (Pusya) | Pusya |
 | Task / Story / EPIC | EPIC 40: Companion Pet Distance & Scale Polish |
-| Branch / commit / PR | `task/epic-40-companion-pet-distance-scale` @ tip after this file’s pin commit; compare: https://github.com/ryu878/cubewars/compare/master...task/epic-40-companion-pet-distance-scale (gh PR create failed: auth account cannot resolve repo — TL may open PR) |
+| Branch / commit / PR | `task/epic-40-companion-pet-distance-scale` — impl `101183b4662559c2917c41621897141b047f6f5e`, docs tip at push time `3fe0f8a91604b3c2f3a7024395ce10f67b8cb02b` (+ follow-up pin if present). Compare: https://github.com/ryu878/cubewars/compare/master...task/epic-40-companion-pet-distance-scale. PR not opened (`gh` auth account cannot resolve `ryu878/cubewars`) — Team Lead may open. |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
