@@ -104,6 +104,13 @@ Combat is server-authoritative too: firing sends a bare "fire" event, and the se
 
 ## Current status
 
+EPIC 40 (Companion Pet Distance & Scale Polish) — see `docs/tasks/epic-40-companion-pet-distance-scale.md`. User feedback: after EPIC 39, pets clung near the torso and were hard to notice next to amulets.
+
+- **Layout:** companions float farther from the avatar (arm’s-length lateral offset, modest forward Z) and ~45° upward from the torso center so they sit shoulder/head-adjacent instead of waist-cling.
+- **Scale:** modest root scale on the companion group enlarges body + cyan glow together; amulet gold pendant position/materials unchanged.
+- **Scope:** client-only cosmetic anchors/scale in `client/src/remotePlayers.ts` — no server/shared/protocol or hitscan changes; dual-slot `side` → `PET_SIDE_X` deconflict (EPIC 39 F-001) preserved.
+- Verified via `npm run regression:epic39-companion-pets`, `npm run typecheck`, and `npm run build`.
+
 EPIC 30 (Weapon Viewmodel & Pickup Visual Polish, Round 2) — see `docs/tasks/epic-30-weapon-pickup-visual-polish.md`. User feedback: held weapons and map pickups still looked crude after EPIC 10; armor still read as a generic shape.
 
 - **Viewmodels:** pistol / rifle / grenade launcher rebuilt as multi-material composites (grip/stock accents, metallic barrel tips, sights, magazine/foregrip/barrel-rim details) while keeping sway, recoil, muzzle flash, and empty-dim behavior.
