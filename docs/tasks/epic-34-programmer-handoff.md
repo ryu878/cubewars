@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-25 |
 | Author (Pusya) | Programmer (Pusya) |
 | Task / Story / EPIC | EPIC 34 — Email + Code Stub Auth, Persistent Sessions |
-| Branch / commit / PR | `task/epic-34-account-auth-sessions` @ `80c109f`; base `master` @ `158f4f4` |
+| Branch / commit / PR | `task/epic-34-account-auth-sessions` @ `4d4bf4f`; base `master` @ `158f4f4` |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
