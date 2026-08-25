@@ -21,6 +21,7 @@ import type { Match } from "./match.js";
 import { EconomyStore, AuctionHouse } from "./economy/index.js";
 import { AvatarProfileStore } from "./avatarProfile.js";
 import { AccountStore } from "./accounts/index.js";
+import { isSpawnProtected } from "./combat.js";
 
 const PORT = Number(process.env.CUBEWARS_SERVER_PORT ?? 7777);
 
@@ -714,6 +715,13 @@ wss.on("connection", (socket: WebSocket) => {
       // this is an expected race while a client's own respawn state is
       // still in flight.
       if (!match.registry.isAlive(playerId)) return;
+
+      // EPIC 41: spawn-protected shooters cannot fire — skip before the
+      // cooldown stamp so a blocked attempt does not burn rate-of-fire.
+      // registry.fire() also gates this authoritatively; this avoids an
+      // unfair lastFireAcceptedAt advance on a no-op.
+      const shooter = match.registry.getPlayer(playerId);
+      if (shooter && isSpawnProtected(shooter, now)) return;
 
       // EPIC 6: the rate-of-fire cap is the shooter's own equipped weapon's
       // cooldown (WEAPON_STATS[...].cooldownMs), read fresh every fire

@@ -181,8 +181,15 @@ const viewmodel = new WeaponViewmodel(camera);
 // play on the local onFire trigger below — always kept in sync with the
 // server's own LoadoutMessage (onLoadout), never guessed independently.
 let currentWeapon: WeaponType = "pistol";
+// EPIC 41: local spawn-protection gate mirrors HUD (world_state only —
+// no free-running timer). While protected, suppress juice + outbound fire.
+let selfSpawnProtectedUntilMs = 0;
+let lastWorldServerTimeMs = 0;
 const fps = new FpsController(camera, renderer.domElement, {
   onFire: () => {
+    // EPIC 41: same predicate as HUD SPAWN PROTECTED — broadcast deadline
+    // vs latest serverTimeMs. Server still authoritatively no-ops fire.
+    if (lastWorldServerTimeMs < selfSpawnProtectedUntilMs) return;
     // Immediate local "juice" — cosmetic only, fired before any server
     // round trip. The actual hit outcome (if any) only ever comes from the
     // server's HitEvent broadcast below (security-baseline.mdc: the client
@@ -195,7 +202,8 @@ const fps = new FpsController(camera, renderer.domElement, {
     soundManager.playGunshot(currentWeapon);
     connection.send({ type: "fire" });
   },
-  shouldAutoFire: () => currentWeapon === "pistol",
+  shouldAutoFire: () =>
+    currentWeapon === "pistol" && lastWorldServerTimeMs >= selfSpawnProtectedUntilMs,
   getAutoFireIntervalMs: () => WEAPON_STATS.pistol.cooldownMs,
   // EPIC 14 Story 14.2: fires exactly once per genuine ground-jump trigger
   // (see fpsController.ts's onJump doc comment) — never for the bunny-hop
@@ -401,6 +409,9 @@ const connection = new GameConnection(wsUrl, {
         hud.setArmor(self.armor);
         // EPIC 36: spawn-protection cue from broadcast deadline vs this
         // tick's serverTimeMs only (no local free-running countdown).
+        // EPIC 41: same values gate local fire prediction / outbound "fire".
+        selfSpawnProtectedUntilMs = self.spawnProtectedUntilMs;
+        lastWorldServerTimeMs = message.serverTimeMs;
         const protectRemaining = self.spawnProtectedUntilMs - message.serverTimeMs;
         hud.setSpawnProtection(protectRemaining > 0 ? protectRemaining : null);
         hud.setDead(!self.alive);

@@ -29,6 +29,7 @@ import {
   type Vector3,
 } from "@cubewars/shared";
 import type { PlayerRegistry } from "./playerRegistry.js";
+import { isSpawnProtected } from "./combat.js";
 
 /** SEEKING <-> ENGAGING switch distance, world units (EPIC 9 spec Section 3: "e.g. 45 units"). Horizontal (x/z) distance, matching the rest of this codebase's ground-plane proximity checks. */
 const DETECTION_RANGE = 45;
@@ -373,7 +374,13 @@ export class BotAI {
 
       const cooldownMs = this.registry.getFireCooldownMs(bot.id);
       const aimed = Math.abs(wrapAngle(desiredYaw - nextYaw)) <= AIM_TOLERANCE_RAD;
-      if (aimed && nowMs - bot.lastFireAcceptedAt >= cooldownMs) {
+      // EPIC 41: do not stamp lastFireAcceptedAt while spawn-protected —
+      // registry.fire() would no-op anyway; burning cooldown would be unfair.
+      if (
+        aimed &&
+        !isSpawnProtected(self, nowMs) &&
+        nowMs - bot.lastFireAcceptedAt >= cooldownMs
+      ) {
         bot.lastFireAcceptedAt = nowMs;
         // EPIC 11 Story 11.4: apply this shot's random aim jitter via the
         // SAME validated applyInput() entry point (never a direct field

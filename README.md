@@ -104,6 +104,8 @@ Combat is server-authoritative too: firing sends a bare "fire" event, and the se
 
 ## Current status
 
+EPIC 41 (Spawn Protection Must Block Firing) — see `docs/tasks/epic-41-spawn-protection-no-fire.md`. While inside the EPIC 36 ghost window, a player cannot shoot (server-authoritative no-op in `registry.fire()`; client also suppresses local muzzle/gunshot and outbound `fire`). Incoming immunity, opacity, and HUD SPAWN PROTECTED are unchanged. Verified via `npm run regression:spawn-protection`, `npm run typecheck`, and `npm run build`.
+
 EPIC 40 (Companion Pet Distance & Scale Polish) — see `docs/tasks/epic-40-companion-pet-distance-scale.md`. User feedback: after EPIC 39, pets clung near the torso and were hard to notice next to amulets.
 
 - **Layout:** companions float farther from the avatar (arm’s-length lateral offset, modest forward Z) and ~45° upward from the torso center so they sit shoulder/head-adjacent instead of waist-cling.
