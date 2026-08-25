@@ -216,13 +216,17 @@ export interface JoinMessage {
 }
 
 /**
- * Client -> server: bind nickname in the lobby without joining a match (EPIC 42).
+ * Client -> server: bind nickname in the lobby without joining a match (EPIC 42/45).
  * Server normalizes the nickname, sets nicknameReady, stays in lobbySockets,
- * and pushes the Deathmatch `economy_profile`. Does not create/join a match.
+ * remembers the requested economy pool for lobby inventory mutations, and
+ * pushes that pool's `economy_profile`. Does not create/join a match.
+ * `economyPool` defaults to `"deathmatch"` when omitted (backward compatible).
  */
 export interface LobbyBindNicknameMessage {
   type: "lobby_bind_nickname";
   nickname: string;
+  /** Which inventory pool to bind for lobby mutations (EPIC 45). */
+  economyPool?: EconomyPool;
 }
 
 /**

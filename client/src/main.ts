@@ -328,12 +328,20 @@ const modeSelect = new ModeSelect(
   (selection) => {
     connection.send({ type: "join", ...selection });
   },
+  (pool) => {
+    const nickname = modeSelect.getNickname();
+    if (!nickname) return;
+    connection.send({ type: "lobby_bind_nickname", nickname, economyPool: pool });
+    inventoryOverlay.setStatus(
+      pool === "sandbox" ? "Loading Bots inventory…" : "Loading Deathmatch inventory…",
+    );
+    inventoryOverlay.setOpen(true);
+  },
   () => {
     const nickname = modeSelect.getNickname();
     if (!nickname) return;
-    connection.send({ type: "lobby_bind_nickname", nickname });
-    inventoryOverlay.setStatus("Loading Deathmatch inventory…");
-    inventoryOverlay.setOpen(true);
+    connection.send({ type: "lobby_bind_nickname", nickname, economyPool: "deathmatch" });
+    auctionPanel.setOpen(true);
   },
 );
 
