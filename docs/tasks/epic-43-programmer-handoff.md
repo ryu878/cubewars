@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-25T18:50:00Z |
 | Author (Pusya) | Programmer (Pusya) |
 | Task / Story / EPIC | EPIC 43 — Inventory Cell Size, Icons, and Hover Tooltips (`docs/tasks/epic-43-inventory-icons-tooltips.md`) |
-| Branch / commit / PR | `task/epic-43-inventory-icons-tooltips` (continue on branch). Implementation + F-001 revision: see latest commit after this handoff update. |
+| Branch / commit / PR | `task/epic-43-inventory-icons-tooltips` @ `5315aa4` (F-001 fix). Prior product: `0b16d78`. |
 | Revision round (if this is a Critic/Judge fix, not first pass) | **yes — finding IDs: F-001** |
 | Base SHA (`master` at branch creation) | `a6e7aceb98209f4d1981697b45ea4332ff489997` |
 | Prior product commit | `0b16d78` |
