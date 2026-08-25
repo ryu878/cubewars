@@ -87,4 +87,4 @@ Independently scrollable grid viewport (`.inv-grid-scroll`) with fixed/side rail
 | F-001 layout fix (product) | `5315aa4a2599cc1bb37911a382d2f6ae78015964` |
 | Handoff SHA note | `a4dcff818ca51ded4fe684d0d10ab3975d838b7f` |
 | Tester re-verify note (if present on tip) | `4fe969c` — see `docs/tasks/epic-43-tester-reverify-f001.md` |
-| This dedicated F-001 programmer handoff | commit that adds this file (branch tip after push) |
+| This dedicated F-001 programmer handoff | `f50b3feda262b2f403b553ecc3cde61c9b7d9307` |
