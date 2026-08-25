@@ -61,15 +61,50 @@ function formatRemaining(deadlineMs: number, nowMs: number): string {
   return `${s}s`;
 }
 
-const ITEM_LABEL: Record<InventoryItemType, string> = {
-  pet: "PET",
-  egg: "EGG",
-  gem: "GEM",
-  amulet: "AMU",
-  stimulator: "STM",
-  repair_kit: "KIT",
-  shard_stack: "SHD",
+/** Full English display names for inventory UI (EPIC 43). Never use STM/PET/etc. as primary labels. */
+const ITEM_DISPLAY_NAME: Record<InventoryItemType, string> = {
+  pet: "Pet",
+  egg: "Egg",
+  gem: "Gem",
+  amulet: "Amulet",
+  stimulator: "Stimulator",
+  repair_kit: "Repair kit",
+  shard_stack: "Shard stack",
 };
+
+/** Geometric icon glyph for a bag / rail / ghost cell (CSS classes paint the shape). */
+function createItemIcon(itemType: InventoryItemType, sizeClass = ""): HTMLElement {
+  const icon = document.createElement("div");
+  icon.className = `inv-icon inv-icon-${itemType}${sizeClass ? ` ${sizeClass}` : ""}`;
+  icon.setAttribute("aria-hidden", "true");
+  // Inner parts for multi-shape glyphs (pet face, amulet hole, kit cross, shard stack).
+  if (itemType === "pet") {
+    const eyeL = document.createElement("span");
+    eyeL.className = "inv-icon-pet-eye inv-icon-pet-eye-l";
+    const eyeR = document.createElement("span");
+    eyeR.className = "inv-icon-pet-eye inv-icon-pet-eye-r";
+    icon.append(eyeL, eyeR);
+  } else if (itemType === "amulet") {
+    const hole = document.createElement("span");
+    hole.className = "inv-icon-amulet-hole";
+    icon.appendChild(hole);
+  } else if (itemType === "stimulator") {
+    const bolt = document.createElement("span");
+    bolt.className = "inv-icon-stim-bolt";
+    icon.appendChild(bolt);
+  } else if (itemType === "repair_kit") {
+    const cross = document.createElement("span");
+    cross.className = "inv-icon-kit-cross";
+    icon.appendChild(cross);
+  } else if (itemType === "shard_stack") {
+    for (let i = 0; i < 3; i++) {
+      const shard = document.createElement("span");
+      shard.className = `inv-icon-shard inv-icon-shard-${i}`;
+      icon.appendChild(shard);
+    }
+  }
+  return icon;
+}
 
 export class InventoryOverlay {
   private overlayEl: HTMLElement;
@@ -381,6 +416,12 @@ export class InventoryOverlay {
       if (!egg) continue;
       const metaEl = eggEl.querySelector(".inv-item-meta");
       if (metaEl) metaEl.textContent = formatRemaining(egg.hatchDeadlineMs, now);
+      const tooltip =
+        formatRemaining(egg.hatchDeadlineMs, now) === "Ready"
+          ? `Egg #${egg.id} · Ready to hatch`
+          : `Egg #${egg.id} · Ready in ${formatRemaining(egg.hatchDeadlineMs, now)}`;
+      eggEl.dataset.tooltip = tooltip;
+      eggEl.setAttribute("aria-label", tooltip);
     }
     // Details panel timer for a selected egg.
     if (this.selected?.itemType === "egg") this.renderDetails();
@@ -437,15 +478,20 @@ export class InventoryOverlay {
         el.classList.add("selected");
       }
 
-      const label = document.createElement("div");
-      label.className = "inv-item-label";
-      label.textContent = ITEM_LABEL[entry.itemType];
-      el.appendChild(label);
+      el.appendChild(createItemIcon(entry.itemType));
 
-      const meta = document.createElement("div");
-      meta.className = "inv-item-meta";
-      meta.textContent = this.metaFor(entry, now);
-      el.appendChild(meta);
+      const metaText = this.metaFor(entry, now);
+      if (metaText) {
+        const meta = document.createElement("div");
+        meta.className = "inv-item-meta";
+        meta.textContent = metaText;
+        el.appendChild(meta);
+      }
+
+      const tooltip = this.tooltipFor(entry, now);
+      el.dataset.tooltip = tooltip;
+      el.setAttribute("aria-label", tooltip);
+      el.tabIndex = 0;
 
       if (entry.itemType === "egg") {
         el.dataset.eggId = String(entry.itemId);
@@ -503,6 +549,63 @@ export class InventoryOverlay {
     }
   }
 
+  /** Hover / focus tooltip: full English name + useful detail already on the profile. */
+  private tooltipFor(entry: BagEntry, now: number): string {
+    if (!this.profile) return ITEM_DISPLAY_NAME[entry.itemType];
+    switch (entry.itemType) {
+      case "pet": {
+        const pet = this.profile.pets.find((p) => p.id === entry.itemId);
+        return pet
+          ? `Pet (${pet.type}) #${pet.id} · value ${pet.baseValue}`
+          : `Pet #${entry.itemId}`;
+      }
+      case "egg": {
+        const egg = this.profile.eggs.find((e) => e.id === entry.itemId);
+        if (!egg) return `Egg #${entry.itemId}`;
+        const timer = formatRemaining(egg.hatchDeadlineMs, now);
+        return timer === "Ready"
+          ? `Egg #${egg.id} · Ready to hatch`
+          : `Egg #${egg.id} · Ready in ${timer}`;
+      }
+      case "gem": {
+        const gem = this.profile.gems.find((g) => g.id === entry.itemId);
+        return gem
+          ? `Gem (${gem.gemType}) #${gem.id} · value ${gem.value}`
+          : `Gem #${entry.itemId}`;
+      }
+      case "amulet": {
+        const amulet = this.profile.amulets.find((a) => a.id === entry.itemId);
+        return amulet
+          ? `Amulet #${amulet.id} · durability ${amulet.durability}/${ECONOMY_CAPS.amuletDurabilityMax}`
+          : `Amulet #${entry.itemId}`;
+      }
+      case "stimulator":
+        return `Stimulator #${entry.itemId}`;
+      case "repair_kit":
+        return `Repair kit #${entry.itemId}`;
+      case "shard_stack":
+        return `Shards · ${this.profile.shardCount} in stack`;
+    }
+  }
+
+  private detailsTitle(itemType: InventoryItemType, itemId: number): string {
+    if (!this.profile) return `${ITEM_DISPLAY_NAME[itemType]} #${itemId}`;
+    switch (itemType) {
+      case "pet": {
+        const pet = this.profile.pets.find((p) => p.id === itemId);
+        return pet ? `Pet (${pet.type}) #${pet.id}` : `Pet #${itemId}`;
+      }
+      case "gem": {
+        const gem = this.profile.gems.find((g) => g.id === itemId);
+        return gem ? `Gem (${gem.gemType}) #${gem.id}` : `Gem #${itemId}`;
+      }
+      case "shard_stack":
+        return `Shard stack (${this.profile.shardCount})`;
+      default:
+        return `${ITEM_DISPLAY_NAME[itemType]} #${itemId}`;
+    }
+  }
+
   private onItemClicked(itemType: InventoryItemType, itemId: number): void {
     if (itemType === "gem") {
       // Second click on the same gem toggles socket-target selection off.
@@ -546,7 +649,11 @@ export class InventoryOverlay {
         drag.dragging = true;
         const ghost = document.createElement("div");
         ghost.className = `inv-drag-ghost inv-item-${drag.itemType}`;
-        ghost.textContent = ITEM_LABEL[drag.itemType];
+        ghost.appendChild(createItemIcon(drag.itemType, "inv-icon-sm"));
+        const ghostLabel = document.createElement("span");
+        ghostLabel.className = "inv-drag-ghost-label";
+        ghostLabel.textContent = ITEM_DISPLAY_NAME[drag.itemType];
+        ghost.appendChild(ghostLabel);
         document.body.appendChild(ghost);
         drag.ghost = ghost;
       }
@@ -626,10 +733,15 @@ export class InventoryOverlay {
       box.appendChild(empty);
       return box;
     }
+    const row = document.createElement("div");
+    row.className = "inv-rail-item-row";
+    row.appendChild(createItemIcon("pet", "inv-icon-sm"));
     const label = document.createElement("div");
     label.className = "inv-rail-item";
-    label.textContent = `${pet.type} #${pet.id} · ${pet.baseValue}`;
-    box.appendChild(label);
+    label.textContent = `Pet (${pet.type}) #${pet.id} · ${pet.baseValue}`;
+    label.title = `Pet (${pet.type}) #${pet.id} · value ${pet.baseValue}`;
+    row.appendChild(label);
+    box.appendChild(row);
 
     const gems = this.profile!.gems.filter((g) => g.petId === pet.id);
     if (gems.length > 0) {
@@ -665,10 +777,15 @@ export class InventoryOverlay {
       box.appendChild(empty);
       return box;
     }
+    const row = document.createElement("div");
+    row.className = "inv-rail-item-row";
+    row.appendChild(createItemIcon("amulet", "inv-icon-sm"));
     const label = document.createElement("div");
     label.className = "inv-rail-item";
-    label.textContent = `#${amulet.id} · dur ${amulet.durability}/${ECONOMY_CAPS.amuletDurabilityMax}`;
-    box.appendChild(label);
+    label.textContent = `Amulet #${amulet.id} · dur ${amulet.durability}/${ECONOMY_CAPS.amuletDurabilityMax}`;
+    label.title = `Amulet #${amulet.id} · durability ${amulet.durability}/${ECONOMY_CAPS.amuletDurabilityMax}`;
+    row.appendChild(label);
+    box.appendChild(row);
 
     const unequip = document.createElement("button");
     unequip.type = "button";
@@ -705,7 +822,13 @@ export class InventoryOverlay {
     const { itemType, itemId } = this.selected;
     const title = document.createElement("div");
     title.className = "inv-details-title";
-    title.textContent = `${ITEM_LABEL[itemType]} #${itemId}`;
+    const titleRow = document.createElement("div");
+    titleRow.className = "inv-details-title-row";
+    titleRow.appendChild(createItemIcon(itemType, "inv-icon-sm"));
+    const titleText = document.createElement("span");
+    titleText.textContent = this.detailsTitle(itemType, itemId);
+    titleRow.appendChild(titleText);
+    title.appendChild(titleRow);
     this.detailsEl.appendChild(title);
 
     const actions = document.createElement("div");

@@ -855,8 +855,8 @@
         display: flex;
       }
       #inventoryPanel {
-        width: min(920px, calc(100vw - 32px));
-        max-height: min(88vh, 760px);
+        width: min(1200px, calc(100vw - 24px));
+        max-height: min(92vh, 980px);
         overflow: auto;
         padding: 16px 20px 20px;
         background: rgba(12, 18, 14, 0.96);
@@ -907,15 +907,16 @@
         display: grid;
         grid-template-columns: repeat(8, 1fr);
         grid-template-rows: repeat(8, 1fr);
-        gap: 4px;
-        width: min(480px, 100%);
+        gap: 6px;
+        /* EPIC 43: ~2× linear cell size (was min(480px); cells ≈56–60px → ≈112–120px). */
+        width: min(960px, 95vw);
         aspect-ratio: 1 / 1;
         flex-shrink: 0;
       }
       .inv-cell {
         background: rgba(255, 255, 255, 0.04);
         border: 1px solid rgba(140, 180, 120, 0.18);
-        border-radius: 4px;
+        border-radius: 6px;
       }
       .inv-item {
         position: relative;
@@ -923,16 +924,17 @@
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        padding: 2px;
-        border-radius: 5px;
+        gap: 4px;
+        padding: 4px;
+        border-radius: 6px;
         border: 1px solid rgba(140, 180, 120, 0.6);
         background: rgba(40, 70, 40, 0.9);
         color: #e8f0e4;
-        font-size: 10px;
+        font-size: 11px;
         text-align: center;
         cursor: grab;
         user-select: none;
-        overflow: hidden;
+        overflow: visible;
         touch-action: none;
       }
       .inv-item.selected {
@@ -941,23 +943,25 @@
       .inv-item.pending {
         opacity: 0.45;
       }
-      .inv-item-label {
-        font-weight: 800;
-        letter-spacing: 0.04em;
-      }
       .inv-item-meta {
         font-variant-numeric: tabular-nums;
         color: #c8f0a8;
+        font-size: 10px;
+        line-height: 1.1;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
       .inv-item-badges {
         position: absolute;
-        bottom: 2px;
+        bottom: 3px;
         display: flex;
-        gap: 2px;
+        gap: 3px;
       }
       .inv-badge {
-        width: 5px;
-        height: 5px;
+        width: 7px;
+        height: 7px;
         border-radius: 50%;
       }
       .inv-badge-health {
@@ -984,23 +988,251 @@
       .inv-item-amulet {
         background: rgba(90, 40, 90, 0.9);
       }
+      .inv-item-stimulator {
+        background: rgba(40, 80, 55, 0.95);
+      }
+      .inv-item-repair_kit {
+        background: rgba(70, 70, 45, 0.95);
+      }
+      .inv-item-shard_stack {
+        background: rgba(50, 70, 100, 0.95);
+      }
+
+      /* EPIC 43: geometric type icons (no emoji / no STM-style codes). */
+      .inv-icon {
+        position: relative;
+        flex-shrink: 0;
+        width: 36px;
+        height: 36px;
+        pointer-events: none;
+      }
+      .inv-icon-sm {
+        width: 22px;
+        height: 22px;
+      }
+      .inv-icon-pet {
+        background: #c9b6ff;
+        border-radius: 6px;
+        box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.25);
+      }
+      .inv-icon-pet-eye {
+        position: absolute;
+        top: 28%;
+        width: 22%;
+        height: 22%;
+        background: #2a1f40;
+        border-radius: 50%;
+      }
+      .inv-icon-pet-eye-l {
+        left: 18%;
+      }
+      .inv-icon-pet-eye-r {
+        right: 18%;
+      }
+      .inv-icon-egg {
+        width: 28px;
+        height: 36px;
+        margin: 0 auto;
+        background: radial-gradient(ellipse at 35% 30%, #fff6d0 0%, #e8c86a 55%, #b8892e 100%);
+        border-radius: 50% 50% 48% 48% / 58% 58% 42% 42%;
+        box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.18);
+      }
+      .inv-icon-sm.inv-icon-egg {
+        width: 16px;
+        height: 22px;
+      }
+      .inv-icon-gem {
+        width: 26px;
+        height: 26px;
+        margin: 5px auto 0;
+        background: linear-gradient(135deg, #9ef0ef 0%, #3cb8c4 50%, #1e7a88 100%);
+        transform: rotate(45deg);
+        border-radius: 3px;
+        box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.45);
+      }
+      .inv-icon-sm.inv-icon-gem {
+        width: 14px;
+        height: 14px;
+        margin: 4px auto 0;
+      }
+      .inv-icon-amulet {
+        width: 32px;
+        height: 32px;
+        margin: 2px auto 0;
+        background: radial-gradient(circle at 35% 30%, #f0c8ff 0%, #c060d8 55%, #6a2080 100%);
+        border-radius: 50%;
+        box-shadow: 0 2px 0 rgba(0, 0, 0, 0.25);
+      }
+      .inv-icon-sm.inv-icon-amulet {
+        width: 18px;
+        height: 18px;
+      }
+      .inv-icon-amulet-hole {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 38%;
+        height: 38%;
+        transform: translate(-50%, -50%);
+        background: rgba(20, 8, 28, 0.85);
+        border-radius: 50%;
+        box-shadow: inset 0 0 0 1px rgba(255, 220, 255, 0.25);
+      }
+      .inv-icon-stimulator {
+        width: 28px;
+        height: 28px;
+        margin: 4px auto 0;
+        background: rgba(90, 200, 120, 0.25);
+        border: 2px solid #7dff9a;
+        border-radius: 50%;
+      }
+      .inv-icon-sm.inv-icon-stimulator {
+        width: 16px;
+        height: 16px;
+        margin: 3px auto 0;
+      }
+      .inv-icon-stim-bolt {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 10px;
+        height: 16px;
+        transform: translate(-50%, -50%) skewX(-12deg);
+        background: #b8ff90;
+        clip-path: polygon(40% 0, 100% 0, 60% 45%, 90% 45%, 0 100%, 35% 52%, 10% 52%);
+      }
+      .inv-icon-sm .inv-icon-stim-bolt {
+        width: 7px;
+        height: 11px;
+      }
+      .inv-icon-repair_kit {
+        width: 32px;
+        height: 26px;
+        margin: 5px auto 0;
+        background: linear-gradient(180deg, #d8c070 0%, #9a7a30 100%);
+        border-radius: 3px;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+      }
+      .inv-icon-sm.inv-icon-repair_kit {
+        width: 18px;
+        height: 14px;
+        margin: 4px auto 0;
+      }
+      .inv-icon-kit-cross {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 55%;
+        height: 55%;
+        transform: translate(-50%, -50%);
+        background:
+          linear-gradient(#4a3020, #4a3020) center / 28% 100% no-repeat,
+          linear-gradient(#4a3020, #4a3020) center / 100% 28% no-repeat;
+      }
+      .inv-icon-shard_stack {
+        width: 34px;
+        height: 34px;
+      }
+      .inv-icon-sm.inv-icon-shard_stack {
+        width: 20px;
+        height: 20px;
+      }
+      .inv-icon-shard {
+        position: absolute;
+        width: 12px;
+        height: 18px;
+        background: linear-gradient(160deg, #c8e8ff 0%, #6aa8e0 55%, #2a6088 100%);
+        clip-path: polygon(50% 0, 100% 35%, 78% 100%, 22% 100%, 0 35%);
+      }
+      .inv-icon-sm .inv-icon-shard {
+        width: 7px;
+        height: 11px;
+      }
+      .inv-icon-shard-0 {
+        left: 2px;
+        bottom: 4px;
+        opacity: 0.75;
+        transform: rotate(-18deg);
+      }
+      .inv-icon-shard-1 {
+        left: 11px;
+        bottom: 2px;
+        z-index: 1;
+      }
+      .inv-icon-shard-2 {
+        right: 2px;
+        bottom: 5px;
+        opacity: 0.85;
+        transform: rotate(16deg);
+      }
+      .inv-icon-sm .inv-icon-shard-0 {
+        left: 0;
+        bottom: 2px;
+      }
+      .inv-icon-sm .inv-icon-shard-1 {
+        left: 6px;
+        bottom: 1px;
+      }
+      .inv-icon-sm .inv-icon-shard-2 {
+        right: 0;
+        bottom: 2px;
+      }
+
+      /* CSS hover/focus tooltip (faster than native title alone; title kept for a11y fallback). */
+      .inv-item[data-tooltip] {
+        outline-offset: 2px;
+      }
+      .inv-item[data-tooltip]::after {
+        content: attr(data-tooltip);
+        position: absolute;
+        left: 50%;
+        bottom: calc(100% + 6px);
+        transform: translateX(-50%);
+        z-index: 5;
+        min-width: 120px;
+        max-width: 220px;
+        padding: 5px 8px;
+        border-radius: 6px;
+        border: 1px solid rgba(255, 224, 130, 0.55);
+        background: rgba(10, 16, 12, 0.96);
+        color: #f0f6e8;
+        font: 600 11px/1.3 "Segoe UI", system-ui, sans-serif;
+        text-align: center;
+        white-space: normal;
+        pointer-events: none;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.08s ease;
+      }
+      .inv-item[data-tooltip]:hover::after,
+      .inv-item[data-tooltip]:focus-visible::after {
+        opacity: 1;
+        visibility: visible;
+      }
+
       .inv-drag-ghost {
         position: fixed;
         z-index: 60;
         transform: translate(-50%, -50%);
         pointer-events: none;
-        padding: 6px 10px;
-        border-radius: 5px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 6px;
         border: 1px solid rgba(255, 224, 130, 0.8);
         background: rgba(40, 70, 40, 0.95);
         color: #ffe082;
-        font: 800 11px system-ui, sans-serif;
+        font: 800 12px system-ui, sans-serif;
+      }
+      .inv-drag-ghost-label {
+        letter-spacing: 0.02em;
       }
       .inv-rail {
         display: flex;
         flex-direction: column;
         gap: 10px;
-        min-width: 180px;
+        min-width: 200px;
       }
       .inv-rail-slot {
         padding: 8px 10px;
@@ -1015,6 +1247,11 @@
         letter-spacing: 0.06em;
         color: #8fba7a;
         margin-bottom: 4px;
+      }
+      .inv-rail-item-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
       }
       .inv-rail-item {
         font-size: 13px;
@@ -1042,6 +1279,11 @@
         font-size: 14px;
         font-weight: 800;
         margin-bottom: 6px;
+      }
+      .inv-details-title-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
       }
       .inv-details-sub {
         font-size: 12px;
