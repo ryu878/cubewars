@@ -347,12 +347,25 @@ export class Match {
     socket.send(JSON.stringify(message));
   }
 
-  /** Push equipped pet ratings into the live PlayerRecord (EPIC 24). */
+  /**
+   * Push equipped pet ratings into the live PlayerRecord (EPIC 24), and
+   * alongside them the cosmetic equipped-pet-types/amulet reveal (EPIC 31
+   * Section 3.3) — derived from the same already-fetched profile so there's
+   * no extra economy round-trip. Humans only (bots have no economy profile;
+   * see BotAI's own loadout generation + registry.setEquipmentVisual() call
+   * for the bot equivalent of this).
+   */
   async applyEconomyCombatToPlayer(playerId: string, nickname: string): Promise<void> {
     const economy = this.options.economy;
     if (!economy) return;
     const full = await economy.getFullProfile(nickname);
     this.registry.applyPetRatings(playerId, full.ratings);
+    const equippedPetTypes = full.pets
+      .filter((pet) => pet.equipSlot === 1 || pet.equipSlot === 2)
+      .sort((a, b) => (a.equipSlot ?? 0) - (b.equipSlot ?? 0))
+      .map((pet) => pet.type);
+    const hasAmulet = full.amulets.some((amulet) => amulet.equipped);
+    this.registry.setEquipmentVisual(playerId, equippedPetTypes, hasAmulet);
   }
 
   /**

@@ -26,6 +26,7 @@ import {
   type DamageKind,
   type DamageZone,
   type MapBox,
+  type PetType,
   type PlayerScore,
   type PlayerState,
   type ProfileRatings,
@@ -122,6 +123,16 @@ export interface PlayerRecord {
    * equip/unequip/hatch via applyPetRatings(). Default empty (no pets).
    */
   petRatings: ProfileRatings;
+  /**
+   * EPIC 31: cosmetic-only reveal of currently-equipped pet species, slot
+   * order [slot1, slot2] (0-2 entries) — set alongside petRatings (see
+   * setEquipmentVisual() below) from whichever loadout source applies
+   * (human economy profile or bot in-memory loadout). Never read by any
+   * combat math; broadcast as-is via toWorldState().
+   */
+  equippedPetTypes: PetType[];
+  /** EPIC 31: cosmetic-only reveal of whether an amulet is currently equipped (enables slot 2). Same non-combat, broadcast-only role as equippedPetTypes. */
+  hasAmulet: boolean;
   /** False while dead and waiting to respawn. */
   alive: boolean;
   /** Server timestamp (Date.now()-based) at which a dead player should respawn; null while alive. */
@@ -397,6 +408,8 @@ export class PlayerRegistry {
       maxHealth: COMBAT.maxHealth,
       armor: 0,
       petRatings: emptyRatings(),
+      equippedPetTypes: [],
+      hasAmulet: false,
       alive: true,
       respawnAtMs: null,
       kills: 0,
@@ -436,6 +449,21 @@ export class PlayerRegistry {
         player.health = newMax;
       }
     }
+  }
+
+  /**
+   * Set the cosmetic-only equipped-pet-types/amulet reveal for `playerId`
+   * (EPIC 31 Section 3.3), broadcast every tick via toWorldState() the same
+   * way equippedWeapon already is. Purely a rendering hint for remote
+   * avatars — never read by any combat math (see applyPetRatings() above
+   * for the actual stat application; callers set both together from the
+   * same loadout source, human economy profile or bot in-memory loadout).
+   */
+  setEquipmentVisual(playerId: string, petTypes: readonly PetType[], hasAmulet: boolean): void {
+    const player = this.players.get(playerId);
+    if (!player) return;
+    player.equippedPetTypes = [...petTypes];
+    player.hasAmulet = hasAmulet;
   }
 
   remove(id: string): void {
@@ -1104,6 +1132,8 @@ export class PlayerRegistry {
         health: player.health,
         armor: player.armor,
         equippedWeapon: player.equippedWeapon,
+        equippedPetTypes: [...player.equippedPetTypes],
+        hasAmulet: player.hasAmulet,
         alive: player.alive,
       });
     }

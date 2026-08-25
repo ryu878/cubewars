@@ -341,6 +341,16 @@ export interface PlayerState {
    * client-controlled gameplay input.
    */
   equippedWeapon: WeaponType;
+  /**
+   * EPIC 31: species of each currently-equipped pet, slot order [slot1,
+   * slot2] (0-2 entries). Same precedent as equippedWeapon — a read-only,
+   * server-computed cosmetic reveal for remote-avatar rendering, never a
+   * client-controlled gameplay input. Populated for humans (from their
+   * economy profile) and bots (from their in-memory loadout) alike.
+   */
+  equippedPetTypes: PetType[];
+  /** EPIC 31: whether this player currently has an amulet equipped (enables pet slot 2). Same cosmetic-reveal precedent as equippedPetTypes. */
+  hasAmulet: boolean;
   /** False while dead and waiting to respawn — server stops applying movement/combat for this player while false. */
   alive: boolean;
 }
