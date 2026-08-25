@@ -13,6 +13,8 @@
 // the UI.
 
 import type {
+  AvatarBodyPart,
+  AvatarColors,
   ClientMessage,
   EconomyActionResultMessage,
   EconomyAmuletDto,
@@ -23,7 +25,14 @@ import type {
   InventoryFootprint,
   InventoryItemType,
 } from "@cubewars/shared";
-import { ECONOMY_CAPS, INVENTORY_GRID } from "@cubewars/shared";
+import {
+  AVATAR_BODY_PARTS,
+  AVATAR_COLOR_PALETTE,
+  ECONOMY_CAPS,
+  INVENTORY_GRID,
+  cloneAvatarColors,
+  defaultAvatarColors,
+} from "@cubewars/shared";
 
 type SendFn = (message: ClientMessage) => void;
 
@@ -71,9 +80,12 @@ export class InventoryOverlay {
   private railEl: HTMLElement;
   private detailsEl: HTMLElement;
   private statusEl: HTMLElement;
+  private appearanceRowsEl: HTMLElement;
 
   private open = false;
   private profile: EconomyProfileMessage | null = null;
+  /** EPIC 33: last known server-authoritative self colors (from world_state). */
+  private avatarColors: AvatarColors = defaultAvatarColors();
   private timer: number | null = null;
 
   private selected: SelectedItem | null = null;
@@ -108,6 +120,7 @@ export class InventoryOverlay {
     this.railEl = document.getElementById("inventoryRail") as HTMLElement;
     this.detailsEl = document.getElementById("inventoryDetails") as HTMLElement;
     this.statusEl = document.getElementById("inventoryStatus") as HTMLElement;
+    this.appearanceRowsEl = document.getElementById("inventoryAppearanceRows") as HTMLElement;
 
     window.addEventListener("keydown", (event) => {
       if ((event.code !== "KeyI" && event.code !== "KeyP") || event.repeat) return;
@@ -163,6 +176,12 @@ export class InventoryOverlay {
     if (this.open) this.render();
   }
 
+  /** EPIC 33: sync self avatar colors from authoritative world_state. */
+  setAvatarColors(colors: AvatarColors): void {
+    this.avatarColors = cloneAvatarColors(colors);
+    if (this.open) this.renderAppearance();
+  }
+
   private bagEntries(): BagEntry[] {
     if (!this.profile) return [];
     const entries: BagEntry[] = [];
@@ -208,6 +227,7 @@ export class InventoryOverlay {
       this.gridEl.replaceChildren();
       this.railEl.replaceChildren();
       this.detailsEl.replaceChildren();
+      this.renderAppearance();
       return;
     }
     const pool = this.profile.economyPool;
@@ -238,6 +258,42 @@ export class InventoryOverlay {
     this.renderGrid(bag);
     this.renderRail();
     this.renderDetails();
+    this.renderAppearance();
+  }
+
+  private renderAppearance(): void {
+    if (!this.appearanceRowsEl) return;
+    this.appearanceRowsEl.replaceChildren();
+    for (const part of AVATAR_BODY_PARTS) {
+      const row = document.createElement("div");
+      row.className = "inv-appearance-row";
+      const label = document.createElement("span");
+      label.className = "inv-appearance-label";
+      label.textContent = part;
+      const swatches = document.createElement("div");
+      swatches.className = "inv-swatches";
+      AVATAR_COLOR_PALETTE.forEach((hex, index) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "inv-swatch";
+        btn.title = `${part} color ${index + 1}`;
+        btn.style.background = `#${hex.toString(16).padStart(6, "0")}`;
+        btn.dataset.selected = this.avatarColors[part] === index ? "true" : "false";
+        btn.addEventListener("click", () => this.onSwatchClick(part, index));
+        swatches.appendChild(btn);
+      });
+      row.append(label, swatches);
+      this.appearanceRowsEl.appendChild(row);
+    }
+  }
+
+  private onSwatchClick(part: AvatarBodyPart, paletteIndex: number): void {
+    if (this.avatarColors[part] === paletteIndex) return;
+    // Optimistic local highlight; world_state echo is authoritative.
+    this.avatarColors = { ...this.avatarColors, [part]: paletteIndex };
+    this.renderAppearance();
+    this.send({ type: "avatar_set_color", part, paletteIndex });
+    this.statusEl.textContent = `Appearance: ${part} → ${paletteIndex + 1}`;
   }
 
   private renderEggTimersOnly(): void {

@@ -55,6 +55,9 @@ import {
   type ShotTrace,
   type Vector3,
   type WorldStateMessage,
+  isAvatarBodyPart,
+  isValidPaletteIndex,
+  type AvatarBodyPart,
 } from "@cubewars/shared";
 import { PlayerRegistry, type DamageEvent, type FireOutcome } from "./playerRegistry.js";
 import { PickupSpawner } from "./pickupSpawner.js";
@@ -67,6 +70,7 @@ import {
   type EconomyScope,
   type EconomyStore,
 } from "./economy/index.js";
+import type { AvatarProfileStore } from "./avatarProfile.js";
 
 // Same tick rate/derivation as the pre-EPIC-9 single global loop
 // (server/src/index.ts) — every Match now runs its own independent copy of
@@ -106,6 +110,8 @@ export interface MatchOptions {
   onEndlessProgress?: (nickname: string, botKills: number, distanceKm: number) => void;
   /** Durable gold store (EPIC 23). Optional so unit tests without a DB still work. */
   economy?: EconomyStore;
+  /** EPIC 33: account-level avatar colors (separate Redis keys from economy). */
+  avatarProfile?: AvatarProfileStore;
 }
 
 export class Match {
@@ -195,6 +201,7 @@ export class Match {
     this.sockets.set(connectionId, socket);
     if (this.mode === "endless") this.endlessHumanId = connectionId;
     this.registry.spawn(connectionId, nickname, nicknameKey);
+    await this.applyAvatarColorsToPlayer(connectionId, nicknameKey);
     await this.applyEconomyCombatToPlayer(connectionId, nickname);
     this.sendMapState();
     this.sendLoadout(connectionId);
@@ -379,6 +386,46 @@ export class Match {
       .map((pet) => pet.type);
     const hasAmulet = full.amulets.some((amulet) => amulet.equipped);
     this.registry.setEquipmentVisual(playerId, equippedPetTypes, hasAmulet);
+  }
+
+  /** EPIC 33: load persisted avatar colors (or defaults) into the live PlayerRecord. */
+  async applyAvatarColorsToPlayer(playerId: string, nicknameKey: string): Promise<void> {
+    const store = this.options.avatarProfile;
+    if (!store) return;
+    const colors = await store.getColors(nicknameKey);
+    this.registry.setAvatarColors(playerId, colors);
+  }
+
+  /**
+   * EPIC 33: validate + persist + apply a single body-part color change.
+   * Returns false if the payload is illegal (caller should treat as malformed drop).
+   */
+  async handleAvatarSetColor(
+    playerId: string,
+    nickname: string,
+    nicknameKey: string,
+    part: unknown,
+    paletteIndex: unknown,
+  ): Promise<boolean> {
+    if (!isAvatarBodyPart(part) || !isValidPaletteIndex(paletteIndex)) {
+      return false;
+    }
+    const bodyPart = part as AvatarBodyPart;
+    const index = paletteIndex as number;
+    const store = this.options.avatarProfile;
+    let colors;
+    if (store) {
+      colors = await store.setPart(nicknameKey, bodyPart, index);
+    } else {
+      const player = this.registry.getPlayer(playerId);
+      if (!player) return false;
+      colors = { ...player.avatarColors, [bodyPart]: index };
+    }
+    this.registry.setAvatarColors(playerId, colors);
+    console.log(
+      `[avatar] ${nickname} set ${bodyPart}=${index} (match=${this.id})`,
+    );
+    return true;
   }
 
   /**

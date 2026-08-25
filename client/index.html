@@ -946,6 +946,63 @@
         background: rgba(120, 40, 40, 0.9);
         color: #ffd8d8;
       }
+      .inv-appearance {
+        margin-top: 16px;
+        padding-top: 12px;
+        border-top: 1px solid rgba(120, 160, 110, 0.28);
+      }
+      .inv-appearance h3 {
+        margin: 0 0 4px;
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+      .inv-appearance-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 8px 0;
+        flex-wrap: wrap;
+      }
+      .inv-appearance-label {
+        width: 52px;
+        font-size: 12px;
+        color: #b7c9ae;
+        text-transform: capitalize;
+      }
+      .inv-swatches {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .inv-swatch {
+        width: 22px;
+        height: 22px;
+        border-radius: 4px;
+        border: 2px solid rgba(255, 255, 255, 0.2);
+        cursor: pointer;
+        padding: 0;
+        font-size: 0;
+        box-shadow: none;
+      }
+      #inventoryPanel button.inv-swatch {
+        padding: 0;
+        border-radius: 4px;
+        border: 2px solid rgba(255, 255, 255, 0.2);
+        background: transparent;
+      }
+      #inventoryPanel button.inv-swatch:not(:disabled):hover {
+        filter: brightness(1.12);
+        background: transparent;
+      }
+      .inv-swatch[data-selected="true"] {
+        border-color: #e8f0e4;
+        box-shadow: 0 0 0 1px rgba(200, 230, 160, 0.85);
+      }
+      .inv-swatch:focus-visible {
+        outline: 2px solid #c8e6a0;
+        outline-offset: 2px;
+      }
       #inventoryStatus {
         margin-top: 12px;
         min-height: 1.2em;
@@ -1021,6 +1078,11 @@
         <p class="inv-meta">
           <button id="inventoryCraftAmuletBtn" type="button">Craft amulet (10 shards)</button>
         </p>
+        <section id="inventoryAppearance" class="inv-appearance" aria-label="Avatar appearance">
+          <h3>Appearance</h3>
+          <p class="inv-meta">Pick a color per body part. Visible to other players.</p>
+          <div id="inventoryAppearanceRows"></div>
+        </section>
         <div id="inventoryStatus"></div>
       </div>
     </div>

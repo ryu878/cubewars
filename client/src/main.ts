@@ -382,6 +382,9 @@ const connection = new GameConnection(wsUrl, {
         const protectRemaining = self.spawnProtectedUntilMs - message.serverTimeMs;
         hud.setSpawnProtection(protectRemaining > 0 ? protectRemaining : null);
         hud.setDead(!self.alive);
+        if (self.avatarColors) {
+          inventoryOverlay.setAvatarColors(self.avatarColors);
+        }
       }
     }
   },

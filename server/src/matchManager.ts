@@ -19,6 +19,7 @@ import {
 } from "@cubewars/shared";
 import { Match } from "./match.js";
 import type { EconomyStore } from "./economy/index.js";
+import type { AvatarProfileStore } from "./avatarProfile.js";
 
 /** Fixed id for the first persistent public match (EPIC 9 spec Section 2). */
 export const PUBLIC_MATCH_ID = "public";
@@ -27,6 +28,8 @@ export interface MatchManagerOptions {
   onLeaderboardChanged?: (entries: LeaderboardEntry[]) => void;
   onEndlessLeaderboardChanged?: (entries: EndlessLeaderboardEntry[]) => void;
   economy?: EconomyStore;
+  /** EPIC 33: avatar color preferences (separate from economy Redis docs). */
+  avatarProfile?: AvatarProfileStore;
 }
 
 export class MatchManager {
@@ -156,6 +159,7 @@ export class MatchManager {
         });
       },
       economy: this.options.economy,
+      avatarProfile: this.options.avatarProfile,
     });
     match.start();
     this.matches.set(id, match);
@@ -175,6 +179,7 @@ export class MatchManager {
         });
       },
       economy: this.options.economy,
+      avatarProfile: this.options.avatarProfile,
     });
     match.start();
     this.matches.set(id, match);
@@ -244,6 +249,7 @@ export class MatchManager {
         });
       },
       economy: this.options.economy,
+      avatarProfile: this.options.avatarProfile,
     });
     match.start();
     this.matches.set(id, match);
