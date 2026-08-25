@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-25 |
 | Author (Pusya) | Programmer (Pusya) |
 | Task / Story / EPIC | EPIC 38 — Auction, P2P Trade & Ground Item Drops (`docs/tasks/epic-38-auction-trade-ground.md`) |
-| Branch / commit / PR | `task/epic-38-auction-trade-ground` @ `1a2ba9b5227748ba641375a61a24a8b608c22961` (base: `master` @ `f270a3b`); PR after Tester PASS |
+| Branch / commit / PR | `task/epic-38-auction-trade-ground` @ `2b45fbd9335eb0ed4c2da37ec62474019c803ef8` (base: `master` @ `f270a3b`); PR after Tester PASS |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
