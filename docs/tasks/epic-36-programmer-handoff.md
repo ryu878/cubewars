@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-25 |
 | Author (Pusya) | Programmer (Pusya) |
 | Task / Story / EPIC | EPIC 36: Post-Respawn Spawn Protection (tasks 36.1–36.7) |
-| Branch / commit / PR | `task/epic-36-spawn-protection` @ `5920377` (`5920377cb434d5edbaff62b03b8cb8745529ebaf`); base `master` @ `6f5b365`; pushed to origin; PR create via `gh` failed (repo resolve) — open from https://github.com/ryu878/cubewars/pull/new/task/epic-36-spawn-protection |
+| Branch / commit / PR | `task/epic-36-spawn-protection` tip `5cdc112` (`5cdc1123f82417564cbfc9fdbc2939a0e7df3a93`); implementation `5920377`; base `master` @ `6f5b365`; pushed to origin; open PR: https://github.com/ryu878/cubewars/pull/new/task/epic-36-spawn-protection |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
