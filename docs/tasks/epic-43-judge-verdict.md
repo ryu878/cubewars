@@ -13,15 +13,15 @@
 
 - ID: F-001
 - Severity: major
-- Text: At 1400×900, ~960×960 grid buried `#inventoryDetails` / actions below fold; select→act not usable without scrolling past empty grid. Required: keep ~2× cells (or documented √2) **and** keep details/actions in viewport without scrolling past the full square grid.
+- Text: After scaling `#inventoryGrid` to `min(960px, 95vw)` with `aspect-ratio: 1/1`, ~960×960 grid buries `#inventoryDetails` / action buttons below the fold at QA viewport 1400×900. Players must scroll through large mostly-empty grid to reach selected-item English title, action buttons, craft, appearance. EPIC §3.1 required adjusting layout so primary controls still fit. Required fix: keep ~2× cell linear size (or documented √2) **and** keep `#inventoryDetails` + rail actions reachable without scrolling past the full square grid.
 
 ### Changes
 
-- Files / description: Fix commit `5315aa4` — `client/index.html` only for product layout: `.inv-grid-scroll` (independent scroll for ~960 square grid) + `.inv-side` (rail + `#inventoryDetails`); panel widened; `.inv-body` max-height / `flex-wrap: nowrap` so rail/details stay in first viewport. Cell size unchanged (~115px ≈ 2.04×). Icons/tooltips/cryptic-code removal preserved. Docs/QA smoke script updated for re-verify.
+- Files / description: Product fix `5315aa4` — `client/index.html`: `.inv-grid-scroll` (independent scroll for full ~960×960 grid) + `.inv-side` (rail + `#inventoryDetails`); panel `min(1280px)`; `.inv-body` max-height / `flex-wrap: nowrap` so select→act stays in first viewport. Cell size unchanged (~115px ≈ 2.04×). Icons/tooltips/cryptic-code removal preserved. QA smoke `scripts/qa-epic43-f001-layout-smoke.mjs` + docs handoffs/reverify.
 
 ### Re-test results
 
-- Tester re-verify outcome: `docs/tasks/epic-43-tester-reverify-f001.md` — **PASS** (tip under test `a4dcff8` / re-verify doc tip `4fe969c`; product fix `5315aa4`)
+- Tester re-verify outcome: `docs/tasks/epic-43-tester-reverify-f001.md` — **PASS** for F-001 (tip under test `a4dcff8`; product fix `5315aa4`)
 - Regression pass outcome: **PASS** — icons present, `crypticPrimary: []`, English tooltips, typecheck/build OK; `scaleVsBefore: 2.04`
 
 ### Diff summary
@@ -34,7 +34,7 @@
 
 | Finding ID | Status | Evidence | Residual risk |
 |------------|--------|----------|---------------|
-| F-001 | CLOSED | `f001-layout-smoke.json`: `titleInViewport`/`actionInViewport` true, `panelScrollTop: 0`, cell 115px (`scaleVsBefore: 2.04`); screenshot `07-f001-selected-detail-actions-visible.png` shows English detail title + Equip/Discard/Drop/Auction beside scrollable grid; Tester re-verify PASS | Narrow viewports (`max-width: 1040px` wrap path) not the Critic viewport; craft button still under grid scroll — outside F-001 required fix. Non-blocking tooltip clip under panel overflow remains Critic note only. |
+| F-001 | CLOSED | `qa-artifacts/epic-43/f001-layout-smoke.json`: `titleInViewport`/`actionInViewport` true, `panelScrollTop: 0`, cell 115px (`scaleVsBefore: 2.04`); screenshot `07-f001-selected-detail-actions-visible.png` shows English detail title + Equip/Discard/Drop/Auction beside scrollable grid; Tester re-verify PASS; light regression `08-…png` + `crypticPrimary: []` | Narrow wrap path (`max-width: 1040px`) not Critic’s 1400×900 viewport. Craft/Appearance below `.inv-body` may still need panel scroll — outside F-001 required select→act proof. Non-blocking tooltip clip under panel overflow remains Critic note only. |
 
 ## Overall
 
