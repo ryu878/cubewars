@@ -585,6 +585,7 @@ wss.on("connection", (socket: WebSocket) => {
               baseValue: p.baseValue,
               equipSlot: p.equipSlot,
               slotAnchor: p.slotAnchor,
+              colorIndex: p.colorIndex,
             })),
             eggs: profile.eggs.map((e) => ({
               id: e.id,
@@ -773,6 +774,22 @@ wss.on("connection", (socket: WebSocket) => {
         return;
       }
       void match.handleEconomyAction(playerId, nickname, "unequip", { petId: parsed.petId });
+      return;
+    }
+
+    if (parsed.type === "economy_set_pet_color") {
+      if (
+        typeof parsed.petId !== "number" ||
+        !Number.isInteger(parsed.petId) ||
+        typeof parsed.paletteIndex !== "number"
+      ) {
+        malformedInputDropTracker.record(playerId, now);
+        return;
+      }
+      void match.handleEconomyAction(playerId, nickname, "set_pet_color", {
+        petId: parsed.petId,
+        paletteIndex: parsed.paletteIndex,
+      });
       return;
     }
 

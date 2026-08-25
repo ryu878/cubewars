@@ -9,6 +9,10 @@ export interface StoredPet {
   equipSlot: 1 | 2 | null;
   /** Bag left-cell when unequipped; null/omitted when equipped or legacy. */
   slotAnchor?: number | null;
+  /**
+   * EPIC 39: index into AVATAR_COLOR_PALETTE. Omitted on legacy docs → treat as 0.
+   */
+  colorIndex?: number;
   createdAt: number;
 }
 

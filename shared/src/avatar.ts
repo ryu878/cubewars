@@ -53,10 +53,19 @@ export function resolveAvatarColor(paletteIndex: number): number {
   return AVATAR_COLOR_PALETTE[paletteIndex] ?? AVATAR_COLOR_PALETTE[0]!;
 }
 
+/** Random in-range palette index (pets, bots). */
+export function randomPaletteIndex(): number {
+  return Math.floor(Math.random() * AVATAR_COLOR_PALETTE.length);
+}
+
 /** Independent random index per body part (bots: visual variety at spawn). */
 export function randomAvatarColors(): AvatarColors {
-  const pick = (): number => Math.floor(Math.random() * AVATAR_COLOR_PALETTE.length);
-  return { head: pick(), torso: pick(), hands: pick(), legs: pick() };
+  return {
+    head: randomPaletteIndex(),
+    torso: randomPaletteIndex(),
+    hands: randomPaletteIndex(),
+    legs: randomPaletteIndex(),
+  };
 }
 
 export function cloneAvatarColors(colors: AvatarColors): AvatarColors {

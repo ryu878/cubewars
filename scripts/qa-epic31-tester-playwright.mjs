@@ -107,15 +107,15 @@ const SELFCHECK_HTML = String.raw`<!doctype html>
 
       const remotePlayers = new RemotePlayers(scene);
       const players = [
-        { id: "self", position: { x: 0, y: 0, z: 10 }, yaw: 0, health: 100, armor: 0, equippedWeapon: "pistol", equippedPetTypes: [], hasAmulet: false, alive: true },
+        { id: "self", position: { x: 0, y: 0, z: 10 }, yaw: 0, health: 100, armor: 0, equippedWeapon: "pistol", equippedPetTypes: [], equippedPetsVisual: [], hasAmulet: false, alive: true },
         // Archetype A equivalent: bare, no pet, no amulet.
-        { id: "bare", position: { x: -3.0, y: 0, z: 0 }, yaw: 0, health: 100, armor: 0, equippedWeapon: "pistol", equippedPetTypes: [], hasAmulet: false, alive: true },
+        { id: "bare", position: { x: -3.0, y: 0, z: 0 }, yaw: 0, health: 100, armor: 0, equippedWeapon: "pistol", equippedPetTypes: [], equippedPetsVisual: [], hasAmulet: false, alive: true },
         // Archetype B equivalent: one pet, slot 1, no amulet.
-        { id: "onePet", position: { x: -1.0, y: 0, z: 0 }, yaw: 0, health: 100, armor: 0, equippedWeapon: "pistol", equippedPetTypes: ["lion"], hasAmulet: false, alive: true },
+        { id: "onePet", position: { x: -1.0, y: 0, z: 0 }, yaw: 0, health: 100, armor: 0, equippedWeapon: "pistol", equippedPetTypes: ["lion"], equippedPetsVisual: [{ type: "lion", colorIndex: 3, side: "left" }], hasAmulet: false, alive: true },
         // Archetype C equivalent: amulet + one pet in slot 2.
-        { id: "amuletOnePet", position: { x: 1.0, y: 0, z: 0 }, yaw: 0, health: 100, armor: 0, equippedWeapon: "pistol", equippedPetTypes: ["cat"], hasAmulet: true, alive: true },
+        { id: "amuletOnePet", position: { x: 1.0, y: 0, z: 0 }, yaw: 0, health: 100, armor: 0, equippedWeapon: "pistol", equippedPetTypes: ["cat"], equippedPetsVisual: [{ type: "cat", colorIndex: 5, side: "right" }], hasAmulet: true, alive: true },
         // Archetype D equivalent: amulet + two pets (slot 1 + slot 2).
-        { id: "amuletTwoPets", position: { x: 3.0, y: 0, z: 0 }, yaw: 0, health: 100, armor: 0, equippedWeapon: "pistol", equippedPetTypes: ["dog", "bird"], hasAmulet: true, alive: true },
+        { id: "amuletTwoPets", position: { x: 3.0, y: 0, z: 0 }, yaw: 0, health: 100, armor: 0, equippedWeapon: "pistol", equippedPetTypes: ["dog", "bird"], equippedPetsVisual: [{ type: "dog", colorIndex: 1, side: "left" }, { type: "bird", colorIndex: 7, side: "right" }], hasAmulet: true, alive: true },
       ];
       remotePlayers.sync(players, "self", 1000);
       remotePlayers.update(0.016);

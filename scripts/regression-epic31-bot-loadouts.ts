@@ -61,6 +61,10 @@ for (let i = 0; i < SAMPLE_SIZE; i++) {
       Number.isInteger(pet.baseValue) && pet.baseValue >= 1 && pet.baseValue <= 200,
       `pet baseValue out of documented [1,200] band: ${pet.baseValue}`,
     );
+    assert.ok(
+      Number.isInteger(pet.colorIndex) && pet.colorIndex >= 0 && pet.colorIndex < 8,
+      `EPIC 39: bot pet colorIndex out of palette range: ${pet.colorIndex}`,
+    );
   }
 }
 

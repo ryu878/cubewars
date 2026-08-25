@@ -81,6 +81,7 @@ export class InventoryOverlay {
   private detailsEl: HTMLElement;
   private statusEl: HTMLElement;
   private appearanceRowsEl: HTMLElement;
+  private petColorRowsEl: HTMLElement;
 
   private open = false;
   private profile: EconomyProfileMessage | null = null;
@@ -121,6 +122,7 @@ export class InventoryOverlay {
     this.detailsEl = document.getElementById("inventoryDetails") as HTMLElement;
     this.statusEl = document.getElementById("inventoryStatus") as HTMLElement;
     this.appearanceRowsEl = document.getElementById("inventoryAppearanceRows") as HTMLElement;
+    this.petColorRowsEl = document.getElementById("inventoryPetColorRows") as HTMLElement;
 
     window.addEventListener("keydown", (event) => {
       if ((event.code !== "KeyI" && event.code !== "KeyP") || event.repeat) return;
@@ -285,6 +287,56 @@ export class InventoryOverlay {
       row.append(label, swatches);
       this.appearanceRowsEl.appendChild(row);
     }
+    this.renderPetColorRows();
+  }
+
+  /** EPIC 39: color swatches for owned pets (selected pet emphasized). */
+  private renderPetColorRows(): void {
+    if (!this.petColorRowsEl) return;
+    this.petColorRowsEl.replaceChildren();
+    if (!this.profile || this.profile.pets.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "inv-meta";
+      empty.textContent = "No pets yet.";
+      this.petColorRowsEl.appendChild(empty);
+      return;
+    }
+
+    const focusPetId =
+      this.selected?.itemType === "pet"
+        ? this.selected.itemId
+        : this.profile.pets.find((p) => p.equipSlot === 1)?.id ??
+          this.profile.pets.find((p) => p.equipSlot === 2)?.id ??
+          this.profile.pets[0]!.id;
+
+    for (const pet of this.profile.pets) {
+      const row = document.createElement("div");
+      row.className = "inv-appearance-row";
+      if (pet.id === focusPetId) row.dataset.focus = "true";
+      const label = document.createElement("span");
+      label.className = "inv-appearance-label";
+      label.textContent = `${pet.type} #${pet.id}`;
+      label.title = "Click to select this pet";
+      label.style.cursor = "pointer";
+      label.addEventListener("click", () => {
+        this.selected = { itemType: "pet", itemId: pet.id };
+        this.render();
+      });
+      const swatches = document.createElement("div");
+      swatches.className = "inv-swatches";
+      AVATAR_COLOR_PALETTE.forEach((hex, index) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "inv-swatch";
+        btn.title = `${pet.type} color ${index + 1}`;
+        btn.style.background = `#${hex.toString(16).padStart(6, "0")}`;
+        btn.dataset.selected = pet.colorIndex === index ? "true" : "false";
+        btn.addEventListener("click", () => this.onPetColorClick(pet.id, index));
+        swatches.appendChild(btn);
+      });
+      row.append(label, swatches);
+      this.petColorRowsEl.appendChild(row);
+    }
   }
 
   private onSwatchClick(part: AvatarBodyPart, paletteIndex: number): void {
@@ -294,6 +346,17 @@ export class InventoryOverlay {
     this.renderAppearance();
     this.send({ type: "avatar_set_color", part, paletteIndex });
     this.statusEl.textContent = `Appearance: ${part} → ${paletteIndex + 1}`;
+  }
+
+  private onPetColorClick(petId: number, paletteIndex: number): void {
+    if (!this.profile) return;
+    const pet = this.profile.pets.find((p) => p.id === petId);
+    if (!pet || pet.colorIndex === paletteIndex) return;
+    // Optimistic local highlight; economy_profile echo is authoritative.
+    pet.colorIndex = paletteIndex;
+    this.renderPetColorRows();
+    this.send({ type: "economy_set_pet_color", petId, paletteIndex });
+    this.statusEl.textContent = `Pet #${petId} color → ${paletteIndex + 1}`;
   }
 
   private renderEggTimersOnly(): void {
@@ -662,6 +725,10 @@ export class InventoryOverlay {
     } else if (itemType === "pet") {
       const pet = this.profile.pets.find((p) => p.id === itemId) as EconomyPetDto | undefined;
       if (pet) {
+        const colorInfo = document.createElement("div");
+        colorInfo.className = "inv-details-sub";
+        colorInfo.textContent = `Color palette index ${pet.colorIndex + 1} (see Pet colors below)`;
+        this.detailsEl.appendChild(colorInfo);
         actions.appendChild(
           this.makeButton("Equip slot 1", false, () => {
             this.send({ type: "economy_equip_pet", petId: pet.id, slot: 1 });

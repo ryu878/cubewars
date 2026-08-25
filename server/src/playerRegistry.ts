@@ -28,7 +28,9 @@ import {
   type PickupCategory,
   type DamageKind,
   type DamageZone,
+  type EquippedPetVisual,
   type MapBox,
+  type PetSide,
   type PetType,
   type PlayerScore,
   type PlayerState,
@@ -36,6 +38,7 @@ import {
   type ShotTrace,
   type Vector3,
   type WeaponType,
+  randomPetSide,
 } from "@cubewars/shared";
 import { buildShotTrace, findGrenadeSplashCandidates, isSpawnProtected, performHitscan } from "./combat.js";
 
@@ -136,6 +139,16 @@ export interface PlayerRecord {
   equippedPetTypes: PetType[];
   /** EPIC 31: cosmetic-only reveal of whether an amulet is currently equipped (enables slot 2). Same non-combat, broadcast-only role as equippedPetTypes. */
   hasAmulet: boolean;
+  /**
+   * EPIC 39: companion visual descriptors (type + color + side). Parallel to
+   * equippedPetTypes; side is stable until that slot's pet id changes.
+   */
+  equippedPetsVisual: EquippedPetVisual[];
+  /**
+   * EPIC 39: server-only slot pet ids used to decide when to reroll `side`
+   * (not broadcast). Humans use economy pet ids; bots use synthetic keys.
+   */
+  equippedPetSlotIds: string[];
   /**
    * EPIC 33: cosmetic avatar palette indices (head/torso/hands/legs).
    * Humans: loaded from AvatarProfileStore on join; bots: random at spawn.
@@ -425,6 +438,8 @@ export class PlayerRegistry {
       petRatings: emptyRatings(),
       equippedPetTypes: [],
       hasAmulet: false,
+      equippedPetsVisual: [],
+      equippedPetSlotIds: [],
       avatarColors: defaultAvatarColors(),
       alive: true,
       respawnAtMs: null,
@@ -472,16 +487,44 @@ export class PlayerRegistry {
 
   /**
    * Set the cosmetic-only equipped-pet-types/amulet reveal for `playerId`
-   * (EPIC 31 Section 3.3), broadcast every tick via toWorldState() the same
-   * way equippedWeapon already is. Purely a rendering hint for remote
-   * avatars — never read by any combat math (see applyPetRatings() above
-   * for the actual stat application; callers set both together from the
-   * same loadout source, human economy profile or bot in-memory loadout).
+   * (EPIC 31 Section 3.3 + EPIC 39 companion visuals), broadcast every tick
+   * via toWorldState() the same way equippedWeapon already is. Purely a
+   * rendering hint for remote avatars — never read by any combat math.
+   *
+   * `pets` is slot-ordered; each entry's `slotId` is compared against the
+   * previous assignment so `side` is rerolled only when that slot's pet
+   * identity changes (server-authoritative left/right). When two pets are
+   * equipped, sides are forced opposite so companions never stack (F-001).
    */
-  setEquipmentVisual(playerId: string, petTypes: readonly PetType[], hasAmulet: boolean): void {
+  setEquipmentVisual(
+    playerId: string,
+    pets: readonly { slotId: string; type: PetType; colorIndex: number }[],
+    hasAmulet: boolean,
+  ): void {
     const player = this.players.get(playerId);
     if (!player) return;
-    player.equippedPetTypes = [...petTypes];
+    const prevIds = player.equippedPetSlotIds;
+    const prevVisual = player.equippedPetsVisual;
+    const nextVisual: EquippedPetVisual[] = [];
+    const nextIds: string[] = [];
+    for (let i = 0; i < pets.length; i++) {
+      const pet = pets[i]!;
+      const sameSlot = prevIds[i] === pet.slotId;
+      const side: PetSide = sameSlot && prevVisual[i] ? prevVisual[i]!.side : randomPetSide();
+      nextVisual.push({
+        type: pet.type,
+        colorIndex: pet.colorIndex,
+        side,
+      });
+      nextIds.push(pet.slotId);
+    }
+    // F-001: dual-equip must use opposite sides (slot2 yields to slot1).
+    if (nextVisual.length === 2 && nextVisual[0]!.side === nextVisual[1]!.side) {
+      nextVisual[1]!.side = nextVisual[0]!.side === "left" ? "right" : "left";
+    }
+    player.equippedPetTypes = nextVisual.map((v) => v.type);
+    player.equippedPetsVisual = nextVisual;
+    player.equippedPetSlotIds = nextIds;
     player.hasAmulet = hasAmulet;
   }
 
@@ -1180,6 +1223,7 @@ export class PlayerRegistry {
         equippedWeapon: player.equippedWeapon,
         equippedPetTypes: [...player.equippedPetTypes],
         hasAmulet: player.hasAmulet,
+        equippedPetsVisual: player.equippedPetsVisual.map((v) => ({ ...v })),
         avatarColors: cloneAvatarColors(player.avatarColors),
         alive: player.alive,
         spawnProtectedUntilMs: player.spawnProtectedUntilMs,

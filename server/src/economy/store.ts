@@ -25,6 +25,8 @@ import {
   footprintForItemType,
   isEggReady,
   isValidAnchor,
+  isValidPaletteIndex,
+  randomPaletteIndex,
   type GemType,
   type InventoryItemType,
   type PetGemBonuses,
@@ -75,6 +77,8 @@ export interface EconomyPet {
   baseValue: number;
   equipSlot: 1 | 2 | null;
   slotAnchor: number | null;
+  /** EPIC 39: AVATAR_COLOR_PALETTE index for companion mesh. */
+  colorIndex: number;
   createdAt: number;
 }
 
@@ -260,6 +264,11 @@ function randomBaseValue(): number {
   return 1 + Math.floor(Math.random() * 200);
 }
 
+/** EPIC 39: coerce legacy/missing colorIndex to a valid palette index (default 0). */
+function normalizePetColorIndex(value: unknown): number {
+  return isValidPaletteIndex(value) ? value : 0;
+}
+
 function defaultKillRolls(): KillDropRolls {
   return {
     egg: Math.random(),
@@ -424,6 +433,7 @@ export class EconomyStore {
           : typeof pet.slotAnchor === "number"
             ? pet.slotAnchor
             : null,
+      colorIndex: normalizePetColorIndex(pet.colorIndex),
       createdAt: pet.createdAt,
     };
   }
@@ -1399,6 +1409,7 @@ export class EconomyStore {
       equipSlot: null as 1 | 2 | null,
       createdAt: nowMs,
       slotAnchor: null as number | null,
+      colorIndex: randomPaletteIndex(),
     };
     doc.pets.push(pet);
     this.assignBagAnchor(doc, "pet", id);
@@ -1471,6 +1482,35 @@ export class EconomyStore {
     }
     pet.equipSlot = null;
     this.assignBagAnchor(doc, "pet", petId);
+    doc.updatedAt = nowMs;
+    await this.saveDoc(scope, doc);
+    return this.petFromDoc(doc, pet);
+  }
+
+  /**
+   * EPIC 39: set a owned pet's cosmetic palette index. Validates ownership +
+   * index range server-side. Color is part of the pet entity (persists with
+   * the Redis economy document for the active scope).
+   */
+  async setPetColor(
+    nickname: string,
+    petId: number,
+    paletteIndex: number,
+    nowMs: number = Date.now(),
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
+  ): Promise<EconomyPet> {
+    if (!isValidPaletteIndex(paletteIndex)) {
+      throw new EconomyActionError("invalid_slot", `invalid pet color index ${paletteIndex}`);
+    }
+    const profile = await this.getOrCreateProfile(nickname, scope);
+    const live = (await this.loadDoc(scope, profile.nicknameKey))!;
+    if (!live.pets.some((p) => p.id === petId)) {
+      await this.assertItemOwnedOrThrow("pet", petId, live.nicknameKey, `pet ${petId} not found`);
+      throw new EconomyActionError("not_found", `pet ${petId} not found`);
+    }
+    const doc = cloneDocument(live);
+    const pet = doc.pets.find((p) => p.id === petId)!;
+    pet.colorIndex = paletteIndex;
     doc.updatedAt = nowMs;
     await this.saveDoc(scope, doc);
     return this.petFromDoc(doc, pet);
@@ -1793,6 +1833,7 @@ export class EconomyStore {
       equipSlot: null as 1 | 2 | null,
       createdAt: nowMs,
       slotAnchor: null as number | null,
+      colorIndex: randomPaletteIndex(),
     };
     doc.pets.push(pet);
     this.assignBagAnchor(doc, "pet", id);

@@ -67,6 +67,29 @@ export type PetType = "dog" | "cat" | "bird" | "lion";
 
 export const PET_TYPES: readonly PetType[] = ["dog", "cat", "bird", "lion"] as const;
 
+/** EPIC 39: companion sit side relative to the avatar (server-authoritative). */
+export type PetSide = "left" | "right";
+
+export const PET_SIDES: readonly PetSide[] = ["left", "right"] as const;
+
+/**
+ * EPIC 39: per-equipped-pet cosmetic descriptor broadcast on PlayerState.
+ * Client-render only — never hitscan/collision. Palette index, not raw hex.
+ */
+export interface EquippedPetVisual {
+  type: PetType;
+  colorIndex: number;
+  side: PetSide;
+}
+
+export function isPetSide(value: unknown): value is PetSide {
+  return value === "left" || value === "right";
+}
+
+export function randomPetSide(): PetSide {
+  return Math.random() < 0.5 ? "left" : "right";
+}
+
 export type RatingKind = "armor" | "health" | "speed" | "damage";
 
 /** Gem type matches a rating axis (EPIC 25). */
