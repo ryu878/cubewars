@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-25 |
 | Author (Pusya) | Pusya (Programmer) |
 | Task / Story / EPIC | EPIC 45 — Dual Lobby Inventories + Lobby Deathmatch Auction |
-| Branch / commit / PR | `feature/epic-45-dual-lobby-inventory-auction` — see PR (commit SHA in git log / PR) |
+| Branch / commit / PR | `feature/epic-45-dual-lobby-inventory-auction` @ `8c45e55050ad3d222a0dc368f01198d1974c7af9` — branch pushed; open PR into `master` via https://github.com/ryu878/cubewars/pull/new/feature/epic-45-dual-lobby-inventory-auction (`gh` as `ltrvtrb2` cannot resolve `ryu878/cubewars`) |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
