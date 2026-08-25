@@ -321,9 +321,18 @@ const scoreboard = new Scoreboard(() => selfId);
 //
 // EPIC 34: mode-select buttons stay disabled until account auth succeeds
 // (session resume / register / login). Nickname join flow is unchanged.
-const modeSelect = new ModeSelect((selection) => {
-  connection.send({ type: "join", ...selection });
-});
+const modeSelect = new ModeSelect(
+  (selection) => {
+    connection.send({ type: "join", ...selection });
+  },
+  () => {
+    const nickname = modeSelect.getNickname();
+    if (!nickname) return;
+    connection.send({ type: "lobby_bind_nickname", nickname });
+    inventoryOverlay.setStatus("Loading Deathmatch inventory…");
+    inventoryOverlay.setOpen(true);
+  },
+);
 
 let inventoryOverlay!: InventoryOverlay;
 let auctionPanel!: AuctionPanel;

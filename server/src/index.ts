@@ -4,6 +4,8 @@ import {
   BROADCAST_TICK_HZ,
   PROTOCOL_VERSION,
   normalizeNickname,
+  isAvatarBodyPart,
+  isValidPaletteIndex,
   type AccountCreatedMessage,
   type AccountLoginResultMessage,
   type AccountSessionResultMessage,
@@ -18,12 +20,126 @@ import {
 } from "@cubewars/shared";
 import { MatchManager } from "./matchManager.js";
 import type { Match } from "./match.js";
-import { EconomyStore, AuctionHouse } from "./economy/index.js";
+import {
+  EconomyStore,
+  AuctionHouse,
+  applyInventoryEconomyAction,
+  toEconomyProfileMessage,
+  type InventoryBagAction,
+  type InventoryEconomyPayload,
+} from "./economy/index.js";
 import { AvatarProfileStore } from "./avatarProfile.js";
 import { AccountStore } from "./accounts/index.js";
 import { isSpawnProtected } from "./combat.js";
 
 const PORT = Number(process.env.CUBEWARS_SERVER_PORT ?? 7777);
+
+/**
+ * EPIC 42: map a client message to a lobby inventory-family intent, or null
+ * if the message is not inventory-family. Returns "malformed" when the type
+ * matches but payload fields fail the same checks as the in-match path.
+ */
+function parseLobbyInventoryIntent(
+  parsed: ClientMessage,
+):
+  | { action: InventoryBagAction; payload: InventoryEconomyPayload }
+  | "malformed"
+  | null {
+  if (parsed.type === "economy_equip_pet") {
+    if (typeof parsed.petId !== "number" || !Number.isInteger(parsed.petId)) return "malformed";
+    const slot = parsed.slot === 2 ? 2 : parsed.slot === 1 ? 1 : undefined;
+    if (slot === undefined) return "malformed";
+    return { action: "equip", payload: { petId: parsed.petId, slot } };
+  }
+  if (parsed.type === "economy_unequip_pet") {
+    if (typeof parsed.petId !== "number" || !Number.isInteger(parsed.petId)) return "malformed";
+    return { action: "unequip", payload: { petId: parsed.petId } };
+  }
+  if (parsed.type === "economy_set_pet_color") {
+    if (
+      typeof parsed.petId !== "number" ||
+      !Number.isInteger(parsed.petId) ||
+      typeof parsed.paletteIndex !== "number"
+    ) {
+      return "malformed";
+    }
+    return {
+      action: "set_pet_color",
+      payload: { petId: parsed.petId, paletteIndex: parsed.paletteIndex },
+    };
+  }
+  if (parsed.type === "economy_hatch_egg") {
+    if (typeof parsed.eggId !== "number" || !Number.isInteger(parsed.eggId)) return "malformed";
+    return { action: "hatch", payload: { eggId: parsed.eggId } };
+  }
+  if (parsed.type === "economy_apply_stimulator") {
+    if (typeof parsed.eggId !== "number" || !Number.isInteger(parsed.eggId)) return "malformed";
+    return { action: "stimulator", payload: { eggId: parsed.eggId } };
+  }
+  if (parsed.type === "economy_socket_gem") {
+    if (
+      typeof parsed.gemId !== "number" ||
+      !Number.isInteger(parsed.gemId) ||
+      typeof parsed.petId !== "number" ||
+      !Number.isInteger(parsed.petId)
+    ) {
+      return "malformed";
+    }
+    return { action: "socket_gem", payload: { gemId: parsed.gemId, petId: parsed.petId } };
+  }
+  if (parsed.type === "economy_unsocket_gem") {
+    if (typeof parsed.gemId !== "number" || !Number.isInteger(parsed.gemId)) return "malformed";
+    return { action: "unsocket_gem", payload: { gemId: parsed.gemId } };
+  }
+  if (parsed.type === "economy_equip_amulet") {
+    if (typeof parsed.amuletId !== "number" || !Number.isInteger(parsed.amuletId)) return "malformed";
+    return { action: "equip_amulet", payload: { amuletId: parsed.amuletId } };
+  }
+  if (parsed.type === "economy_unequip_amulet") {
+    if (typeof parsed.amuletId !== "number" || !Number.isInteger(parsed.amuletId)) return "malformed";
+    return { action: "unequip_amulet", payload: { amuletId: parsed.amuletId } };
+  }
+  if (parsed.type === "economy_craft_amulet") {
+    return { action: "craft_amulet", payload: {} };
+  }
+  if (parsed.type === "economy_repair_amulet") {
+    if (typeof parsed.amuletId !== "number" || !Number.isInteger(parsed.amuletId)) return "malformed";
+    return { action: "repair_amulet", payload: { amuletId: parsed.amuletId } };
+  }
+  if (parsed.type === "economy_move_item") {
+    if (
+      typeof parsed.itemType !== "string" ||
+      typeof parsed.itemId !== "number" ||
+      !Number.isInteger(parsed.itemId) ||
+      typeof parsed.toAnchor !== "number" ||
+      !Number.isInteger(parsed.toAnchor)
+    ) {
+      return "malformed";
+    }
+    return {
+      action: "move_item",
+      payload: {
+        itemType: parsed.itemType,
+        itemId: parsed.itemId,
+        toAnchor: parsed.toAnchor,
+      },
+    };
+  }
+  if (parsed.type === "economy_discard_item") {
+    if (
+      typeof parsed.itemType !== "string" ||
+      typeof parsed.itemId !== "number" ||
+      !Number.isInteger(parsed.itemId)
+    ) {
+      return "malformed";
+    }
+    return {
+      action: "discard_item",
+      payload: { itemType: parsed.itemType, itemId: parsed.itemId },
+    };
+  }
+  return null;
+}
 
 async function main(): Promise<void> {
   let economyStore: EconomyStore;
@@ -575,52 +691,7 @@ wss.on("connection", (socket: WebSocket) => {
           // Deathmatch match (or lobby) — never clobber a Sandbox profile.
           if (match && match.mode !== "public") return;
           const profile = await economyStore.getFullProfile(nickname, "deathmatch");
-          sendJson(socket, {
-            type: "economy_profile",
-            nickname: profile.nickname,
-            economyPool: "deathmatch" as const,
-            gold: profile.gold,
-            pets: profile.pets.map((p) => ({
-              id: p.id,
-              type: p.type,
-              baseValue: p.baseValue,
-              equipSlot: p.equipSlot,
-              slotAnchor: p.slotAnchor,
-              colorIndex: p.colorIndex,
-            })),
-            eggs: profile.eggs.map((e) => ({
-              id: e.id,
-              hatchDeadlineMs: e.hatchDeadlineMs,
-              slotAnchor: e.slotAnchor,
-            })),
-            stimulatorCount: profile.stimulatorCount,
-            stimulators: profile.stimulators.map((s) => ({
-              id: s.id,
-              slotAnchor: s.slotAnchor,
-            })),
-            gems: profile.gems.map((g) => ({
-              id: g.id,
-              gemType: g.gemType,
-              value: g.value,
-              petId: g.petId,
-              slotAnchor: g.slotAnchor,
-            })),
-            amulets: profile.amulets.map((a) => ({
-              id: a.id,
-              durability: a.durability,
-              equipped: a.equipped,
-              slotAnchor: a.slotAnchor,
-            })),
-            shardCount: profile.shardCount,
-            shardSlotAnchor: profile.shardSlotAnchor,
-            repairKitCount: profile.repairKitCount,
-            repairKits: profile.repairKits.map((k) => ({
-              id: k.id,
-              slotAnchor: k.slotAnchor,
-            })),
-            ratings: profile.ratings,
-            slot2Enabled: profile.slot2Enabled,
-          });
+          sendJson(socket, toEconomyProfileMessage(profile, "deathmatch"));
         };
         try {
           if (parsed.type === "economy_auction_browse") {
@@ -690,6 +761,132 @@ wss.on("connection", (socket: WebSocket) => {
         }
       })();
       return;
+    }
+
+    // EPIC 42: bind nickname in lobby without joining a match, then push
+    // Deathmatch economy_profile so inventory can open pre-match.
+    if (parsed.type === "lobby_bind_nickname") {
+      if (match) {
+        // Already in a match — refresh the live match-scoped profile only.
+        void match.sendEconomyProfile(playerId, nickname);
+        sendJson(socket, { type: "economy_action_result", action: "lobby_bind", ok: true });
+        return;
+      }
+      const normalized = normalizeNickname(parsed.nickname);
+      if (!normalized.ok) {
+        sendJson(socket, {
+          type: "economy_action_result",
+          action: "lobby_bind",
+          ok: false,
+          code: "nickname_invalid",
+        });
+        return;
+      }
+      nickname = normalized.nickname;
+      nicknameKey = normalized.key;
+      nicknameReady = true;
+      void (async () => {
+        try {
+          const profile = await economyStore.getFullProfile(nickname, "deathmatch");
+          sendJson(socket, toEconomyProfileMessage(profile, "deathmatch"));
+          sendJson(socket, { type: "economy_action_result", action: "lobby_bind", ok: true });
+          console.log(`[lobby] nickname bound for inventory: ${nickname} (${playerId})`);
+        } catch (err) {
+          console.error(`[lobby] bind profile failed for ${playerId}:`, err);
+          sendJson(socket, {
+            type: "economy_action_result",
+            action: "lobby_bind",
+            ok: false,
+            code: "not_found",
+          });
+        }
+      })();
+      return;
+    }
+
+    // EPIC 42: inventory-family + appearance from lobby when nicknameReady
+    // and not yet in a match. Always Deathmatch pool. Drop/trade/ground stay
+    // match-only (clear reject below).
+    if (!match && nicknameReady) {
+      const lobbyInventory = parseLobbyInventoryIntent(parsed);
+      if (lobbyInventory === "malformed") {
+        malformedInputDropTracker.record(playerId, now);
+        return;
+      }
+      if (lobbyInventory) {
+        const intent = lobbyInventory;
+        void (async () => {
+          const result = await applyInventoryEconomyAction(
+            economyStore,
+            nickname,
+            "deathmatch",
+            intent.action,
+            intent.payload,
+            Date.now(),
+          );
+          sendJson(socket, {
+            type: "economy_action_result",
+            action: intent.action,
+            ok: result.ok,
+            code: result.ok ? undefined : result.code,
+          });
+          if (result.ok) {
+            const profile = await economyStore.getFullProfile(nickname, "deathmatch");
+            sendJson(socket, toEconomyProfileMessage(profile, "deathmatch"));
+            console.log(`[economy] ${intent.action} ok for ${nickname} [lobby/deathmatch]`);
+          } else {
+            console.warn(`[economy] ${intent.action} rejected for ${nickname} [lobby]: ${result.code}`);
+          }
+        })();
+        return;
+      }
+
+      if (
+        parsed.type === "economy_drop_item" ||
+        parsed.type === "economy_pickup_ground" ||
+        parsed.type === "economy_trade_open" ||
+        parsed.type === "economy_trade_offer" ||
+        parsed.type === "economy_trade_confirm" ||
+        parsed.type === "economy_trade_cancel"
+      ) {
+        const action =
+          parsed.type === "economy_drop_item"
+            ? "drop_item"
+            : parsed.type === "economy_pickup_ground"
+              ? "pickup_ground"
+              : parsed.type === "economy_trade_open"
+                ? "trade_open"
+                : parsed.type === "economy_trade_offer"
+                  ? "trade_offer"
+                  : parsed.type === "economy_trade_confirm"
+                    ? "trade_confirm"
+                    : "trade_cancel";
+        sendJson(socket, {
+          type: "economy_action_result",
+          action,
+          ok: false,
+          code: "match_required",
+        });
+        return;
+      }
+
+      if (parsed.type === "avatar_set_color") {
+        if (!isAvatarBodyPart(parsed.part) || !isValidPaletteIndex(parsed.paletteIndex)) {
+          malformedInputDropTracker.record(playerId, now);
+          return;
+        }
+        void (async () => {
+          try {
+            await avatarProfile.setPart(nicknameKey, parsed.part, parsed.paletteIndex);
+            console.log(
+              `[avatar] lobby set ${parsed.part}=${parsed.paletteIndex} for ${nickname}`,
+            );
+          } catch (err) {
+            console.error(`[avatar] lobby set failed for ${playerId}:`, err);
+          }
+        })();
+        return;
+      }
     }
 
     // Every other message type is gameplay-relevant and requires an active

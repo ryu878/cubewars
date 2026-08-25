@@ -104,6 +104,8 @@ Combat is server-authoritative too: firing sends a bare "fire" event, and the se
 
 ## Current status
 
+EPIC 42 (Lobby Telegram Label + Pre-Match Inventory) — see `docs/tasks/epic-42-lobby-telegram-inventory.md`. Lobby Telegram link label is **Game Developers Telegram Chat - t.me/cubewarsgame**. Authenticated players can open the same inventory overlay from an **Inventory** button on mode-select: the client sends `lobby_bind_nickname`, the server binds without joining a match, and pushes the **Deathmatch** `economy_profile`. Inventory-family `economy_*` mutations work from the lobby on the Deathmatch pool only; drop/trade/ground stay match-only. I/P hotkeys remain ignored on the lobby. Verified via `npm run regression:lobby-inventory`, `npm run typecheck`, and `npm run build`.
+
 EPIC 41 (Spawn Protection Must Block Firing) — see `docs/tasks/epic-41-spawn-protection-no-fire.md`. While inside the EPIC 36 ghost window, a player cannot shoot (server-authoritative no-op in `registry.fire()`; client also suppresses local muzzle/gunshot and outbound `fire`). Incoming immunity, opacity, and HUD SPAWN PROTECTED are unchanged. Verified via `npm run regression:spawn-protection`, `npm run typecheck`, and `npm run build`.
 
 EPIC 40 (Companion Pet Distance & Scale Polish) — see `docs/tasks/epic-40-companion-pet-distance-scale.md`. User feedback: after EPIC 39, pets clung near the torso and were hard to notice next to amulets.

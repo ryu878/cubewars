@@ -38,7 +38,6 @@ import {
   type EconomyActionResultMessage,
   type EconomyGoldUpdateMessage,
   type EconomyGroundStateMessage,
-  type EconomyProfileMessage,
   type EconomyTradeStateMessage,
   type FireBroadcastEvent,
   type InventoryItemType,
@@ -70,8 +69,12 @@ import { classifyHitZone, isSpawnProtected, pointOnRay } from "./combat.js";
 import {
   economyScopeFromMatchMode,
   EconomyActionError,
+  applyInventoryEconomyAction,
+  toEconomyProfileMessage,
   type EconomyScope,
   type EconomyStore,
+  type InventoryBagAction,
+  type InventoryEconomyPayload,
 } from "./economy/index.js";
 import type { AvatarProfileStore } from "./avatarProfile.js";
 import {
@@ -319,53 +322,7 @@ export class Match {
     if (!socket || socket.readyState !== socket.OPEN) return;
     const scope = this.economyScope();
     const profile = await economy.getFullProfile(nickname, scope);
-    const message: EconomyProfileMessage = {
-      type: "economy_profile",
-      nickname: profile.nickname,
-      economyPool: scope,
-      gold: profile.gold,
-      pets: profile.pets.map((p) => ({
-        id: p.id,
-        type: p.type,
-        baseValue: p.baseValue,
-        equipSlot: p.equipSlot,
-        slotAnchor: p.slotAnchor,
-        colorIndex: p.colorIndex,
-      })),
-      eggs: profile.eggs.map((e) => ({
-        id: e.id,
-        hatchDeadlineMs: e.hatchDeadlineMs,
-        slotAnchor: e.slotAnchor,
-      })),
-      stimulatorCount: profile.stimulatorCount,
-      stimulators: profile.stimulators.map((s) => ({
-        id: s.id,
-        slotAnchor: s.slotAnchor,
-      })),
-      gems: profile.gems.map((g) => ({
-        id: g.id,
-        gemType: g.gemType,
-        value: g.value,
-        petId: g.petId,
-        slotAnchor: g.slotAnchor,
-      })),
-      amulets: profile.amulets.map((a) => ({
-        id: a.id,
-        durability: a.durability,
-        equipped: a.equipped,
-        slotAnchor: a.slotAnchor,
-      })),
-      shardCount: profile.shardCount,
-      shardSlotAnchor: profile.shardSlotAnchor,
-      repairKitCount: profile.repairKitCount,
-      repairKits: profile.repairKits.map((k) => ({
-        id: k.id,
-        slotAnchor: k.slotAnchor,
-      })),
-      ratings: profile.ratings,
-      slot2Enabled: profile.slot2Enabled,
-    };
-    socket.send(JSON.stringify(message));
+    socket.send(JSON.stringify(toEconomyProfileMessage(profile, scope)));
   }
 
   private sendEconomyGoldUpdate(playerId: string, gold: number, gained: number): void {
@@ -462,18 +419,8 @@ export class Match {
   async handleEconomyAction(
     playerId: string,
     nickname: string,
-    action: EconomyActionResultMessage["action"],
-    payload: {
-      petId?: number;
-      eggId?: number;
-      slot?: number;
-      gemId?: number;
-      amuletId?: number;
-      itemType?: InventoryItemType;
-      itemId?: number;
-      toAnchor?: number;
-      paletteIndex?: number;
-    },
+    action: InventoryBagAction,
+    payload: InventoryEconomyPayload,
   ): Promise<void> {
     const economy = this.options.economy;
     if (!economy) {
@@ -481,133 +428,23 @@ export class Match {
       return;
     }
     const scope = this.economyScope();
-    try {
-      if (action === "equip") {
-        if (typeof payload.petId !== "number" || !Number.isInteger(payload.petId)) {
-          this.sendEconomyActionResult(playerId, action, false, "not_found");
-          return;
-        }
-        const slot = payload.slot ?? 1;
-        await economy.equipPet(nickname, payload.petId, slot, Date.now(), scope);
-      } else if (action === "unequip") {
-        if (typeof payload.petId !== "number" || !Number.isInteger(payload.petId)) {
-          this.sendEconomyActionResult(playerId, action, false, "not_found");
-          return;
-        }
-        await economy.unequipPet(nickname, payload.petId, Date.now(), scope);
-      } else if (action === "set_pet_color") {
-        if (
-          typeof payload.petId !== "number" ||
-          !Number.isInteger(payload.petId) ||
-          !isValidPaletteIndex(payload.paletteIndex)
-        ) {
-          this.sendEconomyActionResult(playerId, action, false, "not_found");
-          return;
-        }
-        await economy.setPetColor(
-          nickname,
-          payload.petId,
-          payload.paletteIndex!,
-          Date.now(),
-          scope,
-        );
-      } else if (action === "hatch") {
-        if (typeof payload.eggId !== "number" || !Number.isInteger(payload.eggId)) {
-          this.sendEconomyActionResult(playerId, action, false, "not_found");
-          return;
-        }
-        await economy.hatchEgg(nickname, payload.eggId, Date.now(), undefined, scope);
-      } else if (action === "stimulator") {
-        if (typeof payload.eggId !== "number" || !Number.isInteger(payload.eggId)) {
-          this.sendEconomyActionResult(playerId, action, false, "not_found");
-          return;
-        }
-        await economy.applyStimulator(nickname, payload.eggId, Date.now(), scope);
-      } else if (action === "socket_gem") {
-        if (
-          typeof payload.gemId !== "number" ||
-          !Number.isInteger(payload.gemId) ||
-          typeof payload.petId !== "number" ||
-          !Number.isInteger(payload.petId)
-        ) {
-          this.sendEconomyActionResult(playerId, action, false, "not_found");
-          return;
-        }
-        await economy.socketGem(nickname, payload.gemId, payload.petId, Date.now(), scope);
-      } else if (action === "unsocket_gem") {
-        if (typeof payload.gemId !== "number" || !Number.isInteger(payload.gemId)) {
-          this.sendEconomyActionResult(playerId, action, false, "not_found");
-          return;
-        }
-        await economy.unsocketGem(nickname, payload.gemId, Date.now(), scope);
-      } else if (action === "equip_amulet") {
-        if (typeof payload.amuletId !== "number" || !Number.isInteger(payload.amuletId)) {
-          this.sendEconomyActionResult(playerId, action, false, "not_found");
-          return;
-        }
-        await economy.equipAmulet(nickname, payload.amuletId, Date.now(), scope);
-      } else if (action === "unequip_amulet") {
-        if (typeof payload.amuletId !== "number" || !Number.isInteger(payload.amuletId)) {
-          this.sendEconomyActionResult(playerId, action, false, "not_found");
-          return;
-        }
-        await economy.unequipAmulet(nickname, payload.amuletId, Date.now(), scope);
-      } else if (action === "craft_amulet") {
-        await economy.craftAmulet(nickname, Date.now(), scope);
-      } else if (action === "repair_amulet") {
-        if (typeof payload.amuletId !== "number" || !Number.isInteger(payload.amuletId)) {
-          this.sendEconomyActionResult(playerId, action, false, "not_found");
-          return;
-        }
-        await economy.repairAmulet(nickname, payload.amuletId, Date.now(), scope);
-      } else if (action === "move_item") {
-        if (
-          typeof payload.itemType !== "string" ||
-          typeof payload.itemId !== "number" ||
-          !Number.isInteger(payload.itemId) ||
-          typeof payload.toAnchor !== "number" ||
-          !Number.isInteger(payload.toAnchor)
-        ) {
-          this.sendEconomyActionResult(playerId, action, false, "not_found");
-          return;
-        }
-        await economy.moveItem(
-          nickname,
-          payload.itemType,
-          payload.itemId,
-          payload.toAnchor,
-          Date.now(),
-          scope,
-        );
-      } else if (action === "discard_item") {
-        if (
-          typeof payload.itemType !== "string" ||
-          typeof payload.itemId !== "number" ||
-          !Number.isInteger(payload.itemId)
-        ) {
-          this.sendEconomyActionResult(playerId, action, false, "not_found");
-          return;
-        }
-        await economy.discardItem(
-          nickname,
-          payload.itemType,
-          payload.itemId,
-          Date.now(),
-          scope,
-        );
-      }
-      await this.applyEconomyCombatToPlayer(playerId, nickname);
-      this.sendEconomyActionResult(playerId, action, true);
-      await this.sendEconomyProfile(playerId, nickname);
-      console.log(`[economy] ${action} ok for ${nickname} [match=${this.id}]`);
-    } catch (err) {
-      const code =
-        err && typeof err === "object" && "code" in err
-          ? String((err as EconomyActionError).code)
-          : "not_found";
-      this.sendEconomyActionResult(playerId, action, false, code);
-      console.warn(`[economy] ${action} rejected for ${nickname}: ${code}`);
+    const result = await applyInventoryEconomyAction(
+      economy,
+      nickname,
+      scope,
+      action,
+      payload,
+      Date.now(),
+    );
+    if (!result.ok) {
+      this.sendEconomyActionResult(playerId, action, false, result.code);
+      console.warn(`[economy] ${action} rejected for ${nickname}: ${result.code}`);
+      return;
     }
+    await this.applyEconomyCombatToPlayer(playerId, nickname);
+    this.sendEconomyActionResult(playerId, action, true);
+    await this.sendEconomyProfile(playerId, nickname);
+    console.log(`[economy] ${action} ok for ${nickname} [match=${this.id}]`);
   }
 
   /** EPIC 38: auction/trade/ground only on Deathmatch (public) matches. */
