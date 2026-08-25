@@ -696,6 +696,22 @@
         font-weight: 600;
         font-size: 12px;
       }
+      /* Lobby footer: community / developers Telegram (opens in new tab). */
+      #modeSelect .lobby-telegram {
+        flex: 0 0 100%;
+        order: 99;
+        margin: 8px 0 0;
+        padding: 10px 8px 4px;
+        color: #8ab4c4;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        text-decoration: none;
+      }
+      #modeSelect .lobby-telegram:hover {
+        color: #c5e4f0;
+        text-decoration: underline;
+      }
       #modeSelect .mode-economy-hint {
         margin: 10px 0 0;
         font-size: 12px;
@@ -1347,6 +1363,12 @@
           Deathmatch and Sandbox are separate gold/inventory pools. Sandbox farming cannot feed Deathmatch.
         </p>
       </div>
+      <a
+        class="lobby-telegram"
+        href="https://t.me/cubewarsgame"
+        target="_blank"
+        rel="noopener noreferrer"
+      >Telegram developers — t.me/cubewarsgame</a>
     </div>
     <div id="endlessHud" aria-hidden="true">
       <span id="endlessDistance">0.00 km</span>
