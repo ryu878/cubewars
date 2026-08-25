@@ -24,3 +24,8 @@ CUBEWARS_SERVER_PORT=7777
 # 24h (INCUBATION.durationMs in shared). Use a short value for QA/tests —
 # do not leave a short override set in production.
 # CUBEWARS_INCUBATION_MS=86400000
+
+# Auction lot duration override in milliseconds (EPIC 38). Positive integer
+# only; default is 24h (AUCTION_DURATION_MS in shared). Use a short value for
+# QA/tests — do not leave a short override set in production.
+# CUBEWARS_AUCTION_MS=86400000

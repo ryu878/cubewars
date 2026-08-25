@@ -292,13 +292,88 @@ export interface EconomyMoveItemMessage {
 
 /**
  * Client -> server: destroy a bag item forever (EPIC 29).
- * Ground drop deferred to EPIC 30. Equipped / socketed items are rejected.
+ * Equipped / socketed items are rejected.
  * For `shard_stack`, `itemId` is ignored (always 0); clears the whole stack.
  */
 export interface EconomyDiscardItemMessage {
   type: "economy_discard_item";
   itemType: InventoryItemType;
   itemId: number;
+}
+
+/**
+ * Client -> server: drop a bag item onto the match ground (EPIC 38).
+ * Deathmatch (public) matches only. Item is removed from bag and lives as a
+ * match entity for GROUND_DROP_TTL_MS; expire destroys it.
+ */
+export interface EconomyDropItemMessage {
+  type: "economy_drop_item";
+  itemType: InventoryItemType;
+  itemId: number;
+}
+
+/** Client -> server: pick up a ground item by server id (EPIC 38). */
+export interface EconomyPickupGroundMessage {
+  type: "economy_pickup_ground";
+  groundId: number;
+}
+
+/**
+ * Client -> server: list a Deathmatch-pool bag item on the auction (EPIC 38).
+ * Always Deathmatch pool — never Sandbox. Optional buyout; startPrice > 0.
+ * For `shard_stack`, `itemId` is ignored; `shardQuantity` required (1..stack).
+ */
+export interface EconomyAuctionListMessage {
+  type: "economy_auction_list";
+  itemType: InventoryItemType;
+  itemId: number;
+  startPrice: number;
+  buyoutPrice?: number;
+  /** Required when itemType is shard_stack. */
+  shardQuantity?: number;
+}
+
+/** Client -> server: place a bid on an active lot (EPIC 38). Gold escrowed. */
+export interface EconomyAuctionBidMessage {
+  type: "economy_auction_bid";
+  lotId: number;
+  amount: number;
+}
+
+/** Client -> server: buy out a lot at its buyout price when set (EPIC 38). */
+export interface EconomyAuctionBuyoutMessage {
+  type: "economy_auction_buyout";
+  lotId: number;
+}
+
+/** Client -> server: refresh auction lot list (EPIC 38). */
+export interface EconomyAuctionBrowseMessage {
+  type: "economy_auction_browse";
+}
+
+/** Client -> server: open / update a same-match P2P trade offer (EPIC 38). */
+export interface EconomyTradeOpenMessage {
+  type: "economy_trade_open";
+  /** Target human playerId in the same match. */
+  partnerId: string;
+}
+
+export interface EconomyTradeOfferMessage {
+  type: "economy_trade_offer";
+  tradeId: string;
+  /** Gold from Deathmatch pool (0 allowed). */
+  gold: number;
+  items: Array<{ itemType: InventoryItemType; itemId: number; shardQuantity?: number }>;
+}
+
+export interface EconomyTradeConfirmMessage {
+  type: "economy_trade_confirm";
+  tradeId: string;
+}
+
+export interface EconomyTradeCancelMessage {
+  type: "economy_trade_cancel";
+  tradeId: string;
 }
 
 /**
@@ -360,6 +435,16 @@ export type ClientMessage =
   | EconomyRepairAmuletMessage
   | EconomyMoveItemMessage
   | EconomyDiscardItemMessage
+  | EconomyDropItemMessage
+  | EconomyPickupGroundMessage
+  | EconomyAuctionListMessage
+  | EconomyAuctionBidMessage
+  | EconomyAuctionBuyoutMessage
+  | EconomyAuctionBrowseMessage
+  | EconomyTradeOpenMessage
+  | EconomyTradeOfferMessage
+  | EconomyTradeConfirmMessage
+  | EconomyTradeCancelMessage
   | AvatarSetColorMessage
   | AccountRegisterMessage
   | AccountLoginMessage
@@ -735,7 +820,7 @@ export interface EconomyGoldUpdateMessage {
 }
 
 /**
- * Server -> owning connection only (EPIC 24/25): result of an economy action.
+ * Server -> owning connection only (EPIC 24/25/38): result of an economy action.
  * On success the server also pushes a fresh `economy_profile`.
  * On failure `ok` is false and `code` explains why.
  */
@@ -753,9 +838,86 @@ export interface EconomyActionResultMessage {
     | "craft_amulet"
     | "repair_amulet"
     | "move_item"
-    | "discard_item";
+    | "discard_item"
+    | "drop_item"
+    | "pickup_ground"
+    | "auction_list"
+    | "auction_bid"
+    | "auction_buyout"
+    | "auction_browse"
+    | "trade_open"
+    | "trade_offer"
+    | "trade_confirm"
+    | "trade_cancel";
   ok: boolean;
   code?: string;
+}
+
+/** Wire summary of an escrowed auction/trade/ground item (EPIC 38). */
+export interface EconomyEscrowItemDto {
+  itemType: InventoryItemType;
+  /** Display id when applicable; 0 for shard_stack. */
+  itemId: number;
+  /** Shard stack quantity when itemType is shard_stack. */
+  quantity?: number;
+  /** Optional short label payload for UI (pet type, gem type, etc.). */
+  label?: string;
+  detail?: string;
+}
+
+/** Active auction lot (EPIC 38). */
+export interface EconomyAuctionLotDto {
+  lotId: number;
+  sellerNickname: string;
+  item: EconomyEscrowItemDto;
+  startPrice: number;
+  buyoutPrice: number | null;
+  highestBid: number | null;
+  highestBidderNickname: string | null;
+  expiresAtMs: number;
+  /** True when this connection's deathmatch profile is the seller. */
+  isMine: boolean;
+}
+
+/** Server -> connection: auction catalog snapshot (EPIC 38). */
+export interface EconomyAuctionStateMessage {
+  type: "economy_auction_state";
+  lots: EconomyAuctionLotDto[];
+  developerGoldLedger: number;
+}
+
+/** Ground item visible in the current match (EPIC 38). */
+export interface EconomyGroundItemDto {
+  groundId: number;
+  item: EconomyEscrowItemDto;
+  position: Vector3;
+  expiresAtMs: number;
+  ownerPlayerId: string;
+}
+
+/** Server -> match: ground item list (EPIC 38). */
+export interface EconomyGroundStateMessage {
+  type: "economy_ground_state";
+  items: EconomyGroundItemDto[];
+}
+
+/** Server -> both traders: current trade window state (EPIC 38). */
+export interface EconomyTradeStateMessage {
+  type: "economy_trade_state";
+  tradeId: string;
+  status: "open" | "completed" | "cancelled";
+  partnerId: string;
+  partnerNickname: string;
+  you: {
+    gold: number;
+    items: EconomyEscrowItemDto[];
+    confirmed: boolean;
+  };
+  partner: {
+    gold: number;
+    items: EconomyEscrowItemDto[];
+    confirmed: boolean;
+  };
 }
 
 /**
@@ -833,6 +995,9 @@ export type ServerMessage =
   | EconomyProfileMessage
   | EconomyGoldUpdateMessage
   | EconomyActionResultMessage
+  | EconomyAuctionStateMessage
+  | EconomyGroundStateMessage
+  | EconomyTradeStateMessage
   | AccountCreatedMessage
   | AccountLoginResultMessage
   | AccountSessionResultMessage;

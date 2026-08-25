@@ -30,6 +30,7 @@
     "regression:economy-inventory": "tsx scripts/regression-economy-inventory.ts",
     "regression:bot-kill-no-reward": "tsx scripts/regression-bot-kill-no-reward.ts",
     "regression:split-economy": "tsx scripts/regression-split-economy.ts",
+    "regression:auction-trade-ground": "tsx scripts/regression-auction-trade-ground.ts",
     "regression:epic31-bot-loadouts": "tsx scripts/regression-epic31-bot-loadouts.ts",
     "regression:spawn-protection": "tsx scripts/regression-spawn-protection.ts",
     "regression:avatar-colors": "tsx scripts/regression-avatar-colors.ts",

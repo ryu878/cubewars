@@ -19,6 +19,9 @@ import { PickupRenderer } from "./pickups";
 import { ModeSelect } from "./modeSelect";
 import { AccountAuth } from "./accountAuth";
 import { InventoryOverlay } from "./inventoryOverlay";
+import { AuctionPanel } from "./auctionPanel";
+import { TradePanel } from "./tradePanel";
+import { GroundHud } from "./groundHud";
 import { WeaponViewmodel } from "./viewmodel";
 import { buildSkyDome, buildWallTextures } from "./textures";
 import { SoundManager } from "./audio/soundManager";
@@ -313,6 +316,10 @@ const modeSelect = new ModeSelect((selection) => {
 });
 
 let inventoryOverlay!: InventoryOverlay;
+let auctionPanel!: AuctionPanel;
+let tradePanel!: TradePanel;
+let groundHud!: GroundHud;
+let lastWorldPlayers: WorldStateMessage["players"] = [];
 const connection = new GameConnection(wsUrl, {
   onOpen: () => {
     statusEl.textContent = "connected (waiting for welcome)";
@@ -372,10 +379,12 @@ const connection = new GameConnection(wsUrl, {
     modeSelect.joinRejected(message.reason);
   },
   onWorldState: (message: WorldStateMessage) => {
+    lastWorldPlayers = message.players;
     remotePlayers.sync(message.players, selfId, message.serverTimeMs);
     if (selfId) {
       const self = message.players.find((p) => p.id === selfId);
       if (self) {
+        groundHud.setSelfPosition(self.position);
         fps.reconcile(self.position);
         // Health/alive are the continuous source of truth (server-computed
         // every tick) — HUD and local movement/fire gating are driven from
@@ -441,6 +450,7 @@ const connection = new GameConnection(wsUrl, {
     hud.setRatings(message.ratings);
     modeSelect.setGold(message.gold);
     inventoryOverlay.setProfile(message);
+    auctionPanel.setProfile(message);
   },
   onEconomyGoldUpdate: (message) => {
     hud.setGold(message.gold);
@@ -448,6 +458,15 @@ const connection = new GameConnection(wsUrl, {
   },
   onEconomyActionResult: (message) => {
     inventoryOverlay.setActionResult(message);
+  },
+  onEconomyAuctionState: (message) => {
+    auctionPanel.setAuctionState(message);
+  },
+  onEconomyGroundState: (message) => {
+    groundHud.setGroundState(message);
+  },
+  onEconomyTradeState: (message) => {
+    tradePanel.setTradeState(message);
   },
   onPickupState: (message) => {
     pickupRenderer.sync(message.pickups);
@@ -503,6 +522,33 @@ const accountAuth = new AccountAuth(
 // (see InventoryOverlay's own keydown listener) — the overlay owns its own
 // key handling the same way ModeSelect/Scoreboard own theirs, not main.ts.
 inventoryOverlay = new InventoryOverlay((message) => connection.send(message));
+auctionPanel = new AuctionPanel((message) => connection.send(message));
+tradePanel = new TradePanel((message) => connection.send(message));
+groundHud = new GroundHud((message) => connection.send(message));
+
+// EPIC 38: T opens trade with the nearest other alive human in the match.
+window.addEventListener("keydown", (event) => {
+  if (event.code !== "KeyT" || event.repeat) return;
+  if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+  if (!selfId) return;
+  const self = lastWorldPlayers.find((p) => p.id === selfId);
+  if (!self) return;
+  let bestId: string | null = null;
+  let bestDist = Infinity;
+  for (const p of lastWorldPlayers) {
+    if (p.id === selfId || !p.alive) continue;
+    const dx = p.position.x - self.position.x;
+    const dz = p.position.z - self.position.z;
+    const d = Math.hypot(dx, dz);
+    if (d < bestDist) {
+      bestDist = d;
+      bestId = p.id;
+    }
+  }
+  if (!bestId || bestDist > 8) return;
+  event.preventDefault();
+  tradePanel.openWith(bestId);
+});
 
 // Send input intent on a fixed interval, independent of render frame rate.
 // ~30Hz (33ms) is responsive without flooding the server; the server's own

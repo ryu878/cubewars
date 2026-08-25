@@ -104,6 +104,15 @@ Combat is server-authoritative too: firing sends a bare "fire" event, and the se
 
 ## Current status
 
+EPIC 38 (Auction, P2P Trade & Ground Item Drops) — see `docs/tasks/epic-38-auction-trade-ground.md`.
+
+- **Deathmatch pool only:** auction, same-match P2P trade, and ground drops never touch Sandbox gold/items.
+- **Auction:** list/bid/buyout with 24h window (`CUBEWARS_AUCTION_MS` override for QA); settle takes **10%** fee (**5% burn**, **5%** developer Redis ledger); buyer cap failure cancels + refunds.
+- **P2P trade:** same Deathmatch match, both confirm, no fee, atomic swap with rollback on cap failure.
+- **Ground:** `economy_drop_item` / `economy_pickup_ground`; **60s** TTL then destroy.
+- **Client:** **U** auction, **T** trade (nearest player), **F** pickup ground; inventory Drop/Auction actions on Deathmatch.
+- Verified via `npm run regression:auction-trade-ground`, `npm run typecheck`, and `npm run build`.
+
 EPIC 34 (Email + Code Stub Auth, Persistent Sessions) — see `docs/tasks/epic-34-account-auth-sessions.md`.
 
 - **Account identity:** register with an email over the existing WebSocket; the server generates a one-time `NNN-NNN` display code (shown on screen only — not emailed yet), stores a **bcrypt** hash, and issues a long-lived session token (180-day sliding TTL, token stored as SHA-256 digest in Redis).
@@ -137,7 +146,7 @@ EPIC 31 (Randomized Bot Equipment Loadouts) — see `docs/tasks/epic-31-bot-equi
 EPIC 29 (Inventory Grid UI) — see `docs/tasks/epic-29-inventory-grid.md`.
 
 - **8×8 grid, server-authoritative:** every bag item (gem, egg, stimulator, repair kit, shard stack — 1 cell; pet, amulet — 2 contiguous cells in the same row) carries a `slotAnchor` (0-63) persisted in the Redis economy document (same profile store as EPIC 27). Legacy profiles without anchors are auto-packed once on load and saved.
-- **Move/discard:** `economy_move_item` and `economy_discard_item` are the only client intents for rearranging/removing bag contents; the server validates ownership, footprint geometry, and cell-overlap before applying either, and discard permanently destroys the item (no ground drop yet — deferred to EPIC 30). Existing hatch/stimulator/equip/unequip/socket/unsocket/craft/repair actions are unchanged and reachable from the new UI.
+- **Move/discard:** `economy_move_item` and `economy_discard_item` are the only client intents for rearranging/removing bag contents; the server validates ownership, footprint geometry, and cell-overlap before applying either. Discard permanently destroys the item. As of EPIC 38, Deathmatch also supports `economy_drop_item` (60s ground pickup) and auction listing. Existing hatch/stimulator/equip/unequip/socket/unsocket/craft/repair actions are unchanged and reachable from the new UI.
 - **Equip rail:** pet slot 1, pet slot 2 (when an amulet is equipped), and the amulet slot render outside the 64-cell grid, matching the EPIC 25 slot-2 rules; only unequipped items live on the grid itself.
 - **Client:** the old vertical pets/eggs list panel is retired and replaced by a full inventory overlay — grid cells with drag-and-drop move, egg incubation countdown (`hatchDeadlineMs`, client clock for display only, readiness gated server-side), and action buttons per selected item. Toggled with **I**; **P** is kept as an alias for muscle memory from EPIC 24.
 - Verified via `npm run regression:economy-inventory`, `npm run regression:economy-pets`, `npm run regression:economy-gems-amulets`, `npm run regression:economy-gold`, `npm run regression:economy-persistence`, `npm run typecheck`, and `npm run build`.

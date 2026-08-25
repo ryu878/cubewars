@@ -37,6 +37,7 @@ import {
   cloneDocument,
   createEmptyDocument,
   type EconomyDocument,
+  type StoredGem,
 } from "./document.js";
 import { maybeImportSqliteToRedis } from "./importSqlite.js";
 import {
@@ -48,6 +49,7 @@ import {
   setItemAnchor,
 } from "./inventoryGrid.js";
 import { connectRedis, resolveRedisUrl } from "./redis.js";
+import { footprintForEscrow, type EscrowPayload } from "./escrow.js";
 
 export interface EconomyProfile {
   id: number;
@@ -154,7 +156,17 @@ export type EconomyActionErrorCode =
   | "bad_anchor"
   | "overlap"
   | "not_in_bag"
-  | "invalid_item_type";
+  | "invalid_item_type"
+  | "insufficient_gold"
+  | "invalid_price"
+  | "sandbox_forbidden"
+  | "buyer_cap"
+  | "lot_inactive"
+  | "bid_too_low"
+  | "self_bid"
+  | "no_buyout"
+  | "trade_invalid"
+  | "not_deathmatch";
 
 export class EconomyActionError extends Error {
   readonly code: EconomyActionErrorCode;
@@ -277,6 +289,11 @@ export class EconomyStore {
     this.redisUrl = redisUrl;
     this.keyPrefix = keyPrefix;
     this.dbPath = redisUrl;
+  }
+
+  /** EPIC 38: Redis client for auction house keys in the same namespace. */
+  getRedisClient(): Redis {
+    return this.redis;
   }
 
   private cacheKey(scope: EconomyScope, nicknameKey: string): string {
@@ -1867,6 +1884,299 @@ export class EconomyStore {
     console.log(
       `[economy] discard ${itemType}#${itemId} by ${doc.nicknameKey}`,
     );
+  }
+
+  /**
+   * Debit gold from a profile (EPIC 38 auction/trade). Throws insufficient_gold.
+   */
+  async debitGold(
+    nickname: string,
+    amount: number,
+    nowMs: number = Date.now(),
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
+  ): Promise<void> {
+    if (!Number.isInteger(amount) || amount <= 0) {
+      throw new EconomyActionError("invalid_price", `debit amount must be positive int, got ${amount}`);
+    }
+    const profile = await this.getOrCreateProfile(nickname, scope);
+    const doc = (await this.loadDoc(scope, profile.nicknameKey))!;
+    if (doc.gold < amount) {
+      throw new EconomyActionError("insufficient_gold", "not enough gold");
+    }
+    doc.gold -= amount;
+    doc.updatedAt = nowMs;
+    await this.saveDoc(scope, doc);
+  }
+
+  /**
+   * Extract a bag item into an escrow payload (removes from bag). Pets take
+   * their socketed gems with them. Deathmatch-only callers must pass scope.
+   */
+  async extractBagItem(
+    nickname: string,
+    itemType: InventoryItemType,
+    itemId: number,
+    nowMs: number = Date.now(),
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
+    shardQuantity?: number,
+  ): Promise<EscrowPayload> {
+    if (!(INVENTORY_ITEM_TYPES as readonly string[]).includes(itemType)) {
+      throw new EconomyActionError("invalid_item_type", `invalid item type ${itemType}`);
+    }
+    const profile = await this.getOrCreateProfile(nickname, scope);
+    const live = (await this.loadDoc(scope, profile.nicknameKey))!;
+    const doc = cloneDocument(live);
+    this.assertBagItem(doc, itemType, itemId);
+
+    let payload: EscrowPayload;
+    switch (itemType) {
+      case "pet": {
+        const pet = doc.pets.find((p) => p.id === itemId)!;
+        const gems = doc.gems.filter((g) => g.petId === itemId).map((g) => ({ ...g, petId: null as number | null }));
+        doc.pets = doc.pets.filter((p) => p.id !== itemId);
+        doc.gems = doc.gems.filter((g) => g.petId !== itemId);
+        await this.unbindItemOwner("pet", itemId);
+        for (const g of gems) {
+          await this.unbindItemOwner("gem", g.id);
+        }
+        payload = {
+          itemType: "pet",
+          pet: { ...pet, equipSlot: null, slotAnchor: null },
+          gems: gems.map((g) => ({ ...g, petId: null, slotAnchor: null })),
+        };
+        break;
+      }
+      case "egg": {
+        const egg = doc.eggs.find((e) => e.id === itemId)!;
+        doc.eggs = doc.eggs.filter((e) => e.id !== itemId);
+        await this.unbindItemOwner("egg", itemId);
+        payload = { itemType: "egg", egg: { ...egg, slotAnchor: null } };
+        break;
+      }
+      case "gem": {
+        const gem = doc.gems.find((g) => g.id === itemId)!;
+        doc.gems = doc.gems.filter((g) => g.id !== itemId);
+        await this.unbindItemOwner("gem", itemId);
+        payload = { itemType: "gem", gem: { ...gem, petId: null, slotAnchor: null } };
+        break;
+      }
+      case "amulet": {
+        const amulet = doc.amulets.find((a) => a.id === itemId)!;
+        doc.amulets = doc.amulets.filter((a) => a.id !== itemId);
+        await this.unbindItemOwner("amulet", itemId);
+        payload = { itemType: "amulet", amulet: { ...amulet, equipped: false, slotAnchor: null } };
+        break;
+      }
+      case "stimulator": {
+        const stim = doc.stimulators.find((s) => s.id === itemId)!;
+        doc.stimulators = doc.stimulators.filter((s) => s.id !== itemId);
+        payload = { itemType: "stimulator", stimulator: { ...stim, slotAnchor: null } };
+        break;
+      }
+      case "repair_kit": {
+        const kit = doc.repairKits.find((k) => k.id === itemId)!;
+        doc.repairKits = doc.repairKits.filter((k) => k.id !== itemId);
+        payload = { itemType: "repair_kit", repairKit: { ...kit, slotAnchor: null } };
+        break;
+      }
+      case "shard_stack": {
+        const qty =
+          typeof shardQuantity === "number" && Number.isInteger(shardQuantity)
+            ? shardQuantity
+            : doc.shardCount;
+        if (qty <= 0 || qty > doc.shardCount) {
+          throw new EconomyActionError("invalid_item_type", `invalid shard quantity ${qty}`);
+        }
+        doc.shardCount -= qty;
+        if (doc.shardCount <= 0) {
+          doc.shardCount = 0;
+          doc.shardSlotAnchor = null;
+        }
+        payload = { itemType: "shard_stack", quantity: qty };
+        break;
+      }
+    }
+
+    doc.updatedAt = nowMs;
+    await this.saveDoc(scope, doc);
+    return payload;
+  }
+
+  /**
+   * Preview whether a receiver can accept an escrow payload (caps + footprint).
+   * Does not mutate. Throws EconomyActionError with buyer_cap / inventory_full / *_cap.
+   */
+  async assertCanAcceptEscrow(
+    nickname: string,
+    payload: EscrowPayload,
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
+  ): Promise<void> {
+    const profile = await this.getOrCreateProfile(nickname, scope);
+    const doc = (await this.loadDoc(scope, profile.nicknameKey))!;
+    this.assertDocCanAcceptEscrow(doc, payload);
+  }
+
+  private assertDocCanAcceptEscrow(doc: EconomyDocument, payload: EscrowPayload): void {
+    const footprint = footprintForEscrow(payload);
+    switch (payload.itemType) {
+      case "pet": {
+        if (doc.pets.length >= ECONOMY_CAPS.pets) {
+          throw new EconomyActionError("pet_cap", "pet cap reached");
+        }
+        const gemAdd = payload.gems.length;
+        if (doc.gems.length + gemAdd > ECONOMY_CAPS.gems) {
+          throw new EconomyActionError("gem_cap", "gem cap reached");
+        }
+        if (findFit(doc, footprint) === null) {
+          throw new EconomyActionError("inventory_full", "no free cells for pet");
+        }
+        break;
+      }
+      case "egg": {
+        if (doc.eggs.length >= ECONOMY_CAPS.eggs) {
+          throw new EconomyActionError("egg_cap", "egg cap reached");
+        }
+        if (findFit(doc, 1) === null) {
+          throw new EconomyActionError("inventory_full", "no free cell for egg");
+        }
+        break;
+      }
+      case "gem": {
+        if (doc.gems.length >= ECONOMY_CAPS.gems) {
+          throw new EconomyActionError("gem_cap", "gem cap reached");
+        }
+        if (findFit(doc, 1) === null) {
+          throw new EconomyActionError("inventory_full", "no free cell for gem");
+        }
+        break;
+      }
+      case "amulet": {
+        if (doc.amulets.length >= ECONOMY_CAPS.amulets) {
+          throw new EconomyActionError("amulet_cap", "amulet cap reached");
+        }
+        if (findFit(doc, 2) === null) {
+          throw new EconomyActionError("inventory_full", "no free cells for amulet");
+        }
+        break;
+      }
+      case "stimulator": {
+        if (doc.stimulators.length >= STIMULATOR_SOFT_CAP) {
+          throw new EconomyActionError("stimulator_cap", "stimulator soft-cap reached");
+        }
+        if (findFit(doc, 1) === null) {
+          throw new EconomyActionError("inventory_full", "no free cell for stimulator");
+        }
+        break;
+      }
+      case "repair_kit": {
+        if (doc.repairKits.length >= REPAIR_KIT_SOFT_CAP) {
+          throw new EconomyActionError("repair_kit_cap", "repair kit soft-cap reached");
+        }
+        if (findFit(doc, 1) === null) {
+          throw new EconomyActionError("inventory_full", "no free cell for repair kit");
+        }
+        break;
+      }
+      case "shard_stack": {
+        if (doc.shardCount + payload.quantity > ECONOMY_CAPS.shards) {
+          throw new EconomyActionError("shard_cap", "shard cap reached");
+        }
+        if (doc.shardCount <= 0 && findFit(doc, 1) === null) {
+          throw new EconomyActionError("inventory_full", "no free cell for shard stack");
+        }
+        break;
+      }
+    }
+  }
+
+  /**
+   * Insert an escrow payload into the receiver's bag, reminting IDs and
+   * rebinding ownership. Throws if caps/footprint fail.
+   */
+  async insertEscrowItem(
+    nickname: string,
+    payload: EscrowPayload,
+    nowMs: number = Date.now(),
+    scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
+  ): Promise<void> {
+    const profile = await this.getOrCreateProfile(nickname, scope);
+    const live = (await this.loadDoc(scope, profile.nicknameKey))!;
+    const doc = cloneDocument(live);
+    this.assertDocCanAcceptEscrow(doc, payload);
+
+    switch (payload.itemType) {
+      case "pet": {
+        const id = doc.nextPetId++;
+        const pet = {
+          ...payload.pet,
+          id,
+          equipSlot: null as 1 | 2 | null,
+          slotAnchor: null as number | null,
+        };
+        doc.pets.push(pet);
+        this.assignBagAnchor(doc, "pet", id);
+        await this.bindItemOwner("pet", id, doc.nicknameKey);
+        for (const g of payload.gems) {
+          const gemId = doc.nextGemId++;
+          const gem: StoredGem = {
+            ...g,
+            id: gemId,
+            petId: id,
+            slotAnchor: null,
+          };
+          doc.gems.push(gem);
+          await this.bindItemOwner("gem", gemId, doc.nicknameKey);
+        }
+        break;
+      }
+      case "egg": {
+        const id = doc.nextEggId++;
+        doc.eggs.push({ ...payload.egg, id, slotAnchor: null });
+        this.assignBagAnchor(doc, "egg", id);
+        await this.bindItemOwner("egg", id, doc.nicknameKey);
+        break;
+      }
+      case "gem": {
+        const id = doc.nextGemId++;
+        doc.gems.push({ ...payload.gem, id, petId: null, slotAnchor: null });
+        this.assignBagAnchor(doc, "gem", id);
+        await this.bindItemOwner("gem", id, doc.nicknameKey);
+        break;
+      }
+      case "amulet": {
+        const id = doc.nextAmuletId++;
+        doc.amulets.push({
+          ...payload.amulet,
+          id,
+          equipped: false,
+          slotAnchor: null,
+        });
+        this.assignBagAnchor(doc, "amulet", id);
+        await this.bindItemOwner("amulet", id, doc.nicknameKey);
+        break;
+      }
+      case "stimulator": {
+        const id = doc.nextStimId++;
+        doc.stimulators.push({ ...payload.stimulator, id, slotAnchor: null });
+        this.assignBagAnchor(doc, "stimulator", id);
+        break;
+      }
+      case "repair_kit": {
+        const id = doc.nextRepairKitId++;
+        doc.repairKits.push({ ...payload.repairKit, id, slotAnchor: null });
+        this.assignBagAnchor(doc, "repair_kit", id);
+        break;
+      }
+      case "shard_stack": {
+        const had = doc.shardCount > 0;
+        doc.shardCount += payload.quantity;
+        if (!had) this.assignBagAnchor(doc, "shard_stack", 0);
+        break;
+      }
+    }
+
+    doc.updatedAt = nowMs;
+    await this.saveDoc(scope, doc);
   }
 
   /** Ensure the item exists in the bag (not equipped / socketed). */

@@ -755,6 +755,19 @@ export class InventoryOverlay {
     if (armed) discardBtn.classList.add("armed");
     actions.appendChild(discardBtn);
 
+    if (this.profile.economyPool === "deathmatch") {
+      actions.appendChild(
+        this.makeButton("Drop to ground (60s)", false, () => {
+          this.send({ type: "economy_drop_item", itemType, itemId });
+        }),
+      );
+      actions.appendChild(
+        this.makeButton("Auction…", false, () => {
+          window.dispatchEvent(new CustomEvent("cubewars-open-auction"));
+        }),
+      );
+    }
+
     this.detailsEl.appendChild(actions);
   }
 
