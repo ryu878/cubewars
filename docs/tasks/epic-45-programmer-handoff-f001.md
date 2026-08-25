@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-25 |
 | Author (Pusya) | Pusya |
 | Task / Story / EPIC | EPIC 45 — Critic revision **F-001** only (stale dual-bind `economy_profile` race) |
-| Branch / commit / PR | `feature/epic-45-dual-lobby-inventory-auction` / (see git HEAD after commit) / existing EPIC 45 PR |
+| Branch / commit / PR | `feature/epic-45-dual-lobby-inventory-auction` / `5dad425349a0d4ccf5741341837b375de784e4ca` / existing EPIC 45 PR |
 | Revision round (if this is a Critic/Judge fix, not first pass) | yes — finding IDs: **F-001** |
 
 ## What was done (brief)
