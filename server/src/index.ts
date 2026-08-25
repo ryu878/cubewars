@@ -398,6 +398,11 @@ wss.on("connection", (socket: WebSocket) => {
    * successful `lobby_bind_nickname`. Auction always uses Deathmatch regardless.
    */
   let lobbyEconomyPool: EconomyPool = "deathmatch";
+  /**
+   * EPIC 45 F-001: incremented on every successful lobby bind sync path so
+   * in-flight async profile pushes from an older bind are cancelled.
+   */
+  let lobbyBindGeneration = 0;
   /** EPIC 34: authenticated account for this connection (session-scoped). */
   let accountId: string | null = null;
   lobbySockets.add(socket);
@@ -806,15 +811,40 @@ wss.on("connection", (socket: WebSocket) => {
       nicknameKey = normalized.key;
       nicknameReady = true;
       lobbyEconomyPool = requestedPool;
+      const bindGeneration = ++lobbyBindGeneration;
       void (async () => {
         try {
+          // Test-only stall so overlapping dual-bind races are reproducible in
+          // regression (CUBEWARS_TEST_LOBBY_BIND_STALL_MS / _STALL_POOL).
+          const stallMs = Number(process.env.CUBEWARS_TEST_LOBBY_BIND_STALL_MS ?? 0);
+          const stallPool = process.env.CUBEWARS_TEST_LOBBY_BIND_STALL_POOL;
+          if (
+            Number.isFinite(stallMs) &&
+            stallMs > 0 &&
+            (!stallPool || stallPool === requestedPool)
+          ) {
+            await new Promise((resolve) => setTimeout(resolve, stallMs));
+          }
+          if (bindGeneration !== lobbyBindGeneration) {
+            console.log(
+              `[lobby/${requestedPool}] skipping stale bind profile (gen ${bindGeneration} < ${lobbyBindGeneration})`,
+            );
+            return;
+          }
           const profile = await economyStore.getFullProfile(nickname, requestedPool);
+          if (bindGeneration !== lobbyBindGeneration) {
+            console.log(
+              `[lobby/${requestedPool}] skipping stale bind profile after fetch (gen ${bindGeneration} < ${lobbyBindGeneration})`,
+            );
+            return;
+          }
           sendJson(socket, toEconomyProfileMessage(profile, requestedPool));
           sendJson(socket, { type: "economy_action_result", action: "lobby_bind", ok: true });
           console.log(
             `[lobby/${requestedPool}] nickname bound for inventory: ${nickname} (${playerId})`,
           );
         } catch (err) {
+          if (bindGeneration !== lobbyBindGeneration) return;
           console.error(`[lobby/${requestedPool}] bind profile failed for ${playerId}:`, err);
           sendJson(socket, {
             type: "economy_action_result",

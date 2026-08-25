@@ -4,6 +4,7 @@ import {
   ARENA_GEOMETRY,
   PICKUP_RADIUS,
   WEAPON_STATS,
+  type EconomyPool,
   type MapBox,
   type PlayerInputMessage,
   type WeaponType,
@@ -324,6 +325,14 @@ const scoreboard = new Scoreboard(() => selfId);
 //
 // EPIC 34: mode-select buttons stay disabled until account auth succeeds
 // (session resume / register / login). Nickname join flow is unchanged.
+/**
+ * EPIC 45 F-001: last lobby inventory/auction bind pool requested by this
+ * client. While set, ignore mismatched `economy_profile` pushes (stale race).
+ * Cleared on join so match-scoped profiles always apply. Mutations still use
+ * server `lobbyEconomyPool` — this filter is display-only.
+ */
+let lastLobbyBindPool: EconomyPool | null = null;
+
 const modeSelect = new ModeSelect(
   (selection) => {
     connection.send({ type: "join", ...selection });
@@ -331,6 +340,7 @@ const modeSelect = new ModeSelect(
   (pool) => {
     const nickname = modeSelect.getNickname();
     if (!nickname) return;
+    lastLobbyBindPool = pool;
     connection.send({ type: "lobby_bind_nickname", nickname, economyPool: pool });
     inventoryOverlay.setStatus(
       pool === "sandbox" ? "Loading Bots inventory…" : "Loading Deathmatch inventory…",
@@ -340,6 +350,7 @@ const modeSelect = new ModeSelect(
   () => {
     const nickname = modeSelect.getNickname();
     if (!nickname) return;
+    lastLobbyBindPool = "deathmatch";
     connection.send({ type: "lobby_bind_nickname", nickname, economyPool: "deathmatch" });
     auctionPanel.setOpen(true);
   },
@@ -394,6 +405,7 @@ const connection = new GameConnection(wsUrl, {
     fogWall.position.z = message.fogZ;
   },
   onJoinAccepted: (message) => {
+    lastLobbyBindPool = null;
     modeSelect.joinAccepted(message.nickname);
     statusEl.textContent = `joined ${message.matchId} — ${message.nickname}`;
     joinedEndless = message.matchId.startsWith("endless:");
@@ -479,6 +491,10 @@ const connection = new GameConnection(wsUrl, {
     viewmodel.setEmpty(message.ammo === 0);
   },
   onEconomyProfile: (message) => {
+    // EPIC 45 F-001: drop stale other-pool profiles after a newer lobby bind.
+    if (lastLobbyBindPool !== null && message.economyPool !== lastLobbyBindPool) {
+      return;
+    }
     hud.setGold(message.gold);
     hud.setRatings(message.ratings);
     modeSelect.setGold(message.gold);

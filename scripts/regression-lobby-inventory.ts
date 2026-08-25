@@ -35,6 +35,10 @@ function startServer(): Promise<{ child: ReturnType<typeof spawn> }> {
         ...process.env,
         CUBEWARS_SERVER_PORT: String(SERVER_PORT),
         CUBEWARS_REDIS_URL: resolveRedisUrl(),
+        // EPIC 45 F-001: stall sandbox lobby binds so overlapping dual-bind
+        // race is deterministic (deathmatch bind overtakes in-flight sandbox).
+        CUBEWARS_TEST_LOBBY_BIND_STALL_MS: "200",
+        CUBEWARS_TEST_LOBBY_BIND_STALL_POOL: "sandbox",
       },
       stdio: ["ignore", "pipe", "pipe"],
       detached: true,
@@ -372,6 +376,47 @@ async function main(): Promise<void> {
           "sandbox gem count must not change on deathmatch discard",
         );
       }
+    }
+
+    // EPIC 45 F-001: overlapping sandbox → deathmatch bind must not deliver a
+    // stale sandbox economy_profile after the deathmatch profile.
+    {
+      const before = client.messages.length;
+      send(client, {
+        type: "lobby_bind_nickname",
+        nickname: nick,
+        economyPool: "sandbox",
+      });
+      send(client, {
+        type: "lobby_bind_nickname",
+        nickname: nick,
+        economyPool: "deathmatch",
+      });
+      const dmProfile = await waitFor(
+        client,
+        before,
+        (m) => m.type === "economy_profile" && m.economyPool === "deathmatch",
+        "deathmatch profile after overlapping dual-bind",
+      );
+      assert.equal(dmProfile.type, "economy_profile");
+      const dmIndex = client.messages.indexOf(dmProfile);
+      assert.ok(dmIndex >= before, "deathmatch profile must appear after dual-bind start");
+      // Allow stalled sandbox bind time to finish (or be cancelled).
+      await sleep(500);
+      const staleAfterDm = client.messages
+        .slice(dmIndex + 1)
+        .filter((m) => m.type === "economy_profile" && m.economyPool === "sandbox");
+      assert.equal(
+        staleAfterDm.length,
+        0,
+        "no sandbox economy_profile may arrive after deathmatch profile on overlapping bind",
+      );
+      await waitFor(
+        client,
+        before,
+        (m) => m.type === "economy_action_result" && m.action === "lobby_bind" && m.ok === true,
+        "lobby_bind ok for winning deathmatch bind",
+      );
     }
 
     // Lobby auction browse without join (Deathmatch only)
