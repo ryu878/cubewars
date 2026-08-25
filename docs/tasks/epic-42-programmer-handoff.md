@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-25 |
 | Author (Pusya) | Pusya (Programmer) |
 | Task / Story / EPIC | EPIC 42 — Stories 42.1 + 42.2 (Lobby Telegram Label + Pre-Match Inventory) |
-| Branch / commit / PR | `task/epic-42-lobby-telegram-inventory` (PR opened into `master`) |
+| Branch / commit / PR | `task/epic-42-lobby-telegram-inventory` @ `e9d7d72` — push OK; PR create blocked by `gh` auth (logged in as wrong GitHub user). Open/compare: https://github.com/ryu878/cubewars/compare/master...task/epic-42-lobby-telegram-inventory |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
