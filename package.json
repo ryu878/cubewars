@@ -20,6 +20,7 @@
     "regression:grenade-projectile": "tsx scripts/regression-grenade-projectile.ts",
     "regression:lobby-nicknames": "tsx scripts/regression-lobby-nicknames.ts",
     "regression:leaderboard": "tsx scripts/regression-leaderboard.ts",
+    "regression:leaderboard-excludes-bots": "tsx scripts/regression-leaderboard-excludes-bots.ts",
     "regression:endless": "tsx scripts/regression-endless-mode.ts",
     "regression:economy-gold": "tsx scripts/regression-economy-gold.ts",
     "regression:economy-pets": "tsx scripts/regression-economy-pets.ts",
