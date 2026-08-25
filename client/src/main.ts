@@ -26,6 +26,7 @@ import { WeaponViewmodel } from "./viewmodel";
 import { buildSkyDome, buildWallTextures } from "./textures";
 import { SoundManager } from "./audio/soundManager";
 import { CombatEffects } from "./combatEffects";
+import { KillLootVfx } from "./killLootVfx";
 import { shouldIgnoreGameHotkey } from "./uiInput";
 
 const statusEl = document.getElementById("status") as HTMLDivElement;
@@ -171,6 +172,7 @@ const hud = new CombatHud();
 // Decision 6), the first real user gesture in this game.
 const soundManager = new SoundManager();
 const combatEffects = new CombatEffects(scene);
+const killLootVfx = new KillLootVfx(scene);
 // EPIC 10 Story 10.1: the viewmodel is attached to the camera (see
 // scene.add(camera) above) and reacts to the SAME data already driving the
 // HUD — LoadoutMessage.equippedWeapon/ammo (onLoadout below) and the
@@ -290,6 +292,7 @@ function animate() {
   soundManager.update(dt, fps.isRunning());
   remotePlayers.update(dt);
   combatEffects.update(dt);
+  killLootVfx.update(dt);
   renderer.render(scene, camera);
 }
 animate();
@@ -477,6 +480,10 @@ const connection = new GameConnection(wsUrl, {
   onEconomyGoldUpdate: (message) => {
     hud.setGold(message.gold);
     modeSelect.setGold(message.gold);
+  },
+  onEconomyKillLootFx: (message) => {
+    // EPIC 44: render only server-listed grant kinds — never invent drops.
+    killLootVfx.spawnFromMessage(message);
   },
   onEconomyActionResult: (message) => {
     inventoryOverlay.setActionResult(message);

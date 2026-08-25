@@ -10,6 +10,7 @@ import type {
   EconomyAuctionStateMessage,
   EconomyGoldUpdateMessage,
   EconomyGroundStateMessage,
+  EconomyKillLootFxMessage,
   EconomyProfileMessage,
   EconomyTradeStateMessage,
   EndlessLeaderboardMessage,
@@ -64,6 +65,8 @@ export interface NetworkHandlers {
   onEconomyProfile?: (message: EconomyProfileMessage) => void;
   /** Gold balance after a server mint (EPIC 23) — private, server-authored. */
   onEconomyGoldUpdate?: (message: EconomyGoldUpdateMessage) => void;
+  /** Kill loot flyout kinds + positions (EPIC 44) — match broadcast, cosmetic only. */
+  onEconomyKillLootFx?: (message: EconomyKillLootFxMessage) => void;
   /** Result of an economy action (EPIC 24) — private, server-authored. */
   onEconomyActionResult?: (message: EconomyActionResultMessage) => void;
   /** EPIC 38: auction catalog snapshot. */
@@ -133,6 +136,8 @@ export class GameConnection {
           handlers.onEconomyProfile?.(message);
         } else if (message.type === "economy_gold_update") {
           handlers.onEconomyGoldUpdate?.(message);
+        } else if (message.type === "economy_kill_loot_fx") {
+          handlers.onEconomyKillLootFx?.(message);
         } else if (message.type === "economy_action_result") {
           handlers.onEconomyActionResult?.(message);
         } else if (message.type === "economy_auction_state") {
