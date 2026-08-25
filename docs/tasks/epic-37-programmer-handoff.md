@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-25 |
 | Author (Pusya) | Pusya (Programmer) |
 | Task / Story / EPIC | EPIC 37 — Competitive Leaderboard Excludes "vs Bots" Kills |
-| Branch / commit / PR | `task/epic-37-leaderboard-excludes-bots-mode` / (see git tip after push) / PR not opened yet (QA first) |
+| Branch / commit / PR | `task/epic-37-leaderboard-excludes-bots-mode` / `226f8dd16da1b3fd14f8d19c51ee11c8e7d37f9d` / PR not opened yet (QA first) |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
