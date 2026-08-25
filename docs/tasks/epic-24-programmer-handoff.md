@@ -2,6 +2,8 @@
 
 > Unified format. Copy the block and fill it in; do not replace with an ad-hoc "done, look".
 
+> **Superseded by EPIC 32:** item 3 below ("bots gold-only for items") is historical. As of EPIC 32, a bot-victim kill grants **no** gold (and no items) — only a human-victim kill feeds the economy. See `docs/tasks/epic-32-bot-kill-no-economy-reward.md`.
+
 ## Meta
 
 | Field | Value |

@@ -3,6 +3,8 @@
 Spec format per `ai-office/task-intake.md`.  
 Product TZ: `docs/product/emerald-wasteland-economy-tz-v2.1.md`.
 
+> **Superseded by EPIC 32:** the "(or bot, gold-only)" framing below (Section 1 Interaction row, and any "human kills, including bot victims, mint gold" language elsewhere in this doc) is historical. As of EPIC 32, a bot-victim kill grants **no** gold (and no items) — only a human-victim kill feeds the economy. See `docs/tasks/epic-32-bot-kill-no-economy-reward.md`.
+
 ## 1. EPIC
 
 | Field | Value |
