@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-25 |
 | Author (Pusya) | Pusya (Programmer) |
 | Task / Story / EPIC | EPIC 44 — Kill Loot Drop VFX (Victim → Killer) |
-| Branch / commit / PR | `task/epic-44-kill-loot-drop-vfx` / (see tip after commit) / same branch as feature `897f101` |
+| Branch / commit / PR | `task/epic-44-kill-loot-drop-vfx` / VFX fix `2a7405d` + this handoff / same branch as feature `897f101` |
 | Revision round (if this is a Critic/Judge fix, not first pass) | yes — finding IDs: **F-001**, **F-002** |
 
 ## What was done (brief)
