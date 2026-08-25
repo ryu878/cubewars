@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-25 |
 | Author (Pusya) | Pusya (Programmer) |
 | Task / Story / EPIC | EPIC 41 — Spawn Protection Must Block Firing (`docs/tasks/epic-41-spawn-protection-no-fire.md`) |
-| Branch / commit / PR | `task/epic-41-spawn-protection-no-fire` / `73a7d95bf6cd2be80cd0fb82874c712b6c5d9a8a` / PR not opened via `gh` (CLI auth is `ltrvtrb2`; push used SSH as `ryu878`). Compare: https://github.com/ryu878/cubewars/compare/master...task/epic-41-spawn-protection-no-fire |
+| Branch / commit / PR | `task/epic-41-spawn-protection-no-fire` / tip `e43a9b5b147eeb25210c1f97124ac8c9acf4fcb3` (impl `05ca5a1`) / PR not opened via `gh` (CLI auth is `ltrvtrb2`; push used SSH as `ryu878`). Compare: https://github.com/ryu878/cubewars/compare/master...task/epic-41-spawn-protection-no-fire |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
