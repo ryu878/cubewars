@@ -30,7 +30,7 @@ export {
   resolveAuctionDurationMs,
   type AuctionLotRecord,
 } from "./auction.js";
-export { escrowToDto, type EscrowPayload } from "./escrow.js";
+export { escrowToDto, type EscrowPayload, type EscrowInsertRef } from "./escrow.js";
 export {
   findFit,
   occupiedCells,

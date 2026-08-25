@@ -81,3 +81,8 @@ export function footprintForEscrow(payload: EscrowPayload): 1 | 2 {
 export function itemTypeOfEscrow(payload: EscrowPayload): InventoryItemType {
   return payload.itemType;
 }
+
+/** Reminted identity returned by insertEscrowItem for compensating rollbacks (F-002). */
+export type EscrowInsertRef =
+  | { itemType: Exclude<InventoryItemType, "shard_stack">; itemId: number }
+  | { itemType: "shard_stack"; quantity: number };

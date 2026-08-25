@@ -657,27 +657,35 @@ export class Match {
       this.sendEconomyActionResult(playerId, "pickup_ground", false, "not_found");
       return;
     }
+    // F-001: claim synchronously before any await so concurrent pickups cannot
+    // both pass assertCanAccept and insert reminted duplicates.
+    let claimed: ReturnType<MatchGroundItems["claim"]> | undefined;
     try {
       this.assertDeathmatchMarket();
-      const entity = this.groundItems.get(groundId);
-      if (!entity) {
+      claimed = this.groundItems.claim(groundId);
+      if (!claimed) {
         this.sendEconomyActionResult(playerId, "pickup_ground", false, "not_found");
         return;
       }
-      if (Date.now() >= entity.expiresAtMs) {
-        this.groundItems.remove(groundId);
+      if (Date.now() >= claimed.expiresAtMs) {
+        // Expired — already removed by claim; do not restore (TTL destroy).
         this.broadcastGroundState();
         this.sendEconomyActionResult(playerId, "pickup_ground", false, "not_found");
+        claimed = undefined;
         return;
       }
-      await economy.assertCanAcceptEscrow(nickname, entity.payload, "deathmatch");
-      this.groundItems.remove(groundId);
-      await economy.insertEscrowItem(nickname, entity.payload, Date.now(), "deathmatch");
+      await economy.assertCanAcceptEscrow(nickname, claimed.payload, "deathmatch");
+      await economy.insertEscrowItem(nickname, claimed.payload, Date.now(), "deathmatch");
+      claimed = undefined; // granted — do not restore
       this.sendEconomyActionResult(playerId, "pickup_ground", true);
       await this.sendEconomyProfile(playerId, nickname);
       this.broadcastGroundState();
       console.log(`[ground] pickup ground#${groundId} by ${nickname} [match=${this.id}]`);
     } catch (err) {
+      if (claimed) {
+        this.groundItems.restore(claimed);
+        this.broadcastGroundState();
+      }
       const code =
         err && typeof err === "object" && "code" in err
           ? String((err as EconomyActionError).code)

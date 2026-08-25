@@ -10,7 +10,7 @@ import {
   type InventoryItemType,
   type Vector3,
 } from "@cubewars/shared";
-import { escrowToDto, type EscrowPayload } from "./economy/escrow.js";
+import { escrowToDto, type EscrowInsertRef, type EscrowPayload } from "./economy/escrow.js";
 import {
   EconomyActionError,
   type EconomyStore,
@@ -75,6 +75,19 @@ export class MatchGroundItems {
     const item = this.items.get(groundId);
     if (item) this.items.delete(groundId);
     return item;
+  }
+
+  /**
+   * F-001: synchronous exclusive claim — removes from the map before any await
+   * so concurrent pickups cannot both observe the same entity.
+   */
+  claim(groundId: number): GroundItemEntity | undefined {
+    return this.remove(groundId);
+  }
+
+  /** Put a previously claimed entity back (insert failure / cap reject). */
+  restore(entity: GroundItemEntity): void {
+    this.items.set(entity.groundId, entity);
   }
 
   /** Destroy expired items; returns whether anything changed. */
@@ -236,7 +249,8 @@ function offerToDto(item: TradeOfferItem): EconomyEscrowItemDto {
 /**
  * Atomically swap offers between two deathmatch profiles (no fee).
  * Validates ownership + caps, then extract/insert/gold transfer.
- * On failure, restores extracted items and refunds any gold already debited.
+ * On failure: reverse only completed inserts (by remint ref), restore all
+ * extracted payloads to original owners, refund gold (F-002).
  */
 export async function executeAtomicTrade(
   economy: EconomyStore,
@@ -256,9 +270,14 @@ export async function executeAtomicTrade(
 
   const extractedA: EscrowPayload[] = [];
   const extractedB: EscrowPayload[] = [];
+  /** Reminted inserts already applied to A (from B's offer). */
+  const insertedOnA: EscrowInsertRef[] = [];
+  /** Reminted inserts already applied to B (from A's offer). */
+  const insertedOnB: EscrowInsertRef[] = [];
   let goldDebitedA = 0;
   let goldDebitedB = 0;
-  let transferred = false;
+  let goldCreditedA = 0;
+  let goldCreditedB = 0;
 
   try {
     for (const item of session.a.items) {
@@ -303,48 +322,81 @@ export async function executeAtomicTrade(
     }
 
     for (const payload of extractedB) {
-      await economy.insertEscrowItem(session.a.nickname, payload, nowMs, scope);
+      insertedOnA.push(
+        await economy.insertEscrowItem(session.a.nickname, payload, nowMs, scope),
+      );
     }
     for (const payload of extractedA) {
-      await economy.insertEscrowItem(session.b.nickname, payload, nowMs, scope);
+      insertedOnB.push(
+        await economy.insertEscrowItem(session.b.nickname, payload, nowMs, scope),
+      );
     }
-    transferred = true;
 
     if (session.a.gold > 0) {
       await economy.addGold(session.b.nickname, session.a.gold, scope);
+      goldCreditedB = session.a.gold;
     }
     if (session.b.gold > 0) {
       await economy.addGold(session.a.nickname, session.b.gold, scope);
+      goldCreditedA = session.b.gold;
     }
   } catch (err) {
-    if (!transferred) {
-      for (const payload of extractedA) {
-        try {
-          await economy.insertEscrowItem(session.a.nickname, payload, nowMs, scope);
-        } catch (restoreErr) {
-          console.error(`[trade] restore A failed:`, restoreErr);
-        }
+    // Reverse reminted inserts on receivers (discard reminted extract), then
+    // restore original escrow payloads to original owners — never both.
+    for (const ref of insertedOnA) {
+      try {
+        await reverseInsert(economy, session.a.nickname, ref, nowMs, scope);
+      } catch (restoreErr) {
+        console.error(`[trade] reverse insert on A failed:`, restoreErr);
       }
-      for (const payload of extractedB) {
-        try {
-          await economy.insertEscrowItem(session.b.nickname, payload, nowMs, scope);
-        } catch (restoreErr) {
-          console.error(`[trade] restore B failed:`, restoreErr);
-        }
+    }
+    for (const ref of insertedOnB) {
+      try {
+        await reverseInsert(economy, session.b.nickname, ref, nowMs, scope);
+      } catch (restoreErr) {
+        console.error(`[trade] reverse insert on B failed:`, restoreErr);
       }
-      if (goldDebitedA > 0) {
-        try {
-          await economy.addGold(session.a.nickname, goldDebitedA, scope);
-        } catch (restoreErr) {
-          console.error(`[trade] refund A gold failed:`, restoreErr);
-        }
+    }
+    for (const payload of extractedA) {
+      try {
+        await economy.insertEscrowItem(session.a.nickname, payload, nowMs, scope);
+      } catch (restoreErr) {
+        console.error(`[trade] restore A failed:`, restoreErr);
       }
-      if (goldDebitedB > 0) {
-        try {
-          await economy.addGold(session.b.nickname, goldDebitedB, scope);
-        } catch (restoreErr) {
-          console.error(`[trade] refund B gold failed:`, restoreErr);
-        }
+    }
+    for (const payload of extractedB) {
+      try {
+        await economy.insertEscrowItem(session.b.nickname, payload, nowMs, scope);
+      } catch (restoreErr) {
+        console.error(`[trade] restore B failed:`, restoreErr);
+      }
+    }
+    if (goldCreditedA > 0) {
+      try {
+        await economy.debitGold(session.a.nickname, goldCreditedA, nowMs, scope);
+      } catch (restoreErr) {
+        console.error(`[trade] clawback A gold credit failed:`, restoreErr);
+      }
+    }
+    if (goldCreditedB > 0) {
+      try {
+        await economy.debitGold(session.b.nickname, goldCreditedB, nowMs, scope);
+      } catch (restoreErr) {
+        console.error(`[trade] clawback B gold credit failed:`, restoreErr);
+      }
+    }
+    if (goldDebitedA > 0) {
+      try {
+        await economy.addGold(session.a.nickname, goldDebitedA, scope);
+      } catch (restoreErr) {
+        console.error(`[trade] refund A gold failed:`, restoreErr);
+      }
+    }
+    if (goldDebitedB > 0) {
+      try {
+        await economy.addGold(session.b.nickname, goldDebitedB, scope);
+      } catch (restoreErr) {
+        console.error(`[trade] refund B gold failed:`, restoreErr);
       }
     }
     throw err;
@@ -354,4 +406,19 @@ export async function executeAtomicTrade(
     `[trade] atomic swap ok ${session.a.nickname} <-> ${session.b.nickname} ` +
       `gold ${session.a.gold}/${session.b.gold} items ${extractedA.length}/${extractedB.length}`,
   );
+}
+
+async function reverseInsert(
+  economy: EconomyStore,
+  nickname: string,
+  ref: EscrowInsertRef,
+  nowMs: number,
+  scope: "deathmatch",
+): Promise<void> {
+  // Extract reminted copy and drop it — originals are restored from escrow payloads.
+  if (ref.itemType === "shard_stack") {
+    await economy.extractBagItem(nickname, "shard_stack", 0, nowMs, scope, ref.quantity);
+    return;
+  }
+  await economy.extractBagItem(nickname, ref.itemType, ref.itemId, nowMs, scope);
 }

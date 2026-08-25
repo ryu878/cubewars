@@ -201,6 +201,157 @@ async function main(): Promise<void> {
   // no throw — action result failure; sandbox gold untouched
   assert.equal((await store.getFullProfile("SandboxOnly", "sandbox")).gold, 999);
 
+  // --- F-001: concurrent ground pickup — exactly one winner, no duplicate ---
+  const raceMatch = new Match({ id: "epic38-race", mode: "public", economy: store });
+  await raceMatch.addHuman("racer-a", fakeSocket(), "RacerA", "racera");
+  await raceMatch.addHuman("racer-b", fakeSocket(), "RacerB", "racerb");
+  const raceGem = await store.grantGem("RacerA", "damage", 55, now, undefined, "deathmatch");
+  await raceMatch.handleDropItem("racer-a", "RacerA", "gem", raceGem.id);
+  const aGemsBefore = (await store.getFullProfile("RacerA", "deathmatch")).gems.length;
+  const bGemsBefore = (await store.getFullProfile("RacerB", "deathmatch")).gems.length;
+  // Both race the same groundId=1 (first drop in this match).
+  await Promise.all([
+    raceMatch.handlePickupGround("racer-a", "RacerA", 1),
+    raceMatch.handlePickupGround("racer-b", "RacerB", 1),
+  ]);
+  const aGemsAfter = (await store.getFullProfile("RacerA", "deathmatch")).gems.length;
+  const bGemsAfter = (await store.getFullProfile("RacerB", "deathmatch")).gems.length;
+  const totalGained = aGemsAfter - aGemsBefore + (bGemsAfter - bGemsBefore);
+  assert.equal(totalGained, 1, "exactly one pickup winner");
+  assert.equal(
+    aGemsAfter + bGemsAfter,
+    aGemsBefore + bGemsBefore + 1,
+    "no duplicated gem across profiles",
+  );
+  console.log("[ok] F-001 concurrent ground pickup single-winner");
+
+  // F-001 insert-fail after claim restores ground entity.
+  const restoreGem = await store.grantGem("RacerA", "health", 15, now, undefined, "deathmatch");
+  await raceMatch.handleDropItem("racer-a", "RacerA", "gem", restoreGem.id);
+  for (let i = (await store.getFullProfile("RacerB", "deathmatch")).gems.length; i < ECONOMY_CAPS.gems; i++) {
+    await store.grantGem("RacerB", "armor", 5 + (i % 90), now, undefined, "deathmatch");
+  }
+  await raceMatch.handlePickupGround("racer-b", "RacerB", 2);
+  assert.equal(
+    (await store.getFullProfile("RacerB", "deathmatch")).gems.length,
+    ECONOMY_CAPS.gems,
+    "full bag cannot pickup",
+  );
+  // Ground still holdable by RacerA (entity restored).
+  await raceMatch.handlePickupGround("racer-a", "RacerA", 2);
+  assert.ok(
+    (await store.getFullProfile("RacerA", "deathmatch")).gems.some((g) => g.value === 15),
+    "claim restore allows later pickup",
+  );
+  console.log("[ok] F-001 pickup restore on insert failure");
+
+  // --- F-002: mid-insert trade failure must not duplicate items ---
+  await store.addGold("MidA", 40, "deathmatch");
+  await store.addGold("MidB", 40, "deathmatch");
+  const midGem1 = await store.grantGem("MidA", "speed", 12, now, undefined, "deathmatch");
+  const midGem2 = await store.grantGem("MidA", "speed", 13, now, undefined, "deathmatch");
+  const midABefore = await store.getFullProfile("MidA", "deathmatch");
+  const midBBefore = await store.getFullProfile("MidB", "deathmatch");
+  const midSession: TradeSession = {
+    tradeId: "t-mid",
+    a: {
+      playerId: "ma",
+      nickname: "MidA",
+      gold: 5,
+      items: [
+        { itemType: "gem", itemId: midGem1.id },
+        { itemType: "gem", itemId: midGem2.id },
+      ],
+      confirmed: true,
+    },
+    b: {
+      playerId: "mb",
+      nickname: "MidB",
+      gold: 0,
+      items: [],
+      confirmed: true,
+    },
+  };
+  const origInsert = store.insertEscrowItem.bind(store);
+  let insertCount = 0;
+  (store as { insertEscrowItem: typeof store.insertEscrowItem }).insertEscrowItem = async (
+    ...args: Parameters<typeof store.insertEscrowItem>
+  ) => {
+    insertCount += 1;
+    // Fail on the second remint insert so the first is tracked for reverse.
+    if (insertCount === 2) {
+      throw new EconomyActionError("inventory_full", "forced mid-insert failure");
+    }
+    return origInsert(...args);
+  };
+  let midFailed = false;
+  try {
+    await executeAtomicTrade(store, midSession, now);
+  } catch (err) {
+    midFailed = true;
+    assert.ok(err instanceof EconomyActionError);
+  }
+  (store as { insertEscrowItem: typeof store.insertEscrowItem }).insertEscrowItem = origInsert;
+  assert.equal(midFailed, true, "mid-insert must fail");
+  const midAAfter = await store.getFullProfile("MidA", "deathmatch");
+  const midBAfter = await store.getFullProfile("MidB", "deathmatch");
+  assert.equal(midAAfter.gold, midABefore.gold, "MidA gold restored");
+  assert.equal(midBAfter.gold, midBBefore.gold, "MidB gold restored");
+  assert.equal(midAAfter.gems.length, midABefore.gems.length, "MidA gems restored (no dup)");
+  assert.equal(midBAfter.gems.length, midBBefore.gems.length, "MidB gems unchanged");
+  console.log("[ok] F-002 trade mid-insert rollback no duplicate");
+
+  // --- F-003: double settle is idempotent (no double gold / item) ---
+  await store.addGold("SettleSeller", 0, "deathmatch");
+  await store.addGold("SettleBuyer", 500, "deathmatch");
+  const settleGem = await store.grantGem("SettleSeller", "health", 99, now, undefined, "deathmatch");
+  const settleLot = await auction.listItem(
+    "SettleSeller",
+    "gem",
+    settleGem.id,
+    100,
+    null,
+    now,
+    undefined,
+    500,
+  );
+  await auction.bid("SettleBuyer", settleLot.lotId, 100, now + 1);
+  await auction.settleLot(settleLot, now + 1_000, "expire");
+  const sellerGold1 = (await store.getFullProfile("SettleSeller", "deathmatch")).gold;
+  const buyerGems1 = (await store.getFullProfile("SettleBuyer", "deathmatch")).gems.length;
+  const dev1 = await auction.getDeveloperGold();
+  const burn1 = await auction.getBurnedGold();
+  // Second settle on same lot must be a no-op.
+  await auction.settleLot(settleLot, now + 1_000, "expire");
+  assert.equal((await store.getFullProfile("SettleSeller", "deathmatch")).gold, sellerGold1);
+  assert.equal((await store.getFullProfile("SettleBuyer", "deathmatch")).gems.length, buyerGems1);
+  assert.equal(await auction.getDeveloperGold(), dev1);
+  assert.equal(await auction.getBurnedGold(), burn1);
+  console.log("[ok] F-003 double settle idempotent");
+
+  // F-003 concurrent bids: exactly one high bidder, gold conserved.
+  await store.addGold("BidSeller", 0, "deathmatch");
+  await store.addGold("Bid1", 300, "deathmatch");
+  await store.addGold("Bid2", 300, "deathmatch");
+  const bidGem = await store.grantGem("BidSeller", "armor", 7, now, undefined, "deathmatch");
+  const bidLot = await auction.listItem("BidSeller", "gem", bidGem.id, 50, null, now, undefined, 60_000);
+  const bid1Before = (await store.getFullProfile("Bid1", "deathmatch")).gold;
+  const bid2Before = (await store.getFullProfile("Bid2", "deathmatch")).gold;
+  const bidResults = await Promise.allSettled([
+    auction.bid("Bid1", bidLot.lotId, 50, now + 1),
+    auction.bid("Bid2", bidLot.lotId, 50, now + 1),
+  ]);
+  const bidOk = bidResults.filter((r) => r.status === "fulfilled").length;
+  const bidFail = bidResults.filter((r) => r.status === "rejected").length;
+  assert.equal(bidOk, 1, "exactly one concurrent bid wins at same price");
+  assert.equal(bidFail, 1, "loser bid rejected");
+  const bid1After = (await store.getFullProfile("Bid1", "deathmatch")).gold;
+  const bid2After = (await store.getFullProfile("Bid2", "deathmatch")).gold;
+  const escrowed = Math.abs(bid1Before - bid1After) + Math.abs(bid2Before - bid2After);
+  assert.equal(escrowed, 50, "exactly 50 gold escrowed from the winner");
+  assert.equal(bid1After + bid2After, bid1Before + bid2Before - 50, "gold conserved");
+  console.log("[ok] F-003 concurrent bid conservation");
+
   await store.close();
   console.log("regression-auction-trade-ground: PASS");
 }

@@ -49,7 +49,7 @@ import {
   setItemAnchor,
 } from "./inventoryGrid.js";
 import { connectRedis, resolveRedisUrl } from "./redis.js";
-import { footprintForEscrow, type EscrowPayload } from "./escrow.js";
+import { footprintForEscrow, type EscrowInsertRef, type EscrowPayload } from "./escrow.js";
 
 export interface EconomyProfile {
   id: number;
@@ -2092,18 +2092,20 @@ export class EconomyStore {
   /**
    * Insert an escrow payload into the receiver's bag, reminting IDs and
    * rebinding ownership. Throws if caps/footprint fail.
+   * Returns a remint ref so callers can reverse a partial transfer (F-002).
    */
   async insertEscrowItem(
     nickname: string,
     payload: EscrowPayload,
     nowMs: number = Date.now(),
     scope: EconomyScope = DEFAULT_ECONOMY_SCOPE,
-  ): Promise<void> {
+  ): Promise<EscrowInsertRef> {
     const profile = await this.getOrCreateProfile(nickname, scope);
     const live = (await this.loadDoc(scope, profile.nicknameKey))!;
     const doc = cloneDocument(live);
     this.assertDocCanAcceptEscrow(doc, payload);
 
+    let remint: EscrowInsertRef;
     switch (payload.itemType) {
       case "pet": {
         const id = doc.nextPetId++;
@@ -2127,6 +2129,7 @@ export class EconomyStore {
           doc.gems.push(gem);
           await this.bindItemOwner("gem", gemId, doc.nicknameKey);
         }
+        remint = { itemType: "pet", itemId: id };
         break;
       }
       case "egg": {
@@ -2134,6 +2137,7 @@ export class EconomyStore {
         doc.eggs.push({ ...payload.egg, id, slotAnchor: null });
         this.assignBagAnchor(doc, "egg", id);
         await this.bindItemOwner("egg", id, doc.nicknameKey);
+        remint = { itemType: "egg", itemId: id };
         break;
       }
       case "gem": {
@@ -2141,6 +2145,7 @@ export class EconomyStore {
         doc.gems.push({ ...payload.gem, id, petId: null, slotAnchor: null });
         this.assignBagAnchor(doc, "gem", id);
         await this.bindItemOwner("gem", id, doc.nicknameKey);
+        remint = { itemType: "gem", itemId: id };
         break;
       }
       case "amulet": {
@@ -2153,30 +2158,35 @@ export class EconomyStore {
         });
         this.assignBagAnchor(doc, "amulet", id);
         await this.bindItemOwner("amulet", id, doc.nicknameKey);
+        remint = { itemType: "amulet", itemId: id };
         break;
       }
       case "stimulator": {
         const id = doc.nextStimId++;
         doc.stimulators.push({ ...payload.stimulator, id, slotAnchor: null });
         this.assignBagAnchor(doc, "stimulator", id);
+        remint = { itemType: "stimulator", itemId: id };
         break;
       }
       case "repair_kit": {
         const id = doc.nextRepairKitId++;
         doc.repairKits.push({ ...payload.repairKit, id, slotAnchor: null });
         this.assignBagAnchor(doc, "repair_kit", id);
+        remint = { itemType: "repair_kit", itemId: id };
         break;
       }
       case "shard_stack": {
         const had = doc.shardCount > 0;
         doc.shardCount += payload.quantity;
         if (!had) this.assignBagAnchor(doc, "shard_stack", 0);
+        remint = { itemType: "shard_stack", quantity: payload.quantity };
         break;
       }
     }
 
     doc.updatedAt = nowMs;
     await this.saveDoc(scope, doc);
+    return remint;
   }
 
   /** Ensure the item exists in the bag (not equipped / socketed). */

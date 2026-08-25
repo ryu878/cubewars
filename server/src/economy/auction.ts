@@ -1,6 +1,7 @@
 // Server-authoritative Deathmatch auction house (EPIC 38 / TZ §3.1–3.2).
 // Lots + developer gold ledger live in Redis under the store key prefix.
 // Sandbox pool items/gold never enter this module — callers must use deathmatch.
+// F-003: per-lot mutex + Redis NX delivery/payment keys make settle/bid idempotent.
 
 import type { Redis } from "ioredis";
 import {
@@ -30,6 +31,16 @@ export function resolveAuctionDurationMs(
   return AUCTION_DURATION_MS;
 }
 
+export interface AuctionSettlementCheckpoint {
+  reason: "expire" | "buyout";
+  price: number;
+  winnerKey: string;
+  winnerNickname: string;
+  burn: number;
+  developer: number;
+  sellerNet: number;
+}
+
 export interface AuctionLotRecord {
   lotId: number;
   sellerNicknameKey: string;
@@ -44,7 +55,9 @@ export interface AuctionLotRecord {
   escrowedBid: number;
   createdAtMs: number;
   expiresAtMs: number;
-  status: "active" | "settled" | "cancelled" | "expired_returned";
+  status: "active" | "settling" | "settled" | "cancelled" | "expired_returned";
+  /** Frozen payout intent while status === settling (crash-safe resume). */
+  settlement?: AuctionSettlementCheckpoint;
 }
 
 function splitAuctionFee(price: number): { burn: number; developer: number; sellerNet: number } {
@@ -58,6 +71,8 @@ export class AuctionHouse {
   private readonly redis: Redis;
   private readonly keyPrefix: string;
   private readonly store: EconomyStore;
+  /** In-process per-lot mutex chain (F-003 concurrent bid/settle). */
+  private readonly lotLocks = new Map<number, Promise<void>>();
 
   constructor(store: EconomyStore, redis: Redis, keyPrefix: string) {
     this.store = store;
@@ -74,6 +89,14 @@ export class AuctionHouse {
     return `${this.keyPrefix}:auction:v1:lot:${lotId}`;
   }
 
+  private itemDeliveredKey(lotId: number): string {
+    return `${this.keyPrefix}:auction:v1:lot:${lotId}:item_delivered`;
+  }
+
+  private goldPaidKey(lotId: number): string {
+    return `${this.keyPrefix}:auction:v1:lot:${lotId}:gold_paid`;
+  }
+
   private get activeSetKey(): string {
     return `${this.keyPrefix}:auction:v1:active`;
   }
@@ -88,6 +111,24 @@ export class AuctionHouse {
 
   private get burnedGoldKey(): string {
     return `${this.keyPrefix}:auction:v1:burned_gold`;
+  }
+
+  private async withLotLock<T>(lotId: number, fn: () => Promise<T>): Promise<T> {
+    const prev = this.lotLocks.get(lotId) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.lotLocks.set(
+      lotId,
+      prev.then(() => gate).catch(() => gate),
+    );
+    await prev.catch(() => undefined);
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
   }
 
   async getDeveloperGold(): Promise<number> {
@@ -147,10 +188,11 @@ export class AuctionHouse {
     const lots: EconomyAuctionLotDto[] = [];
     for (const idStr of ids) {
       const lot = await this.loadLot(Number(idStr));
-      if (!lot || lot.status !== "active") {
+      if (!lot || (lot.status !== "active" && lot.status !== "settling")) {
         await this.redis.srem(this.activeSetKey, idStr);
         continue;
       }
+      if (lot.status === "settling") continue; // hide mid-settle from catalog
       lots.push(this.lotToDto(lot, viewerKey));
     }
     lots.sort((a, b) => a.expiresAtMs - b.expiresAtMs);
@@ -224,41 +266,56 @@ export class AuctionHouse {
     if (!Number.isInteger(amount) || amount <= 0) {
       throw new EconomyActionError("invalid_price", "bid must be a positive integer");
     }
-    const lot = await this.loadLot(lotId);
-    if (!lot || lot.status !== "active") {
-      throw new EconomyActionError("lot_inactive", "lot is not active");
-    }
-    if (nowMs >= lot.expiresAtMs) {
-      throw new EconomyActionError("lot_inactive", "lot has expired");
-    }
+    return this.withLotLock(lotId, async () => {
+      const lot = await this.loadLot(lotId);
+      if (!lot || lot.status !== "active") {
+        throw new EconomyActionError("lot_inactive", "lot is not active");
+      }
+      if (nowMs >= lot.expiresAtMs) {
+        throw new EconomyActionError("lot_inactive", "lot has expired");
+      }
 
-    const bidder = await this.store.getOrCreateProfile(bidderNickname, AUCTION_SCOPE);
-    if (bidder.nicknameKey === lot.sellerNicknameKey) {
-      throw new EconomyActionError("self_bid", "seller cannot bid on own lot");
-    }
+      const bidder = await this.store.getOrCreateProfile(bidderNickname, AUCTION_SCOPE);
+      if (bidder.nicknameKey === lot.sellerNicknameKey) {
+        throw new EconomyActionError("self_bid", "seller cannot bid on own lot");
+      }
 
-    const minBid = lot.highestBid !== null ? lot.highestBid + 1 : lot.startPrice;
-    if (amount < minBid) {
-      throw new EconomyActionError("bid_too_low", `bid must be at least ${minBid}`);
-    }
+      const minBid = lot.highestBid !== null ? lot.highestBid + 1 : lot.startPrice;
+      if (amount < minBid) {
+        throw new EconomyActionError("bid_too_low", `bid must be at least ${minBid}`);
+      }
 
-    // Escrow new bid first, then refund previous bidder.
-    await this.store.debitGold(bidderNickname, amount, nowMs, AUCTION_SCOPE);
+      const prevKey = lot.highestBidderKey;
+      const prevEscrow = lot.escrowedBid;
+      let debited = 0;
+      try {
+        await this.store.debitGold(bidderNickname, amount, nowMs, AUCTION_SCOPE);
+        debited = amount;
 
-    if (lot.highestBidderKey && lot.escrowedBid > 0) {
-      await this.store.addGold(lot.highestBidderKey, lot.escrowedBid, AUCTION_SCOPE);
-      console.log(
-        `[auction] outbid refund ${lot.escrowedBid} -> ${lot.highestBidderKey} lot#${lotId}`,
-      );
-    }
+        lot.highestBid = amount;
+        lot.highestBidderKey = bidder.nicknameKey;
+        lot.highestBidderNickname = bidder.nickname;
+        lot.escrowedBid = amount;
+        await this.saveLot(lot);
 
-    lot.highestBid = amount;
-    lot.highestBidderKey = bidder.nicknameKey;
-    lot.highestBidderNickname = bidder.nickname;
-    lot.escrowedBid = amount;
-    await this.saveLot(lot);
-    console.log(`[auction] bid lot#${lotId} ${amount} by ${bidder.nicknameKey}`);
-    return lot;
+        if (prevKey && prevEscrow > 0) {
+          await this.store.addGold(prevKey, prevEscrow, AUCTION_SCOPE);
+          console.log(`[auction] outbid refund ${prevEscrow} -> ${prevKey} lot#${lotId}`);
+        }
+      } catch (err) {
+        if (debited > 0) {
+          try {
+            await this.store.addGold(bidderNickname, debited, AUCTION_SCOPE);
+          } catch (refundErr) {
+            console.error(`[auction] bid refund failed lot#${lotId}:`, refundErr);
+          }
+        }
+        throw err;
+      }
+
+      console.log(`[auction] bid lot#${lotId} ${amount} by ${bidder.nicknameKey}`);
+      return lot;
+    });
   }
 
   async buyout(
@@ -266,51 +323,89 @@ export class AuctionHouse {
     lotId: number,
     nowMs: number = Date.now(),
   ): Promise<AuctionLotRecord> {
-    const lot = await this.loadLot(lotId);
-    if (!lot || lot.status !== "active") {
-      throw new EconomyActionError("lot_inactive", "lot is not active");
-    }
-    if (lot.buyoutPrice === null) {
-      throw new EconomyActionError("no_buyout", "lot has no buyout price");
-    }
-    if (nowMs >= lot.expiresAtMs) {
-      throw new EconomyActionError("lot_inactive", "lot has expired");
-    }
+    return this.withLotLock(lotId, async () => {
+      const lot = await this.loadLot(lotId);
+      if (!lot || lot.status !== "active") {
+        throw new EconomyActionError("lot_inactive", "lot is not active");
+      }
+      if (lot.buyoutPrice === null) {
+        throw new EconomyActionError("no_buyout", "lot has no buyout price");
+      }
+      if (nowMs >= lot.expiresAtMs) {
+        throw new EconomyActionError("lot_inactive", "lot has expired");
+      }
 
-    const buyer = await this.store.getOrCreateProfile(buyerNickname, AUCTION_SCOPE);
-    if (buyer.nicknameKey === lot.sellerNicknameKey) {
-      throw new EconomyActionError("self_bid", "seller cannot buy out own lot");
-    }
+      const buyer = await this.store.getOrCreateProfile(buyerNickname, AUCTION_SCOPE);
+      if (buyer.nicknameKey === lot.sellerNicknameKey) {
+        throw new EconomyActionError("self_bid", "seller cannot buy out own lot");
+      }
 
-    const price = lot.buyoutPrice;
-    await this.store.debitGold(buyerNickname, price, nowMs, AUCTION_SCOPE);
+      const price = lot.buyoutPrice;
+      const prevKey = lot.highestBidderKey;
+      const prevEscrow = lot.escrowedBid;
+      let debited = 0;
+      try {
+        await this.store.debitGold(buyerNickname, price, nowMs, AUCTION_SCOPE);
+        debited = price;
 
-    // Refund any previous highest bidder.
-    if (lot.highestBidderKey && lot.escrowedBid > 0) {
-      await this.store.addGold(lot.highestBidderKey, lot.escrowedBid, AUCTION_SCOPE);
-    }
+        lot.highestBid = price;
+        lot.highestBidderKey = buyer.nicknameKey;
+        lot.highestBidderNickname = buyer.nickname;
+        lot.escrowedBid = price;
+        await this.saveLot(lot);
 
-    lot.highestBid = price;
-    lot.highestBidderKey = buyer.nicknameKey;
-    lot.highestBidderNickname = buyer.nickname;
-    lot.escrowedBid = price;
-    await this.saveLot(lot);
+        if (prevKey && prevEscrow > 0) {
+          await this.store.addGold(prevKey, prevEscrow, AUCTION_SCOPE);
+        }
+      } catch (err) {
+        if (debited > 0) {
+          try {
+            await this.store.addGold(buyerNickname, debited, AUCTION_SCOPE);
+          } catch (refundErr) {
+            console.error(`[auction] buyout refund failed lot#${lotId}:`, refundErr);
+          }
+        }
+        throw err;
+      }
 
-    await this.settleLot(lot, nowMs, "buyout");
-    return (await this.loadLot(lotId))!;
+      await this.settleLotLocked(lot, nowMs, "buyout");
+      return (await this.loadLot(lotId))!;
+    });
   }
 
   /**
    * Settle highest bid (if >= start) or return item to seller.
    * Buyer cap failure → cancel, refund bid, return item to seller.
+   * Idempotent under lock + Redis NX delivery/payment keys (F-003).
    */
   async settleLot(
     lot: AuctionLotRecord,
     nowMs: number,
     reason: "expire" | "buyout",
   ): Promise<void> {
-    if (lot.status !== "active") return;
+    await this.withLotLock(lot.lotId, async () => {
+      const fresh = await this.loadLot(lot.lotId);
+      if (!fresh) return;
+      await this.settleLotLocked(fresh, nowMs, reason);
+    });
+  }
 
+  /** Must be called while holding `withLotLock(lot.lotId)`. */
+  private async settleLotLocked(
+    lot: AuctionLotRecord,
+    nowMs: number,
+    reason: "expire" | "buyout",
+  ): Promise<void> {
+    if (lot.status === "settled" || lot.status === "cancelled" || lot.status === "expired_returned") {
+      return;
+    }
+
+    if (lot.status === "settling") {
+      await this.completeSettling(lot, nowMs);
+      return;
+    }
+
+    // status === active
     const hasWinner =
       lot.highestBidderKey !== null &&
       lot.highestBid !== null &&
@@ -330,7 +425,6 @@ export class AuctionHouse {
     try {
       await this.store.assertCanAcceptEscrow(winnerNick, lot.item, AUCTION_SCOPE);
     } catch (err) {
-      // Buyer cannot fit — cancel settle, refund bid, return item to seller.
       await this.store.addGold(winnerKey, price, AUCTION_SCOPE);
       lot.escrowedBid = 0;
       lot.highestBid = null;
@@ -344,18 +438,67 @@ export class AuctionHouse {
       return;
     }
 
-    await this.store.insertEscrowItem(winnerNick, lot.item, nowMs, AUCTION_SCOPE);
     const { burn, developer, sellerNet } = splitAuctionFee(price);
-    await this.store.addGold(lot.sellerNicknameKey, sellerNet, AUCTION_SCOPE);
-    await this.creditDeveloper(developer);
-    await this.recordBurn(burn);
+    lot.status = "settling";
+    lot.settlement = {
+      reason,
+      price,
+      winnerKey,
+      winnerNickname: winnerNick,
+      burn,
+      developer,
+      sellerNet,
+    };
+    await this.saveLot(lot);
+
+    await this.completeSettling(lot, nowMs);
+  }
+
+  /**
+   * Resume/finish a settling lot. Item delivery and gold payout each claim a
+   * Redis NX key so a crash + retry cannot double-insert or double-pay.
+   */
+  private async completeSettling(lot: AuctionLotRecord, nowMs: number): Promise<void> {
+    const cp = lot.settlement;
+    if (!cp) {
+      console.error(`[auction] lot#${lot.lotId} settling without checkpoint — forcing cancelled`);
+      lot.status = "cancelled";
+      await this.saveLot(lot);
+      await this.redis.srem(this.activeSetKey, String(lot.lotId));
+      return;
+    }
+
+    const deliveredKey = this.itemDeliveredKey(lot.lotId);
+    const claimedDeliver = await this.redis.set(deliveredKey, "1", "EX", 7 * 24 * 3600, "NX");
+    if (claimedDeliver === "OK") {
+      try {
+        await this.store.insertEscrowItem(cp.winnerNickname, lot.item, nowMs, AUCTION_SCOPE);
+      } catch (err) {
+        await this.redis.del(deliveredKey);
+        throw err;
+      }
+    }
+
+    const paidKey = this.goldPaidKey(lot.lotId);
+    const claimedPay = await this.redis.set(paidKey, "1", "EX", 7 * 24 * 3600, "NX");
+    if (claimedPay === "OK") {
+      try {
+        await this.store.addGold(lot.sellerNicknameKey, cp.sellerNet, AUCTION_SCOPE);
+        await this.creditDeveloper(cp.developer);
+        await this.recordBurn(cp.burn);
+      } catch (err) {
+        await this.redis.del(paidKey);
+        throw err;
+      }
+    }
 
     lot.status = "settled";
     lot.escrowedBid = 0;
     await this.saveLot(lot);
     await this.redis.srem(this.activeSetKey, String(lot.lotId));
     console.log(
-      `[auction] lot#${lot.lotId} settled ${reason}: price=${price} burn=${burn} dev=${developer} sellerNet=${sellerNet}`,
+      `[auction] lot#${lot.lotId} settled ${cp.reason}: price=${cp.price} burn=${cp.burn} ` +
+        `dev=${cp.developer} sellerNet=${cp.sellerNet}`,
     );
   }
 
@@ -367,29 +510,35 @@ export class AuctionHouse {
     try {
       await this.store.insertEscrowItem(lot.sellerNickname, lot.item, nowMs, AUCTION_SCOPE);
     } catch (err) {
-      // Seller bag full — still clear the lot; log loudly (gold already handled).
       console.error(
         `[auction] failed returning item to seller ${lot.sellerNicknameKey} lot#${lot.lotId}:`,
         err,
       );
     }
     lot.status = status;
+    delete lot.settlement;
     await this.saveLot(lot);
     await this.redis.srem(this.activeSetKey, String(lot.lotId));
   }
 
-  /** Expire due lots (call from server cron / tick). */
+  /** Expire due lots (call from server cron / tick). Also resumes settling. */
   async tick(nowMs: number = Date.now()): Promise<number> {
     const ids = await this.redis.smembers(this.activeSetKey);
     let settled = 0;
     for (const idStr of ids) {
-      const lot = await this.loadLot(Number(idStr));
+      const lotId = Number(idStr);
+      const lot = await this.loadLot(lotId);
       if (!lot) {
         await this.redis.srem(this.activeSetKey, idStr);
         continue;
       }
-      if (lot.status !== "active") {
+      if (lot.status === "settled" || lot.status === "cancelled" || lot.status === "expired_returned") {
         await this.redis.srem(this.activeSetKey, idStr);
+        continue;
+      }
+      if (lot.status === "settling") {
+        await this.settleLot(lot, nowMs, lot.settlement?.reason ?? "expire");
+        settled += 1;
         continue;
       }
       if (nowMs < lot.expiresAtMs) continue;
@@ -399,4 +548,3 @@ export class AuctionHouse {
     return settled;
   }
 }
-
