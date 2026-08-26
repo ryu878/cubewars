@@ -2,7 +2,7 @@
 // Owns open/close + pointer-lock exit; main.ts wires actions (leave / change map /
 // inventory / auction). Resume closes the menu; click-to-play restores lock.
 
-import { listMaps, type MapId, type MatchMode } from "@cubewars/shared";
+import { isMapId, listMaps, type MapId, type MatchMode } from "@cubewars/shared";
 import { isEditableTarget } from "./uiInput";
 
 export type PauseMenuAction =
@@ -48,8 +48,12 @@ export class PauseMenu {
         this.onAction({ type: "reload_endless" });
         return;
       }
-      const mapId = this.mapSelectEl.value as MapId;
-      this.onAction({ type: "change_map", mapId });
+      const raw = this.mapSelectEl.value;
+      if (!isMapId(raw)) {
+        this.setStatus("Pick a valid catalog map");
+        return;
+      }
+      this.onAction({ type: "change_map", mapId: raw });
     });
     document.getElementById("pauseInventoryBtn")?.addEventListener("click", () => {
       this.onAction({ type: "inventory" });

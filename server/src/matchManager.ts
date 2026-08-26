@@ -44,8 +44,11 @@ export class MatchManager {
   private endlessLeaderboard = new Map<string, EndlessLeaderboardEntry>();
 
   constructor(private options: MatchManagerOptions = {}) {
-    // Created at startup and kept available as the first public game (Base).
-    this.createPublicMatch(DEFAULT_MAP_ID);
+    // EPIC 48: do NOT pre-create an empty Base public match at startup.
+    // An idle "Game 1 · Base · 0/8" lobby row made players click Join while
+    // the map picker showed a themed map — server ignored client mapId on
+    // join-existing, so Base always loaded. Public matches are created
+    // lazily via findOrCreatePublicMatch(mapId) and torn down when empty.
   }
 
   /** Hydrate lobby caches from Redis (call once after EconomyStore.open). */
@@ -257,6 +260,9 @@ export class MatchManager {
       id,
       mode: "public",
       mapId,
+      // EPIC 48: tear down empty public lobbies so a stale Base row cannot
+      // trap Quick-Join/picker users into join-existing Base forever.
+      onEmpty: (matchId) => this.destroy(matchId),
       onKillRecorded: (attackerNickname, victimNickname) => {
         void this.recordKill(attackerNickname, victimNickname).catch((err) => {
           console.error(`[economy] recordKill failed:`, err);

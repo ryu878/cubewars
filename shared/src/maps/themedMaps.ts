@@ -1,5 +1,5 @@
 // EPIC 46 themed static maps — same ~184×104 envelope as Base, AABB-only.
-// EPIC 47: denser interior cover + ~4× pickups (clearance-filtered).
+// EPIC 47: denser interior cover. EPIC 48: balanced/spread pickups via densify.
 
 import type { MapDefinition } from "./types.js";
 import { STANDARD_MAP_BOUNDS } from "./types.js";

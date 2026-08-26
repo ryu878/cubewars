@@ -118,13 +118,9 @@ export interface MatchOptions {
    */
   mapId?: MapId;
   /**
-   * Called at most once, when a "bots" match's last human connection leaves
-   * (EPIC 9 spec Section 2: "torn down (all state freed) when the human
-   * disconnects") — the caller (MatchManager) uses this to drop its own
-   * reference and let this Match (and everything it owns: registry,
-   * pickupSpawner, botAI) become garbage. Never invoked for the persistent
-   * "public" match (it has no onEmpty by construction — see
-   * matchManager.ts).
+   * Called when the last human leaves this match. MatchManager uses this to
+   * tear down bots/endless (EPIC 9) and empty public lobbies (EPIC 48 — so an
+   * idle Base row cannot trap join-existing clicks that ignore the map picker).
    */
   onEmpty?: (matchId: string) => void;
   onKillRecorded?: (attackerNickname: string, victimNickname: string) => void;
@@ -259,7 +255,9 @@ export class Match {
     this.registry.remove(connectionId);
     this.sockets.delete(connectionId);
     this.broadcastScoreboard();
-    if ((this.mode === "bots" || this.mode === "endless") && this.sockets.size === 0) {
+    // EPIC 48: public matches also tear down when empty (via onEmpty) so an
+    // idle Base lobby row cannot silently capture join-existing clicks.
+    if (this.sockets.size === 0) {
       this.options.onEmpty?.(this.id);
     }
   }

@@ -488,9 +488,10 @@ const connection = new GameConnection(wsUrl, {
     pendingLeave = null;
   },
   onLeaveMatchAck: () => {
-    clearMatchClientState();
     const pending = pendingLeave;
     pendingLeave = null;
+    // EPIC 48: skip Base geometry reset when immediately rejoining another map.
+    clearMatchClientState({ resetGeometryToBase: pending?.kind !== "rejoin" });
     if (pending?.kind === "rejoin") {
       const nickname = modeSelect.getNickname();
       if (!nickname) {
@@ -505,7 +506,7 @@ const connection = new GameConnection(wsUrl, {
           type: "join",
           mode: pending.mode,
           nickname,
-          mapId: pending.mapId ?? modeSelect.getSelectedMapId(),
+          mapId: pending.mapId ?? modeSelect.getSelectedMapId() ?? DEFAULT_MAP_ID,
         });
       }
       return;
@@ -674,7 +675,7 @@ auctionPanel = new AuctionPanel((message) => connection.send(message));
 tradePanel = new TradePanel((message) => connection.send(message));
 groundHud = new GroundHud((message) => connection.send(message));
 
-function clearMatchClientState(): void {
+function clearMatchClientState(opts: { resetGeometryToBase?: boolean } = {}): void {
   joinedMatch = false;
   currentMatchMode = null;
   currentMapId = null;
@@ -688,9 +689,14 @@ function clearMatchClientState(): void {
   inventoryOverlay.setOpen(false);
   auctionPanel.setOpen(false);
   if (document.pointerLockElement) document.exitPointerLock();
-  renderMapGeometry(ARENA_GEOMETRY);
-  resizeGround(ARENA_BOUNDS);
-  fps.setCollisionGeometry(ARENA_GEOMETRY);
+  // EPIC 48: on leave→rejoin (change map), do NOT paint Base defaults —
+  // that flash made every map change look like "Base always loads" until
+  // map_state arrived (and looked stuck if map_state was slow/missed).
+  if (opts.resetGeometryToBase !== false) {
+    renderMapGeometry(ARENA_GEOMETRY);
+    resizeGround(ARENA_BOUNDS);
+    fps.setCollisionGeometry(ARENA_GEOMETRY);
+  }
 }
 
 function economyPoolForMode(mode: MatchMode | null): EconomyPool {

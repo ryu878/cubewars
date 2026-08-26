@@ -1,7 +1,7 @@
 // EPIC 46 Base map: 2× linear scale of the classic arena (~184×104),
 // plus an enterable building (door gaps both sides + window holes) and a
 // collidable car AABB silhouette.
-// EPIC 47: denser interior cover + ~4× pickup counts.
+// EPIC 47: denser interior cover. EPIC 48: balanced/spread pickups via densify.
 
 import type { MapDefinition } from "./types.js";
 import { STANDARD_MAP_BOUNDS } from "./types.js";
