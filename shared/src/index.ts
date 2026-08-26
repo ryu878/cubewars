@@ -7,7 +7,7 @@ export type { Vector3 } from "./types.js";
 import type { WeaponType } from "./weapons.js";
 import type { PickupStatus } from "./pickups.js";
 import type { DamageKind, DamageZone } from "./combat.js";
-import type { MapBox } from "./mapData.js";
+import type { MapBox, MapId } from "./mapData.js";
 import type {
   EquippedPetVisual,
   GemType,
@@ -188,7 +188,7 @@ export interface SwitchWeaponEvent {
  */
 export type MatchMode = "public" | "bots" | "endless";
 
-export const MAX_PUBLIC_PLAYERS_PER_MATCH = 4;
+export const MAX_PUBLIC_PLAYERS_PER_MATCH = 8;
 export const LEADERBOARD_LIMIT = 20;
 
 export interface LobbyMatchSummary {
@@ -196,6 +196,10 @@ export interface LobbyMatchSummary {
   displayName: string;
   players: number;
   maxPlayers: number;
+  /** Server-owned static map for this public match (EPIC 46). */
+  mapId: MapId;
+  /** English display name from the shared catalog. */
+  mapDisplayName: string;
 }
 
 /**
@@ -213,6 +217,12 @@ export interface JoinMessage {
   nickname: string;
   /** Public match id selected from LobbyStateMessage. Omitted for quick-join/auto-create and ignored for bots. */
   matchId?: string;
+  /**
+   * EPIC 46: preferred static map when creating a new public/bots match.
+   * Ignored when joining an existing public matchId (server map wins).
+   * Ignored for endless. Invalid values are rejected with map_invalid.
+   */
+  mapId?: MapId;
 }
 
 /**
@@ -640,7 +650,12 @@ export interface JoinAcceptedMessage {
 
 export interface JoinRejectedMessage {
   type: "join_rejected";
-  reason: "nickname_invalid" | "nickname_taken" | "match_full" | "match_not_found";
+  reason:
+    | "nickname_invalid"
+    | "nickname_taken"
+    | "match_full"
+    | "match_not_found"
+    | "map_invalid";
 }
 
 export interface LeaderboardMessage {

@@ -20,16 +20,15 @@
 import { randomInt } from "node:crypto";
 import type { WebSocket } from "ws";
 import {
-  ARENA_GEOMETRY,
-  ARENA_BOUNDS,
   BROADCAST_TICK_HZ,
   COMBAT,
+  DEFAULT_MAP_ID,
   GOLD_DROP_MAX,
   GOLD_DROP_MIN,
   GROUND_DROP_TTL_MS,
   MAX_PUBLIC_PLAYERS_PER_MATCH,
   PICKUP_RADIUS,
-  SPAWN_POINTS,
+  getMap,
   type EndlessStateMessage,
   boxBounds,
   playerHitboxBounds,
@@ -49,6 +48,8 @@ import {
   type LeaderboardMessage,
   type LoadoutMessage,
   type MapBox,
+  type MapDefinition,
+  type MapId,
   type MapStateMessage,
   type PickupStateMessage,
   type ProjectileImpactEvent,
@@ -112,6 +113,11 @@ export interface MatchOptions {
   id: string;
   mode: MatchMode;
   /**
+   * EPIC 46: static catalog map for public/bots. Ignored for endless
+   * (geometry comes from EndlessWorld). Defaults to Base.
+   */
+  mapId?: MapId;
+  /**
    * Called at most once, when a "bots" match's last human connection leaves
    * (EPIC 9 spec Section 2: "torn down (all state freed) when the human
    * disconnects") — the caller (MatchManager) uses this to drop its own
@@ -132,6 +138,9 @@ export interface MatchOptions {
 export class Match {
   readonly id: string;
   readonly mode: MatchMode;
+  /** Server-owned static map id (EPIC 46). Endless keeps a catalog id for lobby display only. */
+  readonly mapId: MapId;
+  readonly mapDefinition: MapDefinition;
   readonly registry: PlayerRegistry;
   readonly pickupSpawner: PickupSpawner;
 
@@ -161,12 +170,14 @@ export class Match {
   constructor(private options: MatchOptions) {
     this.id = options.id;
     this.mode = options.mode;
+    this.mapId = options.mapId ?? DEFAULT_MAP_ID;
+    this.mapDefinition = getMap(this.mapId);
     if (this.mode === "endless") {
       this.endlessWorld = new EndlessWorld();
     }
     this.registry = new PlayerRegistry({
       getGeometry: () => this.currentGeometry(),
-      getSpawnPoints: () => this.endlessWorld?.getSpawnPoints() ?? SPAWN_POINTS,
+      getSpawnPoints: () => this.endlessWorld?.getSpawnPoints() ?? this.mapDefinition.spawnPoints,
       worldBound: this.mode === "endless" ? 10000 : undefined,
     });
     // EPIC 6 Story 6.1 "Design note for EPIC 9 compatibility": player-count
@@ -175,11 +186,14 @@ export class Match {
     // another match's count.
     this.pickupSpawner = new PickupSpawner(
       () => this.registry.alivePlayerPositions().length,
-      this.endlessWorld?.getPickups() ?? undefined,
+      this.endlessWorld?.getPickups() ?? this.mapDefinition.pickupPoints,
     );
 
     if (this.mode === "bots") {
-      this.botAI = new BotAI(this.registry);
+      this.botAI = new BotAI(this.registry, {
+        getGeometry: () => this.currentGeometry(),
+        getWaypoints: () => this.mapDefinition.spawnPoints,
+      });
       this.botAI.setTickDtSeconds(TICK_DT_SECONDS);
       this.botAI.spawnBots(BOT_COUNT);
     } else if (this.mode === "endless") {
@@ -282,7 +296,7 @@ export class Match {
   }
 
   sendMapState(): void {
-    const bounds = this.endlessWorld?.getBounds() ?? ARENA_BOUNDS;
+    const bounds = this.endlessWorld?.getBounds() ?? this.mapDefinition.bounds;
     const message: MapStateMessage = { type: "map_state", geometry: [...this.currentGeometry()], bounds };
     this.broadcast(message);
     this.lastMapVersion = this.endlessWorld?.getVersion() ?? 0;
@@ -1181,7 +1195,7 @@ export class Match {
   }
 
   private currentGeometry(): readonly MapBox[] {
-    return this.endlessWorld?.getGeometry() ?? ARENA_GEOMETRY;
+    return this.endlessWorld?.getGeometry() ?? this.mapDefinition.geometry;
   }
 
   private updateEndlessWorld(nowMs: number): void {

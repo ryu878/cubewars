@@ -10,12 +10,15 @@
 // via EconomyStore; in-memory Maps are write-through caches hydrated on start.
 
 import {
+  DEFAULT_MAP_ID,
   LEADERBOARD_LIMIT,
   MAX_PUBLIC_PLAYERS_PER_MATCH,
+  getMap,
   normalizeNickname,
   type EndlessLeaderboardEntry,
   type LeaderboardEntry,
   type LobbyMatchSummary,
+  type MapId,
 } from "@cubewars/shared";
 import { Match } from "./match.js";
 import type { EconomyStore } from "./economy/index.js";
@@ -41,8 +44,8 @@ export class MatchManager {
   private endlessLeaderboard = new Map<string, EndlessLeaderboardEntry>();
 
   constructor(private options: MatchManagerOptions = {}) {
-    // Created at startup and kept available as the first public game.
-    this.createPublicMatch();
+    // Created at startup and kept available as the first public game (Base).
+    this.createPublicMatch(DEFAULT_MAP_ID);
   }
 
   /** Hydrate lobby caches from Redis (call once after EconomyStore.open). */
@@ -50,11 +53,15 @@ export class MatchManager {
     await this.hydrateLeaderboardsFromStore();
   }
 
-  findOrCreatePublicMatch(): Match {
+  /**
+   * Prefer an open public match on `mapId`; otherwise create a new one.
+   * EPIC 46: map selection applies when creating / quick-joining.
+   */
+  findOrCreatePublicMatch(mapId: MapId = DEFAULT_MAP_ID): Match {
     for (const match of this.publicMatches()) {
-      if (match.canAcceptHuman()) return match;
+      if (match.mapId === mapId && match.canAcceptHuman()) return match;
     }
-    return this.createPublicMatch();
+    return this.createPublicMatch(mapId);
   }
 
   getPublicMatch(matchId: string): Match | null {
@@ -64,12 +71,17 @@ export class MatchManager {
   }
 
   listPublicMatches(): LobbyMatchSummary[] {
-    return this.publicMatches().map((match, index) => ({
-      id: match.id,
-      displayName: `Game ${index + 1}`,
-      players: match.humanCount(),
-      maxPlayers: MAX_PUBLIC_PLAYERS_PER_MATCH,
-    }));
+    return this.publicMatches().map((match, index) => {
+      const def = getMap(match.mapId);
+      return {
+        id: match.id,
+        displayName: `Game ${index + 1}`,
+        players: match.humanCount(),
+        maxPlayers: MAX_PUBLIC_PLAYERS_PER_MATCH,
+        mapId: match.mapId,
+        mapDisplayName: def.displayName,
+      };
+    });
   }
 
   listLeaderboard(): LeaderboardEntry[] {
@@ -147,11 +159,12 @@ export class MatchManager {
    * `match.addHuman()` right after this returns to actually put the human
    * in it — this method only creates the match and its 2 bots.
    */
-  createBotsMatch(connectionId: string): Match {
+  createBotsMatch(connectionId: string, mapId: MapId = DEFAULT_MAP_ID): Match {
     const id = `bots:${connectionId}`;
     const match = new Match({
       id,
       mode: "bots",
+      mapId,
       onEmpty: (matchId) => this.destroy(matchId),
       onKillRecorded: (attackerNickname, victimNickname) => {
         void this.recordKill(attackerNickname, victimNickname).catch((err) => {
@@ -163,7 +176,7 @@ export class MatchManager {
     });
     match.start();
     this.matches.set(id, match);
-    console.log(`[server] match created: ${id}`);
+    console.log(`[server] match created: ${id} map=${mapId}`);
     return match;
   }
 
@@ -237,12 +250,13 @@ export class MatchManager {
       .sort((a, b) => a.id.localeCompare(b.id));
   }
 
-  private createPublicMatch(): Match {
+  private createPublicMatch(mapId: MapId = DEFAULT_MAP_ID): Match {
     const id = this.nextPublicMatchNumber === 1 ? PUBLIC_MATCH_ID : `public-${this.nextPublicMatchNumber}`;
     this.nextPublicMatchNumber += 1;
     const match = new Match({
       id,
       mode: "public",
+      mapId,
       onKillRecorded: (attackerNickname, victimNickname) => {
         void this.recordKill(attackerNickname, victimNickname).catch((err) => {
           console.error(`[economy] recordKill failed:`, err);
@@ -253,7 +267,9 @@ export class MatchManager {
     });
     match.start();
     this.matches.set(id, match);
-    console.log(`[server] public match available: ${id} (${MAX_PUBLIC_PLAYERS_PER_MATCH} max players)`);
+    console.log(
+      `[server] public match available: ${id} map=${mapId} (${MAX_PUBLIC_PLAYERS_PER_MATCH} max players)`,
+    );
     return match;
   }
 

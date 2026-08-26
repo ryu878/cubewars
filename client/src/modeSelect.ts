@@ -6,13 +6,18 @@
 // this module never talks to the network itself (keep transport concerns in
 // network.ts / main.ts, per global-standards.mdc "keep game/simulation logic
 // separate from transport/rendering code").
+//
+// EPIC 46: map picker for public + bots; lobby rows show map name.
 
 import {
+  DEFAULT_MAP_ID,
+  listMaps,
   normalizeNickname,
   type EconomyPool,
   type EndlessLeaderboardEntry,
   type LeaderboardEntry,
   type LobbyMatchSummary,
+  type MapId,
   type MatchMode,
 } from "@cubewars/shared";
 
@@ -20,9 +25,11 @@ export interface JoinSelection {
   mode: MatchMode;
   nickname: string;
   matchId?: string;
+  mapId?: MapId;
 }
 
 const NICKNAME_STORAGE_KEY = "cubewars.nickname";
+const MAP_STORAGE_KEY = "cubewars.mapId";
 
 export class ModeSelect {
   private overlayEl: HTMLElement;
@@ -33,6 +40,7 @@ export class ModeSelect {
   private botsInventoryBtn: HTMLButtonElement;
   private auctionBtn: HTMLButtonElement;
   private nicknameInput: HTMLInputElement;
+  private mapSelect: HTMLSelectElement;
   private lobbyListEl: HTMLElement;
   private leaderboardListEl: HTMLElement;
   private endlessLeaderboardListEl: HTMLElement;
@@ -62,6 +70,7 @@ export class ModeSelect {
     this.botsInventoryBtn = document.getElementById("lobbyBotsInventoryBtn") as HTMLButtonElement;
     this.auctionBtn = document.getElementById("lobbyAuctionBtn") as HTMLButtonElement;
     this.nicknameInput = document.getElementById("nicknameInput") as HTMLInputElement;
+    this.mapSelect = document.getElementById("mapSelect") as HTMLSelectElement;
     this.lobbyListEl = document.getElementById("lobbyList") as HTMLElement;
     this.leaderboardListEl = document.getElementById("leaderboardList") as HTMLElement;
     this.endlessLeaderboardListEl = document.getElementById("endlessLeaderboardList") as HTMLElement;
@@ -69,6 +78,7 @@ export class ModeSelect {
     this.goldValueEl = document.getElementById("lobbyGoldValue") as HTMLElement;
 
     this.nicknameInput.value = localStorage.getItem(NICKNAME_STORAGE_KEY) ?? "";
+    this.populateMapSelect();
 
     this.publicBtn.addEventListener("click", () => this.select("public"));
     this.botsBtn.addEventListener("click", () => this.select("bots"));
@@ -82,6 +92,29 @@ export class ModeSelect {
       this.errorEl.textContent = "";
       this.updateButtons();
     });
+    this.mapSelect.addEventListener("change", () => {
+      localStorage.setItem(MAP_STORAGE_KEY, this.mapSelect.value);
+    });
+  }
+
+  private populateMapSelect(): void {
+    this.mapSelect.replaceChildren();
+    const saved = localStorage.getItem(MAP_STORAGE_KEY) ?? DEFAULT_MAP_ID;
+    for (const map of listMaps()) {
+      const option = document.createElement("option");
+      option.value = map.id;
+      option.textContent = map.displayNameRu
+        ? `${map.displayName} / ${map.displayNameRu}`
+        : map.displayName;
+      if (map.id === saved) option.selected = true;
+      this.mapSelect.appendChild(option);
+    }
+    if (!this.mapSelect.value) this.mapSelect.value = DEFAULT_MAP_ID;
+  }
+
+  private selectedMapId(): MapId {
+    const value = this.mapSelect.value;
+    return (listMaps().some((map) => map.id === value) ? value : DEFAULT_MAP_ID) as MapId;
   }
 
   /**
@@ -118,7 +151,8 @@ export class ModeSelect {
 
       const label = document.createElement("span");
       label.className = "lobby-name";
-      label.textContent = `${match.displayName} · ${match.players}/${match.maxPlayers}`;
+      const mapLabel = match.mapDisplayName ?? match.mapId ?? "Base";
+      label.textContent = `${match.displayName} · ${mapLabel} · ${match.players}/${match.maxPlayers}`;
 
       const button = document.createElement("button");
       button.type = "button";
@@ -152,7 +186,9 @@ export class ModeSelect {
           ? "That game is full"
           : reason === "match_not_found"
             ? "That game is gone"
-            : "Use 3-16 letters, numbers, spaces, _ or -";
+            : reason === "map_invalid"
+              ? "That map is not available"
+              : "Use 3-16 letters, numbers, spaces, _ or -";
     this.updateButtons();
   }
 
@@ -261,7 +297,8 @@ export class ModeSelect {
     this.pending = true;
     this.errorEl.textContent = "";
     this.updateButtons();
-    this.onSelect({ mode, nickname: normalized.nickname, matchId });
+    const mapId = mode === "endless" ? undefined : this.selectedMapId();
+    this.onSelect({ mode, nickname: normalized.nickname, matchId, mapId });
   }
 
   private updateButtons(): void {
@@ -275,6 +312,7 @@ export class ModeSelect {
     this.deathmatchInventoryBtn.disabled = lobbyDisabled;
     this.botsInventoryBtn.disabled = lobbyDisabled;
     this.auctionBtn.disabled = lobbyDisabled;
+    this.mapSelect.disabled = lobbyDisabled;
     for (const button of this.lobbyListEl.querySelectorAll("button")) {
       if (button.textContent !== "Full") {
         button.disabled = disabled;

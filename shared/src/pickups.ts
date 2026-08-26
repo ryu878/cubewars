@@ -12,11 +12,9 @@
 // something for "weapon"/"ammo" categories — a fixed pickup category doesn't
 // target a specific weapon).
 //
-// Placement discipline matches SPAWN_POINTS (shared/src/mapData.ts): every
-// point below is pre-checked to sit clear of every ARENA_GEOMETRY wall/crate
-// footprint, spread across both sites + mid + tunnel (EPIC 6 Story 6.1
-// output). See individual comments for the ARENA_GEOMETRY boxes each point
-// was checked against.
+// Placement discipline: every point is intended to sit clear of that map's
+// wall/crate/prop footprints. Prefer getMap(mapId).pickupPoints for
+// match-scoped spawns (EPIC 46). PICKUP_SPAWN_POINTS aliases Base.
 
 import type { Vector3 } from "./types.js";
 import type { WeaponType } from "./weapons.js";
@@ -39,42 +37,12 @@ export interface PickupSpawnPoint {
 }
 
 /**
- * Fixed pickup spawn points. Spread across both sites, mid lane, and the
- * tunnel (EPIC 6 Story 6.1 AC; EPIC 7 adds health/armor points in the same
- * spirit). Coordinates deliberately avoid SPAWN_POINTS (shared/src/mapData.ts)
- * as well as every wall/crate in ARENA_GEOMETRY:
- *
- * - Site A / Site B points sit in open corners of each site (x ~ ±42),
- *   clear of crate_a1/a2/a3 and crate_b1/b2/b3 (all within |x| <= 39).
- * - The mid-lane point sits at the corridor's open center (x=0, z=0),
- *   clear of crate_mid1/crate_mid2 (both offset >= 7 units from center) and
- *   the mid_wall_south/mid_wall_north corridor walls (z = ±4).
- * - The tunnel point sits at the tunnel corridor's open center (x=0, z=16),
- *   clear of tunnel_wall_south/tunnel_wall_north (z = 12 / 20).
- * - EPIC 7's health points sit at x = ±42, z = 0 — same open-corner column
- *   as the Site A/B weapon/ammo points above (verified clear of every
- *   crate_a and crate_b footprint and >=20 units from the existing
- *   weapon/ammo points at z = ±20 in the same column, so they don't cluster).
- * - EPIC 7's armor points sit at x = ±10, z = 16 — inside the tunnel's open
- *   corridor (clear of tunnel_wall_south/north at z = 12/20 and of
- *   divider_west/east_mid at x = ±20), 10 units from the existing
- *   ammo_gl_tunnel point at (0, 16) so they don't cluster on top of it.
+ * Legacy alias: Base map pickup points (EPIC 46). Prefer
+ * `getMap(mapId).pickupPoints` for match-scoped geometry.
  */
-export const PICKUP_SPAWN_POINTS: PickupSpawnPoint[] = [
-  { id: "weapon_rifle_site_a", category: "weapon", weapon: "rifle", position: { x: -42, y: 0, z: 20 } },
-  { id: "weapon_rifle_site_b", category: "weapon", weapon: "rifle", position: { x: 42, y: 0, z: -20 } },
-  { id: "weapon_gl_mid", category: "weapon", weapon: "grenade_launcher", position: { x: 0, y: 0, z: 0 } },
+import { BASE_MAP } from "./maps/base.js";
 
-  { id: "ammo_rifle_site_a", category: "ammo", weapon: "rifle", position: { x: -42, y: 0, z: -20 } },
-  { id: "ammo_rifle_site_b", category: "ammo", weapon: "rifle", position: { x: 42, y: 0, z: 20 } },
-  { id: "ammo_gl_tunnel", category: "ammo", weapon: "grenade_launcher", position: { x: 0, y: 0, z: 16 } },
-
-  // --- EPIC 7: health & armor pickups (reusing this same spawner) ---
-  { id: "health_site_a", category: "health", position: { x: -42, y: 0, z: 0 } },
-  { id: "health_site_b", category: "health", position: { x: 42, y: 0, z: 0 } },
-  { id: "armor_tunnel_west", category: "armor", position: { x: -10, y: 0, z: 16 } },
-  { id: "armor_tunnel_east", category: "armor", position: { x: 10, y: 0, z: 16 } },
-];
+export const PICKUP_SPAWN_POINTS: PickupSpawnPoint[] = BASE_MAP.pickupPoints;
 
 /**
  * Respawn-delay formula bases (EPIC 6 Story 6.1, extended by EPIC 7 Section

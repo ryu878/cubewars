@@ -1,0 +1,108 @@
+// EPIC 46: shared static map catalog types + AABB box primitives.
+// Geometry/spawns/pickups are the server-authoritative source for
+// non-endless matches; clients render from map_state / pickup_state only.
+
+import type { PickupSpawnPoint } from "../pickups.js";
+import type { Vector3 } from "../types.js";
+
+/**
+ * Box kind for collision/rendering.
+ * - wall: always blocks horizontally (and hitscan)
+ * - crate: climbable; blocks only while feet are below its top
+ * - prop: blocking silhouette (car, tank hull, etc.) — same collision as wall
+ *
+ * Doors/windows are NOT box kinds — they are gaps between wall segments
+ * (same pattern as endless maze doors).
+ */
+export type MapBoxKind = "wall" | "crate" | "prop";
+
+/** One axis-aligned box: center + full size (width/height/depth, not half-extents). */
+export interface MapBox {
+  id: string;
+  kind: MapBoxKind;
+  center: Vector3;
+  size: Vector3;
+}
+
+export interface AabbBounds {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  minZ: number;
+  maxZ: number;
+}
+
+/** Compute the min/max bounds of a box from its center + size. */
+export function boxBounds(box: MapBox): AabbBounds {
+  return {
+    minX: box.center.x - box.size.x / 2,
+    maxX: box.center.x + box.size.x / 2,
+    minY: box.center.y - box.size.y / 2,
+    maxY: box.center.y + box.size.y / 2,
+    minZ: box.center.z - box.size.z / 2,
+    maxZ: box.center.z + box.size.z / 2,
+  };
+}
+
+export type MapId =
+  | "base"
+  | "rust_canyon"
+  | "glass_dome"
+  | "dead_station"
+  | "fuel_depot"
+  | "crystal_cave"
+  | "abyss_bridge"
+  | "elite_quarter";
+
+export const MAP_IDS: readonly MapId[] = [
+  "base",
+  "rust_canyon",
+  "glass_dome",
+  "dead_station",
+  "fuel_depot",
+  "crystal_cave",
+  "abyss_bridge",
+  "elite_quarter",
+] as const;
+
+export function isMapId(value: unknown): value is MapId {
+  return typeof value === "string" && (MAP_IDS as readonly string[]).includes(value);
+}
+
+export interface MapBounds2D {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+
+export interface MapDefinition {
+  id: MapId;
+  /** English UI name. */
+  displayName: string;
+  /** Optional Russian lobby label. */
+  displayNameRu?: string;
+  bounds: MapBounds2D;
+  geometry: MapBox[];
+  spawnPoints: Vector3[];
+  pickupPoints: PickupSpawnPoint[];
+}
+
+/**
+ * Preferred EPIC 46 Base scale: 2× linear on X/Z from the original ~92×52
+ * arena → ~184×104 playable area (~4× area). Shared by all static catalog maps.
+ */
+export const STANDARD_MAP_BOUNDS: MapBounds2D = {
+  minX: -92,
+  maxX: 92,
+  minZ: -52,
+  maxZ: 52,
+} as const;
+
+export const DEFAULT_MAP_ID: MapId = "base";
+
+export const WALL_HEIGHT = 4;
+export const WALL_Y = WALL_HEIGHT / 2;
+export const CRATE_HEIGHT = 1.2;
+export const CRATE_Y = CRATE_HEIGHT / 2;

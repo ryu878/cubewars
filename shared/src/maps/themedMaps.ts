@@ -1,0 +1,353 @@
+// EPIC 46 themed static maps — same ~184×104 envelope as Base, AABB-only.
+
+import type { MapDefinition } from "./types.js";
+import { STANDARD_MAP_BOUNDS } from "./types.js";
+import {
+  carSilhouette,
+  crate,
+  outerWalls,
+  prop,
+  spawn,
+  standardPickups,
+  wall,
+  wallWithDoorAlongX,
+  wallWithDoorAlongZ,
+} from "./primitives.js";
+
+const B = STANDARD_MAP_BOUNDS;
+
+export const RUST_CANYON: MapDefinition = {
+  id: "rust_canyon",
+  displayName: "Rust Canyon",
+  displayNameRu: "Ржавый Каньон",
+  bounds: B,
+  geometry: [
+    ...outerWalls("rc"),
+    // Deep ravine walls along the dry riverbed (center corridor); gaps at
+    // mid / north / south act as old bridge crossings (open ground).
+    wall("rc_ravine_w_a", -18, -36, 4, 20),
+    wall("rc_ravine_w_b", -18, 0, 4, 16),
+    wall("rc_ravine_w_c", -18, 36, 4, 20),
+    wall("rc_ravine_e_a", 18, -36, 4, 20),
+    wall("rc_ravine_e_b", 18, 0, 4, 16),
+    wall("rc_ravine_e_c", 18, 36, 4, 20),
+    // Bridge rail stubs (do not block the crossing)
+    wall("rc_rail_mid_n", 0, 6, 30, 1),
+    wall("rc_rail_mid_s", 0, -6, 30, 1),
+    wall("rc_rail_n_a", -20, 36, 1, 8),
+    wall("rc_rail_n_b", 20, 36, 1, 8),
+    wall("rc_rail_s_a", -20, -36, 1, 8),
+    wall("rc_rail_s_b", 20, -36, 1, 8),
+    // Military wrecks
+    ...carSilhouette("rc_wreck_a", -50, -20),
+    ...carSilhouette("rc_wreck_b", 55, 18),
+    prop("rc_tank_hull", -60, 1.2, 20, 6, 2.4, 3.2),
+    prop("rc_tank_turret", -58, 2.6, 20, 2.5, 1.2, 2.5),
+    crate("rc_crate_a", -70, -40),
+    crate("rc_crate_b", 70, 40),
+    crate("rc_crate_c", -40, 40),
+    crate("rc_crate_d", 40, -40),
+    crate("rc_crate_bed", 0, -16, 2.5, 2.5),
+    crate("rc_crate_bed2", 0, 16, 2.5, 2.5),
+  ],
+  spawnPoints: [
+    spawn(-70, -40),
+    spawn(-70, 0),
+    spawn(-70, 40),
+    spawn(70, -40),
+    spawn(70, 0),
+    spawn(70, 40),
+    spawn(-40, -44),
+    spawn(40, 44),
+    spawn(0, -44),
+    spawn(0, 44),
+  ],
+  pickupPoints: standardPickups("rc"),
+};
+
+export const GLASS_DOME: MapDefinition = {
+  id: "glass_dome",
+  displayName: "Glass Dome",
+  displayNameRu: "Стеклянный Купол",
+  bounds: B,
+  geometry: [
+    ...outerWalls("gd"),
+    // Sealed biolab ring with cardinal door gaps (CQC interior)
+    ...wallWithDoorAlongX("gd_ring_n", 28, -28, 28, 0, 4),
+    ...wallWithDoorAlongX("gd_ring_s", -28, -28, 28, 0, 4),
+    ...wallWithDoorAlongZ("gd_ring_w", -28, -28, 28, 0, 4),
+    ...wallWithDoorAlongZ("gd_ring_e", 28, -28, 28, 0, 4),
+    // Corner seals
+    wall("gd_corner_nw", -22, 22, 12, 12),
+    wall("gd_corner_ne", 22, 22, 12, 12),
+    wall("gd_corner_sw", -22, -22, 12, 12),
+    wall("gd_corner_se", 22, -22, 12, 12),
+    // Interior vegetation / crate clutter
+    crate("gd_veg_1", -12, -8, 3, 3, 1.5),
+    crate("gd_veg_2", 10, 6, 3, 3, 1.5),
+    crate("gd_veg_3", -6, 12, 2.5, 2.5, 1.8),
+    crate("gd_veg_4", 8, -14, 2.5, 2.5, 1.8),
+    crate("gd_veg_5", 0, 0, 2, 2, 2.2),
+    crate("gd_lab_a", -16, 0, 2, 4),
+    crate("gd_lab_b", 16, 0, 2, 4),
+    // Wasteland cover outside the dome
+    crate("gd_out_a", -70, -40),
+    crate("gd_out_b", 70, 40),
+    crate("gd_out_c", -70, 40),
+    crate("gd_out_d", 70, -40),
+    prop("gd_ruin", -55, 1, 0, 8, 2, 3),
+    prop("gd_ruin2", 55, 1, 0, 8, 2, 3),
+  ],
+  spawnPoints: [
+    spawn(-70, -40),
+    spawn(-70, 40),
+    spawn(70, -40),
+    spawn(70, 40),
+    spawn(-50, 0),
+    spawn(50, 0),
+    spawn(0, -44),
+    spawn(0, 44),
+    spawn(-12, -16),
+    spawn(12, 16),
+  ],
+  pickupPoints: standardPickups("gd"),
+};
+
+export const DEAD_STATION: MapDefinition = {
+  id: "dead_station",
+  displayName: "Dead Station",
+  displayNameRu: "Мёртвая станция",
+  bounds: B,
+  geometry: [
+    ...outerWalls("ds"),
+    // Hangar shells on both sides of a long runway (z≈0 corridor)
+    wall("ds_hangar_w_n", -60, 30, 40, 2),
+    wall("ds_hangar_w_s", -60, -30, 40, 2),
+    wall("ds_hangar_w_back", -80, 0, 2, 60),
+    ...wallWithDoorAlongZ("ds_hangar_w_front", -40, -28, 28, 0, 6),
+    wall("ds_hangar_e_n", 60, 30, 40, 2),
+    wall("ds_hangar_e_s", 60, -30, 40, 2),
+    wall("ds_hangar_e_back", 80, 0, 2, 60),
+    ...wallWithDoorAlongZ("ds_hangar_e_front", 40, -28, 28, 0, 6),
+    // Runway edge barriers with sniper gaps
+    wall("ds_run_n_w", -50, 10, 30, 1),
+    wall("ds_run_n_e", 50, 10, 30, 1),
+    wall("ds_run_s_w", -50, -10, 30, 1),
+    wall("ds_run_s_e", 50, -10, 30, 1),
+    // Control tower stump
+    prop("ds_tower", 0, 2, 36, 6, 4, 6),
+    crate("ds_crate_a", -55, 0),
+    crate("ds_crate_b", 55, 0),
+    crate("ds_crate_c", -20, 40),
+    crate("ds_crate_d", 20, -40),
+    crate("ds_crate_e", 0, -30),
+    ...carSilhouette("ds_shuttle", 0, -2),
+  ],
+  spawnPoints: [
+    spawn(-65, -20),
+    spawn(-65, 20),
+    spawn(65, -20),
+    spawn(65, 20),
+    spawn(-30, 44),
+    spawn(30, -44),
+    spawn(0, 44),
+    spawn(0, -44),
+    spawn(-20, 0),
+    spawn(20, 0),
+  ],
+  pickupPoints: standardPickups("ds"),
+};
+
+export const FUEL_DEPOT: MapDefinition = {
+  id: "fuel_depot",
+  displayName: "Fuel Depot",
+  displayNameRu: "Топливный склад",
+  bounds: B,
+  geometry: [
+    ...outerWalls("fd"),
+    // Grid of fuel tanks (tall props) with narrow alleys — shotgun heaven
+    prop("fd_tank_a1", -50, 2.5, -30, 10, 5, 10),
+    prop("fd_tank_a2", -50, 2.5, 0, 10, 5, 10),
+    prop("fd_tank_a3", -50, 2.5, 30, 10, 5, 10),
+    prop("fd_tank_b1", 0, 2.5, -30, 10, 5, 10),
+    prop("fd_tank_b2", 0, 2.5, 30, 10, 5, 10),
+    prop("fd_tank_c1", 50, 2.5, -30, 10, 5, 10),
+    prop("fd_tank_c2", 50, 2.5, 0, 10, 5, 10),
+    prop("fd_tank_c3", 50, 2.5, 30, 10, 5, 10),
+    // Pump stations / low walls
+    wall("fd_pump_row_n", 0, 16, 120, 1),
+    wall("fd_pump_row_s", 0, -16, 120, 1),
+    wall("fd_alley_w", -25, 0, 1, 24),
+    wall("fd_alley_e", 25, 0, 1, 24),
+    ...wallWithDoorAlongX("fd_office_n", 44, -20, 20, 0, 3),
+    ...wallWithDoorAlongX("fd_office_s", -44, -20, 20, 0, 3),
+    wall("fd_office_w", -20, 0, 1, 12),
+    wall("fd_office_e", 20, 0, 1, 12),
+    crate("fd_crate_a", -70, -40),
+    crate("fd_crate_b", 70, 40),
+    crate("fd_crate_c", -12, 0),
+    crate("fd_crate_d", 12, 0),
+    ...carSilhouette("fd_truck", -70, 0),
+  ],
+  spawnPoints: [
+    spawn(-75, -44),
+    spawn(-75, 44),
+    spawn(75, -44),
+    spawn(75, 44),
+    spawn(-30, -44),
+    spawn(30, 44),
+    spawn(-12, 8),
+    spawn(12, -8),
+    spawn(0, -44),
+    spawn(0, 44),
+  ],
+  pickupPoints: standardPickups("fd"),
+};
+
+export const CRYSTAL_CAVE: MapDefinition = {
+  id: "crystal_cave",
+  displayName: "Crystal Cave",
+  displayNameRu: "Кристальная пещера",
+  bounds: B,
+  geometry: [
+    ...outerWalls("cc"),
+    // Grotto pillars / crystal clusters (tall props) — vertical fight pockets
+    prop("cc_crystal_a", -40, 2, -20, 3, 4, 3),
+    prop("cc_crystal_b", -20, 2.5, 10, 4, 5, 4),
+    prop("cc_crystal_c", 10, 2, -30, 3, 4, 3),
+    prop("cc_crystal_d", 35, 2.5, 15, 4, 5, 4),
+    prop("cc_crystal_e", -55, 1.8, 30, 3, 3.6, 3),
+    prop("cc_crystal_f", 55, 1.8, -30, 3, 3.6, 3),
+    prop("cc_crystal_g", 0, 3, 0, 5, 6, 5),
+    // Cave ridges with central passes (light/shadow lanes)
+    ...wallWithDoorAlongZ("cc_ridge_w", -30, -40, 40, 0, 6),
+    ...wallWithDoorAlongZ("cc_ridge_e", 30, -40, 40, 0, 6),
+    wall("cc_shelf_n", 0, 40, 50, 4),
+    wall("cc_shelf_s", 0, -40, 50, 4),
+    crate("cc_crate_a", -70, -40, 2.5, 2.5, 1.5),
+    crate("cc_crate_b", 70, 40, 2.5, 2.5, 1.5),
+    crate("cc_crate_c", -10, 20),
+    crate("cc_crate_d", 10, -20),
+  ],
+  spawnPoints: [
+    spawn(-70, -40),
+    spawn(-70, 40),
+    spawn(70, -40),
+    spawn(70, 40),
+    spawn(-50, 0),
+    spawn(50, 0),
+    spawn(0, -44),
+    spawn(0, 44),
+    spawn(-10, -20),
+    spawn(10, 20),
+  ],
+  pickupPoints: standardPickups("cc"),
+};
+
+export const ABYSS_BRIDGE: MapDefinition = {
+  id: "abyss_bridge",
+  displayName: "Abyss Bridge",
+  displayNameRu: "Мост через бездну",
+  bounds: B,
+  geometry: [
+    ...outerWalls("ab"),
+    // Upper deck rails with damage gaps (open roadway between rails)
+    ...wallWithDoorAlongX("ab_deck_n", 8, -70, 70, -20, 8),
+    ...wallWithDoorAlongX("ab_deck_s", -8, -70, 70, 20, 8),
+    // Cable towers
+    prop("ab_tower_w", -60, 3, 0, 4, 6, 4),
+    prop("ab_tower_e", 60, 3, 0, 4, 6, 4),
+    // Lower support level (cover under the bridge, fog fight)
+    wall("ab_support_w1", -40, -24, 8, 16),
+    wall("ab_support_w2", -40, 24, 8, 16),
+    wall("ab_support_e1", 40, -24, 8, 16),
+    wall("ab_support_e2", 40, 24, 8, 16),
+    wall("ab_support_mid", 0, 0, 12, 8),
+    crate("ab_crate_deck_a", -30, 0),
+    crate("ab_crate_deck_b", 30, 0),
+    crate("ab_crate_low_a", -40, 0),
+    crate("ab_crate_low_b", 40, 0),
+    crate("ab_crate_end_a", -75, 30),
+    crate("ab_crate_end_b", 75, -30),
+    ...carSilhouette("ab_wreck", 0, 20),
+  ],
+  spawnPoints: [
+    spawn(-75, -40),
+    spawn(-75, 40),
+    spawn(75, -40),
+    spawn(75, 40),
+    spawn(-50, 0),
+    spawn(50, 0),
+    spawn(-20, -30),
+    spawn(20, 30),
+    spawn(0, -40),
+    spawn(0, 40),
+  ],
+  pickupPoints: standardPickups("ab"),
+};
+
+export const ELITE_QUARTER: MapDefinition = {
+  id: "elite_quarter",
+  displayName: "Elite Quarter",
+  displayNameRu: "Квартал элиты",
+  bounds: B,
+  geometry: [
+    ...outerWalls("eq"),
+    // Multi-story housing blocks with collapsed roofs (open interiors + door gaps)
+    // Block NW
+    ...wallWithDoorAlongX("eq_nw_s", 10, -80, -50, -65, 3),
+    ...wallWithDoorAlongX("eq_nw_n", 35, -80, -50, -65, 3),
+    wall("eq_nw_w", -80, 22.5, 1, 25),
+    wall("eq_nw_e", -50, 22.5, 1, 25),
+    prop("eq_nw_rubble", -65, 0.8, 22, 8, 1.6, 6),
+    // Block NE
+    ...wallWithDoorAlongX("eq_ne_s", 10, 50, 80, 65, 3),
+    ...wallWithDoorAlongX("eq_ne_n", 35, 50, 80, 65, 3),
+    wall("eq_ne_w", 50, 22.5, 1, 25),
+    wall("eq_ne_e", 80, 22.5, 1, 25),
+    prop("eq_ne_rubble", 65, 0.8, 22, 8, 1.6, 6),
+    // Block SW
+    ...wallWithDoorAlongX("eq_sw_s", -35, -80, -50, -65, 3),
+    ...wallWithDoorAlongX("eq_sw_n", -10, -80, -50, -65, 3),
+    wall("eq_sw_w", -80, -22.5, 1, 25),
+    wall("eq_sw_e", -50, -22.5, 1, 25),
+    prop("eq_sw_rubble", -65, 0.8, -22, 8, 1.6, 6),
+    // Block SE
+    ...wallWithDoorAlongX("eq_se_s", -35, 50, 80, 65, 3),
+    ...wallWithDoorAlongX("eq_se_n", -10, 50, 80, 65, 3),
+    wall("eq_se_w", 50, -22.5, 1, 25),
+    wall("eq_se_e", 80, -22.5, 1, 25),
+    prop("eq_se_rubble", 65, 0.8, -22, 8, 1.6, 6),
+    // Central plaza cover
+    wall("eq_plaza_n", 0, 8, 40, 1),
+    wall("eq_plaza_s", 0, -8, 40, 1),
+    crate("eq_crate_a", -20, 0),
+    crate("eq_crate_b", 20, 0),
+    crate("eq_crate_c", 0, 40),
+    crate("eq_crate_d", 0, -40),
+    ...carSilhouette("eq_car", 0, 20),
+  ],
+  spawnPoints: [
+    spawn(-70, -40),
+    spawn(-70, 40),
+    spawn(70, -40),
+    spawn(70, 40),
+    spawn(-65, 22),
+    spawn(65, -22),
+    spawn(-30, 0),
+    spawn(30, 0),
+    spawn(0, -44),
+    spawn(0, 44),
+  ],
+  pickupPoints: standardPickups("eq"),
+};
+
+export const THEMED_MAPS: MapDefinition[] = [
+  RUST_CANYON,
+  GLASS_DOME,
+  DEAD_STATION,
+  FUEL_DEPOT,
+  CRYSTAL_CAVE,
+  ABYSS_BRIDGE,
+  ELITE_QUARTER,
+];

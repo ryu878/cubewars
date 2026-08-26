@@ -517,6 +517,21 @@
       #nicknameInput:focus {
         border-color: #7fb3e0;
       }
+      #mapSelect {
+        box-sizing: border-box;
+        width: 100%;
+        margin: 0 0 14px;
+        padding: 10px 12px;
+        border: 1px solid #445;
+        border-radius: 8px;
+        background: #12161c;
+        color: #eee;
+        font: 600 15px system-ui, sans-serif;
+        outline: none;
+      }
+      #mapSelect:focus {
+        border-color: #7fb3e0;
+      }
       #lobbyList,
       #leaderboardList,
       #endlessLeaderboardList {
@@ -1665,6 +1680,8 @@
 
         <label for="nicknameInput">Nickname</label>
         <input id="nicknameInput" type="text" maxlength="16" autocomplete="nickname" placeholder="Player" />
+        <label for="mapSelect">Map</label>
+        <select id="mapSelect" aria-label="Map"></select>
         <div id="lobbyGold">Gold: <span id="lobbyGoldValue">—</span> <span id="lobbyGoldPoolHint">(Deathmatch pool)</span></div>
         <div class="lobby-economy-actions">
           <button id="lobbyDeathmatchInventoryBtn" type="button" disabled>Deathmatch Inventory</button>

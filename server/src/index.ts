@@ -6,6 +6,8 @@ import {
   normalizeNickname,
   isAvatarBodyPart,
   isValidPaletteIndex,
+  isMapId,
+  DEFAULT_MAP_ID,
   type AccountCreatedMessage,
   type AccountLoginResultMessage,
   type AccountSessionResultMessage,
@@ -16,6 +18,7 @@ import {
   type JoinRejectedMessage,
   type LeaderboardMessage,
   type LobbyStateMessage,
+  type MapId,
   type ServerMessage,
   type WelcomeMessage,
 } from "@cubewars/shared";
@@ -615,17 +618,39 @@ wss.on("connection", (socket: WebSocket) => {
       nicknameKey = normalized.key;
       nicknameReady = true;
 
+      // EPIC 46: validate optional mapId for create paths; join-existing ignores it.
+      let requestedMapId: MapId = DEFAULT_MAP_ID;
+      if (parsed.mapId !== undefined) {
+        if (!isMapId(parsed.mapId)) {
+          sendJson(socket, { type: "join_rejected", reason: "map_invalid" });
+          return;
+        }
+        requestedMapId = parsed.mapId;
+      }
+
       void (async () => {
         if (parsed.type !== "join") return;
         if (parsed.mode === "public") {
-          const requestedMatch =
-            typeof parsed.matchId === "string" && parsed.matchId.length > 0
-              ? matchManager.getPublicMatch(parsed.matchId)
-              : null;
-          const targetMatch = requestedMatch ?? (parsed.matchId ? null : matchManager.findOrCreatePublicMatch());
+          const joiningExisting =
+            typeof parsed.matchId === "string" && parsed.matchId.length > 0;
+          const requestedMatch = joiningExisting
+            ? matchManager.getPublicMatch(parsed.matchId!)
+            : null;
+          const targetMatch =
+            requestedMatch ??
+            (joiningExisting ? null : matchManager.findOrCreatePublicMatch(requestedMapId));
           if (!targetMatch) {
             sendJson(socket, { type: "join_rejected", reason: "match_not_found" });
             return;
+          }
+          if (
+            joiningExisting &&
+            parsed.mapId !== undefined &&
+            parsed.mapId !== targetMatch.mapId
+          ) {
+            console.log(
+              `[server] join existing match "${targetMatch.id}": ignoring client mapId=${parsed.mapId} (server map=${targetMatch.mapId})`,
+            );
           }
           if (targetMatch.hasNicknameKey(nicknameKey)) {
             sendJson(socket, { type: "join_rejected", reason: "nickname_taken" });
@@ -641,7 +666,7 @@ wss.on("connection", (socket: WebSocket) => {
             sendJson(socket, { type: "join_rejected", reason: "nickname_taken" });
             return;
           }
-          match = matchManager.createBotsMatch(playerId);
+          match = matchManager.createBotsMatch(playerId, requestedMapId);
         } else {
           match = matchManager.createEndlessMatch(playerId);
         }
@@ -653,7 +678,7 @@ wss.on("connection", (socket: WebSocket) => {
         sendJson(socket, leaderboardMessage());
         sendJson(socket, endlessLeaderboardMessage());
         console.log(
-          `[server] player joined match "${match.id}" (mode=${parsed.mode}): ${nickname} (${playerId}) ` +
+          `[server] player joined match "${match.id}" (mode=${parsed.mode} map=${match.mapId}): ${nickname} (${playerId}) ` +
             `(${match.humanCount()} human(s) in match)`,
         );
         broadcastLobbyState();

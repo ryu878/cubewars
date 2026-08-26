@@ -1,6 +1,6 @@
-// EPIC 20 regression: public matches are capped at 4 humans, quick-join
-// creates a new public match when full, and duplicate nicknames are rejected
-// only inside the selected match.
+// EPIC 20 / EPIC 46 regression: public matches are capped at 8 humans,
+// quick-join creates a new public match when full, and duplicate nicknames
+// are rejected only inside the selected match.
 
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -106,7 +106,7 @@ async function main(): Promise<void> {
   const { child } = await startServer();
   const clients: Client[] = [];
   try {
-    for (let i = 1; i <= 4; i++) {
+    for (let i = 1; i <= 8; i++) {
       const client = await connect();
       clients.push(client);
       const accepted = await joinPublicClient(client, `Player ${i}`);
@@ -115,12 +115,12 @@ async function main(): Promise<void> {
       assert.equal(accepted.matchId, "public");
     }
 
-    const fifth = await connect();
-    clients.push(fifth);
-    const fifthJoin = await joinPublicClient(fifth, "Player 5");
-    assert.equal(fifthJoin.type, "join_accepted");
-    if (fifthJoin.type !== "join_accepted") throw new Error("unreachable");
-    assert.equal(fifthJoin.matchId, "public-2", "5th quick-join player should create/join public-2");
+    const ninth = await connect();
+    clients.push(ninth);
+    const ninthJoin = await joinPublicClient(ninth, "Player 9");
+    assert.equal(ninthJoin.type, "join_accepted");
+    if (ninthJoin.type !== "join_accepted") throw new Error("unreachable");
+    assert.equal(ninthJoin.matchId, "public-2", "9th quick-join player should create/join public-2");
 
     const duplicateInPublic = await connect();
     clients.push(duplicateInPublic);
@@ -143,10 +143,10 @@ async function main(): Promise<void> {
     assert.ok(lobby && lobby.type === "lobby_state", "lobby_state should be broadcast");
     if (!lobby || lobby.type !== "lobby_state") throw new Error("unreachable");
     assert.deepEqual(
-      lobby.matches.map((match) => [match.id, match.players, match.maxPlayers]),
+      lobby.matches.map((match) => [match.id, match.players, match.maxPlayers, match.mapId]),
       [
-        ["public", 4, 4],
-        ["public-2", 2, 4],
+        ["public", 8, 8, "base"],
+        ["public-2", 2, 8, "base"],
       ],
     );
 

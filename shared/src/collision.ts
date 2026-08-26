@@ -306,9 +306,8 @@ export function resolveSteppedMovement(
  * ARENA_GEOMETRY) down to only the boxes that block horizontal movement at a
  * given feet height `feetY`.
  *
- * - Walls (`kind: "wall"`) always block, at any height — they are never
- *   climbable, regardless of jump height (see this file's top-of-file
- *   comment).
+ * - Walls (`kind: "wall"`) and props (`kind: "prop"`) always block, at any
+ *   height — they are never climbable.
  * - Crates (`kind: "crate"`) only block while the player's feet are
  *   strictly below that crate's own top surface (`feetY < boxBounds(box).maxY`).
  *   Once a player's feet are at or above a crate's top (standing on it, or
@@ -329,7 +328,9 @@ export function resolveSteppedMovement(
  * does not read or store any per-tick state.
  */
 export function boxesBlockingAt(feetY: number, boxes: readonly MapBox[] = ARENA_GEOMETRY): MapBox[] {
-  return boxes.filter((box) => box.kind === "wall" || feetY < boxBounds(box).maxY);
+  return boxes.filter(
+    (box) => box.kind === "wall" || box.kind === "prop" || feetY < boxBounds(box).maxY,
+  );
 }
 
 /**

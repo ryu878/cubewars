@@ -147,7 +147,17 @@ function renderMapGeometry(boxes: readonly MapBox[]): void {
     );
 
     const geometry = new THREE.BoxGeometry(box.size.x, box.size.y, box.size.z);
-    const material = new THREE.MeshStandardMaterial({ map: texture });
+    // Props (cars/tanks): darker metal accent; collision still matches AABB.
+    const material =
+      box.kind === "prop"
+        ? new THREE.MeshStandardMaterial({
+            color: 0x3a4550,
+            metalness: 0.55,
+            roughness: 0.45,
+            emissive: 0x101418,
+            emissiveIntensity: 0.15,
+          })
+        : new THREE.MeshStandardMaterial({ map: texture });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(box.center.x, box.center.y, box.center.z);
     mesh.name = box.id;

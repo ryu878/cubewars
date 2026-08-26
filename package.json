@@ -38,6 +38,7 @@
     "regression:account-auth": "tsx scripts/regression-account-auth.ts",
     "regression:lobby-inventory": "tsx scripts/regression-lobby-inventory.ts",
     "regression:kill-loot-vfx": "tsx scripts/regression-kill-loot-vfx.ts",
+    "regression:epic46-maps": "tsx scripts/regression-epic46-maps.ts",
     "regression:fire-input-drop-rate": "node scripts/regression-fire-input-drop-rate.mjs",
     "qa:epic17-avatar-selfcheck": "node scripts/qa-epic17-avatar-selfcheck.mjs",
     "qa:epic18-hold-fire": "node scripts/qa-epic18-hold-fire.mjs",
