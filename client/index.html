@@ -744,19 +744,26 @@
       #modeSelect #lobbyAuctionBtn:hover:not(:disabled) {
         background: rgba(138, 180, 196, 0.22);
       }
-      /* Lobby footer: community / developers Telegram (opens in new tab). */
-      #modeSelect .lobby-telegram {
+      /* Lobby footer: Changelog + community Telegram (opens in new tab). */
+      #modeSelect .lobby-footer-links {
         flex: 0 0 100%;
         order: 99;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 18px;
+        align-items: center;
+        justify-content: flex-start;
         margin: 8px 0 0;
         padding: 10px 8px 4px;
+      }
+      #modeSelect .lobby-footer-links a {
         color: #8ab4c4;
         font-size: 13px;
         font-weight: 600;
         letter-spacing: 0.01em;
         text-decoration: none;
       }
-      #modeSelect .lobby-telegram:hover {
+      #modeSelect .lobby-footer-links a:hover {
         color: #c5e4f0;
         text-decoration: underline;
       }
@@ -766,6 +773,93 @@
         line-height: 1.35;
         color: #9ab08e;
         text-align: left;
+      }
+
+      /* --- EPIC 47 in-match ESC pause menu --- */
+      #pauseMenu {
+        position: fixed;
+        inset: 0;
+        z-index: 45;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(8, 12, 18, 0.72);
+        font-family: "Segoe UI", system-ui, sans-serif;
+        color: #e8eef5;
+      }
+      #pauseMenu.visible {
+        display: flex;
+      }
+      #pauseMenu .pause-box {
+        width: min(420px, 92vw);
+        background: #161d27;
+        border: 1px solid #2c3a4d;
+        border-radius: 10px;
+        padding: 22px 24px 18px;
+        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+      }
+      #pauseMenu h2 {
+        margin: 0 0 6px;
+        font-size: 22px;
+        font-weight: 650;
+      }
+      #pauseMenuStatus {
+        margin: 0 0 16px;
+        font-size: 13px;
+        color: #9fb0c3;
+      }
+      #pauseMenu .pause-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      #pauseMenu .pause-actions button {
+        appearance: none;
+        border: 1px solid #334556;
+        background: #1e2834;
+        color: #e8eef5;
+        border-radius: 7px;
+        padding: 10px 12px;
+        font-size: 15px;
+        cursor: pointer;
+        text-align: left;
+      }
+      #pauseMenu .pause-actions button:hover {
+        background: #273443;
+        border-color: #4a6078;
+      }
+      #pauseMenu #pauseExitLobbyBtn {
+        border-color: #6a3a3a;
+        background: #2a1a1a;
+      }
+      #pauseMenu #pauseExitLobbyBtn:hover {
+        background: #3a2222;
+      }
+      #pauseMapPanel {
+        display: none;
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid #2c3a4d;
+      }
+      #pauseMapPanel.visible {
+        display: block;
+      }
+      #pauseMapPanel .pause-map-hint {
+        font-size: 12px;
+        color: #9fb0c3;
+        margin: 0 0 8px;
+      }
+      #pauseMapSelect {
+        width: 100%;
+        margin-bottom: 8px;
+        padding: 8px;
+        border-radius: 6px;
+        border: 1px solid #334556;
+        background: #0f151c;
+        color: #e8eef5;
+      }
+      #pauseMapConfirmBtn {
+        width: 100%;
       }
 
       /* EPIC 34: account email/code stub auth (above nickname/mode join). */
@@ -827,6 +921,13 @@
       #accountAuth button:disabled {
         opacity: 0.5;
         cursor: default;
+      }
+      #accountAuth #accountResetCodeBtn {
+        background: #2a3544;
+        margin-top: 6px;
+      }
+      #accountAuth #accountResetCodeBtn:hover:not(:disabled) {
+        background: #354556;
       }
       #accountAuthError {
         min-height: 1.2em;
@@ -1665,11 +1766,21 @@
           </div>
           <div id="accountCodeStep" class="hidden">
             <label for="accountCodeInput">Login code</label>
-            <input id="accountCodeInput" type="text" maxlength="16" autocomplete="one-time-code" placeholder="NNN-NNN" />
+            <input
+              id="accountCodeInput"
+              type="text"
+              maxlength="16"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              placeholder="NNN-NNN or NNNNNN"
+            />
             <button id="accountCodeBtn" type="button" disabled>Log in</button>
+            <button id="accountResetCodeBtn" type="button" disabled>
+              Send password / Resend code
+            </button>
           </div>
           <div id="accountCodeReveal" class="hidden">
-            <p class="account-auth-hint">
+            <p id="accountRevealHint" class="account-auth-hint">
               Temporary stub: this code will not be shown again. It is not emailed yet — copy it now to log in later.
             </p>
             <div id="accountRevealCode" aria-live="polite"></div>
@@ -1704,17 +1815,38 @@
           Deathmatch and Sandbox are separate gold/inventory pools. Sandbox farming cannot feed Deathmatch.
         </p>
       </div>
-      <a
-        class="lobby-telegram"
-        href="https://t.me/cubewarsgame"
-        target="_blank"
-        rel="noopener noreferrer"
-      >Game Developers Telegram Chat - t.me/cubewarsgame</a>
+      <div class="lobby-footer-links">
+        <a class="lobby-changelog" href="/changelog.html">Changelog</a>
+        <a
+          class="lobby-telegram"
+          href="https://t.me/cubewarsgame"
+          target="_blank"
+          rel="noopener noreferrer"
+        >Game Developers Telegram Chat - t.me/cubewarsgame</a>
+      </div>
     </div>
     <div id="endlessHud" aria-hidden="true">
       <span id="endlessDistance">0.00 km</span>
       <span id="endlessKills">0 bots</span>
       <span id="endlessFog">fog 0m</span>
+    </div>
+    <div id="pauseMenu" aria-hidden="true">
+      <div class="pause-box" role="dialog" aria-label="Pause menu">
+        <h2>Paused</h2>
+        <p id="pauseMenuStatus">—</p>
+        <div class="pause-actions">
+          <button id="pauseResumeBtn" type="button">Resume</button>
+          <button id="pauseChangeMapBtn" type="button">Change Map / Reload</button>
+          <button id="pauseInventoryBtn" type="button">Inventory</button>
+          <button id="pauseAuctionBtn" type="button">Auction (Deathmatch)</button>
+          <button id="pauseExitLobbyBtn" type="button">Exit to Lobby</button>
+        </div>
+        <div id="pauseMapPanel" aria-hidden="true">
+          <p class="pause-map-hint">Pick a map, then confirm to leave this match and start a new one.</p>
+          <select id="pauseMapSelect" aria-label="Change map"></select>
+          <button id="pauseMapConfirmBtn" type="button">Confirm new match</button>
+        </div>
+      </div>
     </div>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>

@@ -1,0 +1,112 @@
+[
+  {
+    "date": "2026-08-26",
+    "title": "EPIC 47 — Map density, bots map picker, ESC menu, changelog, auth UX",
+    "body": "Maps densified (~4× pickups + more cover). Play vs Bots honors the lobby-selected map. ESC opens an in-match pause menu (Resume, Exit to Lobby, Change map, Inventory, Auction). Lobby Changelog link. Send password / Resend code shows a new on-screen login code (not emailed). Login accepts dashed or digit-only codes."
+  },
+  {
+    "date": "2026-08-26",
+    "title": "EPIC 46 — Multi-map catalog, picker, expanded Base, capacity 8",
+    "body": "Eight static maps in a shared catalog. Lobby map picker for Public and Bots. Base arena expanded ~4× area with building and car landmarks. Public matches hold up to 8 players. Server owns match mapId."
+  },
+  {
+    "date": "2026-08-25",
+    "title": "EPIC 45 — Dual lobby inventory and auction bind",
+    "body": "Lobby Deathmatch / Bots inventory buttons bind the correct economy pool. Auction stays on the Deathmatch pool. Stale profile races after dual bind are filtered client-side."
+  },
+  {
+    "date": "2026-08-25",
+    "title": "EPIC 44 — Kill loot drop VFX",
+    "body": "Server-listed kill loot kinds render as cosmetic flyouts. Client never invents drop types."
+  },
+  {
+    "date": "2026-08-24",
+    "title": "EPIC 43 — Inventory icons and tooltips",
+    "body": "Inventory grid shows item icons with hover tooltips and clearer side-by-side layout."
+  },
+  {
+    "date": "2026-08-24",
+    "title": "EPIC 42 — Lobby Telegram link and inventory entry",
+    "body": "Lobby footer links to the developers Telegram chat. Inventory is reachable from the lobby without joining a match."
+  },
+  {
+    "date": "2026-08-23",
+    "title": "EPIC 41 — Spawn protection blocks fire",
+    "body": "While spawn-protected, players cannot fire. Protection cue stays server-driven from world_state deadlines."
+  },
+  {
+    "date": "2026-08-23",
+    "title": "EPIC 40 — Companion pet distance scale",
+    "body": "Visible companion pets scale with distance for clearer depth in matches."
+  },
+  {
+    "date": "2026-08-22",
+    "title": "EPIC 39 — Visible companion pets",
+    "body": "Equipped pets render beside players in-match with cosmetic color support."
+  },
+  {
+    "date": "2026-08-22",
+    "title": "EPIC 38 — Auction, trade, and ground items",
+    "body": "Deathmatch auction house, P2P trade window, and ground drop/pickup flow."
+  },
+  {
+    "date": "2026-08-21",
+    "title": "EPIC 37 — Leaderboard excludes bots mode",
+    "body": "Career leaderboard no longer counts kills from private bots matches."
+  },
+  {
+    "date": "2026-08-21",
+    "title": "EPIC 36 — Spawn protection",
+    "body": "Brief spawn protection after respawn with a HUD cue driven by server deadlines."
+  },
+  {
+    "date": "2026-08-20",
+    "title": "EPIC 35 — Split Deathmatch / Sandbox economy",
+    "body": "Deathmatch and Bots/Endless use separate gold and inventory pools so sandbox farming cannot feed ranked play."
+  },
+  {
+    "date": "2026-08-20",
+    "title": "EPIC 34 — Account email + code stub auth",
+    "body": "Email registration with on-screen NNN-NNN login codes, bcrypt storage, session resume, and login rate limits."
+  },
+  {
+    "date": "2026-08-19",
+    "title": "EPIC 33 — Avatar color customization",
+    "body": "Players can set body-part color palettes stored with their profile."
+  },
+  {
+    "date": "2026-08-19",
+    "title": "EPIC 32 — Bot kills grant no economy reward",
+    "body": "Killing bots does not mint gold or kill-loot economy rewards."
+  },
+  {
+    "date": "2026-08-18",
+    "title": "EPIC 31 — Bot equipment loadouts",
+    "body": "Bots spawn with randomized pet/amulet cosmetic loadouts."
+  },
+  {
+    "date": "2026-08-18",
+    "title": "EPIC 30 — Weapon pickup visual polish",
+    "body": "Weapon pickups and viewmodel feedback polished for clearer combat readability."
+  },
+  {
+    "date": "2026-08-17",
+    "title": "EPIC 29 — Inventory grid",
+    "body": "8×8 inventory overlay replaces the older list-only pets panel (I / P)."
+  },
+  {
+    "date": "2026-08-17",
+    "title": "EPIC 28 — Lobby emerald lore",
+    "body": "Lobby presents emerald / economy lore copy alongside gold display."
+  },
+  {
+    "date": "2026-08-16",
+    "title": "EPIC 27 — Redis economy store",
+    "body": "Economy profiles and career totals persist in Redis across server restarts."
+  },
+  {
+    "date": "2026-08-16",
+    "title": "EPIC 26 — Durable achievements and drops",
+    "body": "Achievements and drop accounting persist with the durable economy store."
+  }
+]

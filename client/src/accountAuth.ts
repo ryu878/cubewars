@@ -1,11 +1,12 @@
 // EPIC 34: lobby account auth UI (email + display-code stub, session resume).
+// EPIC 47: send/resend code (account_reset_code) + accept dashed or digit-only codes.
 // Plain HTML/CSS + TypeScript — no UI framework. Transport stays in network.ts;
 // this module only owns the auth overlay DOM and localStorage token persistence.
 
 export const SESSION_TOKEN_STORAGE_KEY = "cubewars_session_token";
 
 export type AccountAuthSend = (message: {
-  type: "account_register" | "account_login" | "account_session_resume";
+  type: "account_register" | "account_login" | "account_session_resume" | "account_reset_code";
   email?: string;
   code?: string;
   token?: string;
@@ -18,6 +19,15 @@ export interface AccountAuthCallbacks {
 
 type AuthPhase = "email" | "code" | "code_reveal" | "authenticated";
 
+/** Light client normalize: spaces/dashes → NNN-NNN when exactly 6 digits; else trim. */
+export function normalizeCodeInput(raw: string): string {
+  const digits = raw.replace(/[\s-]/g, "");
+  if (/^\d{6}$/.test(digits)) {
+    return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  }
+  return raw.trim();
+}
+
 export class AccountAuth {
   private panelEl: HTMLElement;
   private signedInEl: HTMLElement;
@@ -29,15 +39,19 @@ export class AccountAuth {
   private codeInput: HTMLInputElement;
   private emailBtn: HTMLButtonElement;
   private codeBtn: HTMLButtonElement;
+  private resetBtn: HTMLButtonElement;
   private continueBtn: HTMLButtonElement;
   private errorEl: HTMLElement;
   private revealCodeEl: HTMLElement;
+  private revealHintEl: HTMLElement;
   private pending = false;
   private phase: AuthPhase = "email";
   private pendingEmail = "";
   private accountId = "";
   private email = "";
   private welcomeReady = false;
+  /** True when the reveal step is showing a reset code (not a fresh register). */
+  private revealFromReset = false;
 
   constructor(
     private send: AccountAuthSend,
@@ -53,12 +67,15 @@ export class AccountAuth {
     this.codeInput = document.getElementById("accountCodeInput") as HTMLInputElement;
     this.emailBtn = document.getElementById("accountEmailBtn") as HTMLButtonElement;
     this.codeBtn = document.getElementById("accountCodeBtn") as HTMLButtonElement;
+    this.resetBtn = document.getElementById("accountResetCodeBtn") as HTMLButtonElement;
     this.continueBtn = document.getElementById("accountContinueBtn") as HTMLButtonElement;
     this.errorEl = document.getElementById("accountAuthError") as HTMLElement;
     this.revealCodeEl = document.getElementById("accountRevealCode") as HTMLElement;
+    this.revealHintEl = document.getElementById("accountRevealHint") as HTMLElement;
 
     this.emailBtn.addEventListener("click", () => this.submitEmail());
     this.codeBtn.addEventListener("click", () => this.submitCode());
+    this.resetBtn.addEventListener("click", () => this.submitResetCode());
     this.continueBtn.addEventListener("click", () => this.finishReveal());
     this.emailInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") this.submitEmail();
@@ -99,10 +116,13 @@ export class AccountAuth {
   }): void {
     this.pending = false;
     this.setBusy(false);
+    this.revealFromReset = false;
     this.storeToken(message.token);
     this.accountId = message.accountId;
     this.email = message.email;
     this.revealCodeEl.textContent = message.code;
+    this.revealHintEl.textContent =
+      "Temporary stub: this code will not be shown again. It is not emailed yet — copy it now to log in later.";
     this.showPhase("code_reveal");
   }
 
@@ -164,6 +184,41 @@ export class AccountAuth {
     this.showPhase("email");
   }
 
+  handleResetCodeResult(message: {
+    ok: boolean;
+    email?: string;
+    code?: string;
+    reason?: string;
+  }): void {
+    this.pending = false;
+    this.setBusy(false);
+    if (message.ok && message.code && message.email) {
+      this.pendingEmail = message.email;
+      this.email = message.email;
+      this.revealFromReset = true;
+      this.revealCodeEl.textContent = message.code;
+      this.revealHintEl.textContent =
+        "New login code — shown on screen only (not emailed). Copy it, then log in with this code.";
+      this.showPhase("code_reveal");
+      return;
+    }
+    if (message.reason === "rate_limited") {
+      this.errorEl.textContent = "Too many attempts — try again later.";
+      return;
+    }
+    if (message.reason === "invalid_email") {
+      this.errorEl.textContent = "Enter a valid email address.";
+      this.showPhase("email");
+      return;
+    }
+    if (message.reason === "already_authenticated") {
+      this.errorEl.textContent = "Already signed in.";
+      return;
+    }
+    this.errorEl.textContent = "Could not send a new code for this email.";
+    if (this.phase !== "code" && this.phase !== "email") this.showPhase("code");
+  }
+
   isAuthenticated(): boolean {
     return this.phase === "authenticated";
   }
@@ -186,7 +241,8 @@ export class AccountAuth {
   private submitCode(): void {
     if (!this.welcomeReady || this.pending) return;
     const email = this.pendingEmail || this.emailInput.value.trim();
-    const code = this.codeInput.value.trim();
+    // Accept NNN-NNN, NNNNNN, or spaced variants — server also normalizes.
+    const code = normalizeCodeInput(this.codeInput.value);
     if (!email || !code) {
       this.errorEl.textContent = "Enter email and code.";
       return;
@@ -197,7 +253,31 @@ export class AccountAuth {
     this.send({ type: "account_login", email, code });
   }
 
+  private submitResetCode(): void {
+    if (!this.welcomeReady || this.pending) return;
+    const email = this.pendingEmail || this.emailInput.value.trim();
+    if (!email.includes("@")) {
+      this.errorEl.textContent = "Enter a valid email address.";
+      this.showPhase("email");
+      return;
+    }
+    this.pendingEmail = email;
+    this.pending = true;
+    this.setBusy(true);
+    this.errorEl.textContent = "";
+    this.send({ type: "account_reset_code", email });
+  }
+
   private finishReveal(): void {
+    if (this.revealFromReset) {
+      // Reset does not issue a session — send the player to code entry to log in.
+      this.revealFromReset = false;
+      this.codeInput.value = "";
+      this.errorEl.textContent = "Enter the new code shown above to log in.";
+      this.showPhase("code");
+      this.codeInput.focus();
+      return;
+    }
     if (!this.email || !this.accountId) return;
     this.markAuthenticated(this.email, this.accountId);
   }
@@ -226,7 +306,7 @@ export class AccountAuth {
     this.emailStepEl.classList.toggle("hidden", phase !== "email");
     this.codeStepEl.classList.toggle("hidden", phase !== "code");
     this.revealStepEl.classList.toggle("hidden", phase !== "code_reveal");
-    if (phase === "code" && this.pendingEmail) {
+    if ((phase === "code" || phase === "code_reveal") && this.pendingEmail) {
       this.emailInput.value = this.pendingEmail;
     }
   }
@@ -234,6 +314,7 @@ export class AccountAuth {
   private setBusy(busy: boolean): void {
     this.emailBtn.disabled = busy || !this.welcomeReady;
     this.codeBtn.disabled = busy || !this.welcomeReady;
+    this.resetBtn.disabled = busy || !this.welcomeReady;
     this.continueBtn.disabled = busy;
     this.emailInput.disabled = busy;
     this.codeInput.disabled = busy;

@@ -1,27 +1,98 @@
 // EPIC 46 Base map: 2× linear scale of the classic arena (~184×104),
 // plus an enterable building (door gaps both sides + window holes) and a
 // collidable car AABB silhouette.
+// EPIC 47: denser interior cover + ~4× pickup counts.
 
 import type { MapDefinition } from "./types.js";
 import { STANDARD_MAP_BOUNDS } from "./types.js";
 import {
-  armorPickup,
-  ammoPickup,
   carSilhouette,
   crate,
-  healthPickup,
   outerWalls,
   spawn,
   wall,
   wallWithDoorAlongX,
-  weaponPickup,
 } from "./primitives.js";
+import { densePickups } from "./densify.js";
 
 /**
  * Known free xz inside the Base building footprint (away from the interior
  * crate at (-68,-21) and wall segments). Used by EPIC 46 F-002 regression.
  */
 export const BASE_BUILDING_INTERIOR_SAMPLE = { x: -72, z: -21 } as const;
+
+const BASE_GEOMETRY = [
+  ...outerWalls("base"),
+
+  // West divider (Site A <-> mid/tunnel), gaps at mid + tunnel
+  wall("base_divider_west_south", -40, -30, 1, 44),
+  wall("base_divider_west_mid", -40, 16, 1, 16),
+  wall("base_divider_west_north", -40, 46, 1, 12),
+
+  // East divider (mirrored)
+  wall("base_divider_east_south", 40, -30, 1, 44),
+  wall("base_divider_east_mid", 40, 16, 1, 16),
+  wall("base_divider_east_north", 40, 46, 1, 12),
+
+  // Mid lane corridor
+  wall("base_mid_wall_south", 0, -8, 80, 1),
+  wall("base_mid_wall_north", 0, 8, 80, 1),
+
+  // Tunnel corridor
+  wall("base_tunnel_wall_south", 0, 24, 80, 1),
+  wall("base_tunnel_wall_north", 0, 40, 80, 1),
+
+  // Site cover crates (scaled positions)
+  crate("base_crate_a1", -76, -12, 2.5, 2.5),
+  crate("base_crate_a2", -60, 12, 2.5, 2.5),
+  crate("base_crate_a3", -48, -28, 2, 2),
+  crate("base_crate_b1", 76, 12, 2.5, 2.5),
+  crate("base_crate_b2", 60, -12, 2.5, 2.5),
+  crate("base_crate_b3", 48, 28, 2, 2),
+  crate("base_crate_mid1", -16, -3, 2, 2),
+  crate("base_crate_mid2", 16, 3, 2, 2),
+  crate("base_crate_tunnel1", -28, 32, 2, 2),
+  crate("base_crate_tunnel2", 28, 32, 2, 2),
+
+  // EPIC 47: extra Site A / Site B / mid cover to shrink open voids
+  wall("base_cover_a_low", -64, -40, 18, 1),
+  wall("base_cover_a_side", -88, 20, 1, 14),
+  crate("base_crate_a4", -72, 28, 2.2, 2.2),
+  crate("base_crate_a5", -52, -8, 2, 2),
+  crate("base_crate_a6", -56, 40, 2.5, 2.5),
+  wall("base_cover_b_low", 64, 40, 18, 1),
+  wall("base_cover_b_side", 88, -20, 1, 14),
+  crate("base_crate_b4", 72, -28, 2.2, 2.2),
+  crate("base_crate_b5", 52, 8, 2, 2),
+  crate("base_crate_b6", 56, -40, 2.5, 2.5),
+  wall("base_mid_pillar_w", -24, 0, 4, 4),
+  wall("base_mid_pillar_e", 24, 0, 4, 4),
+  crate("base_crate_mid3", -8, 16, 2, 2),
+  crate("base_crate_mid4", 8, -16, 2, 2),
+  crate("base_crate_tunnel3", -12, 32, 2, 2),
+  crate("base_crate_tunnel4", 12, 32, 2, 2),
+  wall("base_tunnel_stub_w", -48, 32, 8, 1),
+  wall("base_tunnel_stub_e", 48, 32, 8, 1),
+
+  // --- Enterable building (Site A south-west) ---
+  // Footprint x∈[-80,-56], z∈[-30,-12]. Doors on north+south; window
+  // holes on east+west = gaps between wall segments (endless door pattern).
+  ...wallWithDoorAlongX("base_bld_south", -30, -80, -56, -68, 2.5),
+  ...wallWithDoorAlongX("base_bld_north", -12, -80, -56, -68, 2.5),
+  // West wall: two segments with a centered window gap (~4 units)
+  wall("base_bld_west_s", -80, -27.5, 1, 5),
+  wall("base_bld_west_n", -80, -14.5, 1, 5),
+  // East wall: mirrored window gap
+  wall("base_bld_east_s", -56, -27.5, 1, 5),
+  wall("base_bld_east_n", -56, -14.5, 1, 5),
+  crate("base_bld_crate", -68, -21, 1.8, 1.8),
+
+  // --- Car near Site B mid-lane entrance ---
+  ...carSilhouette("base_car", 58, -2),
+  // EPIC 47: second wreck + low wall near Site B south
+  ...carSilhouette("base_car_b", 70, -36),
+  wall("base_site_b_brace", 48, -20, 1, 12),
+];
 
 /**
  * Scaled classic layout (2× from EPIC 3): Site A / Site B / mid / tunnel,
@@ -32,55 +103,7 @@ export const BASE_MAP: MapDefinition = {
   displayName: "Base",
   displayNameRu: "База",
   bounds: STANDARD_MAP_BOUNDS,
-  geometry: [
-    ...outerWalls("base"),
-
-    // West divider (Site A <-> mid/tunnel), gaps at mid + tunnel
-    wall("base_divider_west_south", -40, -30, 1, 44),
-    wall("base_divider_west_mid", -40, 16, 1, 16),
-    wall("base_divider_west_north", -40, 46, 1, 12),
-
-    // East divider (mirrored)
-    wall("base_divider_east_south", 40, -30, 1, 44),
-    wall("base_divider_east_mid", 40, 16, 1, 16),
-    wall("base_divider_east_north", 40, 46, 1, 12),
-
-    // Mid lane corridor
-    wall("base_mid_wall_south", 0, -8, 80, 1),
-    wall("base_mid_wall_north", 0, 8, 80, 1),
-
-    // Tunnel corridor
-    wall("base_tunnel_wall_south", 0, 24, 80, 1),
-    wall("base_tunnel_wall_north", 0, 40, 80, 1),
-
-    // Site cover crates (scaled positions)
-    crate("base_crate_a1", -76, -12, 2.5, 2.5),
-    crate("base_crate_a2", -60, 12, 2.5, 2.5),
-    crate("base_crate_a3", -48, -28, 2, 2),
-    crate("base_crate_b1", 76, 12, 2.5, 2.5),
-    crate("base_crate_b2", 60, -12, 2.5, 2.5),
-    crate("base_crate_b3", 48, 28, 2, 2),
-    crate("base_crate_mid1", -16, -3, 2, 2),
-    crate("base_crate_mid2", 16, 3, 2, 2),
-    crate("base_crate_tunnel1", -28, 32, 2, 2),
-    crate("base_crate_tunnel2", 28, 32, 2, 2),
-
-    // --- Enterable building (Site A south-west) ---
-    // Footprint x∈[-80,-56], z∈[-30,-12]. Doors on north+south; window
-    // holes on east+west = gaps between wall segments (endless door pattern).
-    ...wallWithDoorAlongX("base_bld_south", -30, -80, -56, -68, 2.5),
-    ...wallWithDoorAlongX("base_bld_north", -12, -80, -56, -68, 2.5),
-    // West wall: two segments with a centered window gap (~4 units)
-    wall("base_bld_west_s", -80, -27.5, 1, 5),
-    wall("base_bld_west_n", -80, -14.5, 1, 5),
-    // East wall: mirrored window gap
-    wall("base_bld_east_s", -56, -27.5, 1, 5),
-    wall("base_bld_east_n", -56, -14.5, 1, 5),
-    crate("base_bld_crate", -68, -21, 1.8, 1.8),
-
-    // --- Car near Site B mid-lane entrance ---
-    ...carSilhouette("base_car", 58, -2),
-  ],
+  geometry: BASE_GEOMETRY,
   spawnPoints: [
     spawn(-68, -32),
     spawn(-68, 0),
@@ -93,20 +116,18 @@ export const BASE_MAP: MapDefinition = {
     spawn(0, -20),
     spawn(0, 32),
   ],
-  pickupPoints: [
-    weaponPickup("base_weapon_rifle_a", "rifle", -84, 40),
-    weaponPickup("base_weapon_rifle_b", "rifle", 84, -40),
-    weaponPickup("base_weapon_gl_mid", "grenade_launcher", 0, 0),
-    weaponPickup("base_weapon_gl_tunnel", "grenade_launcher", 0, 32),
-    ammoPickup("base_ammo_rifle_a", "rifle", -84, -40),
-    ammoPickup("base_ammo_rifle_b", "rifle", 84, 40),
-    ammoPickup("base_ammo_gl_a", "grenade_launcher", -20, 32),
-    ammoPickup("base_ammo_gl_b", "grenade_launcher", 20, 32),
-    healthPickup("base_health_a", -84, 0),
-    healthPickup("base_health_b", 84, 0),
-    healthPickup("base_health_c", 0, -40),
-    armorPickup("base_armor_a", -20, 32),
-    armorPickup("base_armor_b", 20, 32),
-    armorPickup("base_armor_c", 0, 20),
-  ],
+  pickupPoints: densePickups("base", BASE_GEOMETRY, [
+    { x: -84, z: 40 },
+    { x: 84, z: -40 },
+    { x: 0, z: 0 },
+    { x: 0, z: 32 },
+    { x: -84, z: -40 },
+    { x: 84, z: 40 },
+    { x: -20, z: 32 },
+    { x: 20, z: 32 },
+    { x: -84, z: 0 },
+    { x: 84, z: 0 },
+    { x: 0, z: -40 },
+    { x: 0, z: 20 },
+  ]),
 };

@@ -3,6 +3,7 @@
 import type {
   AccountCreatedMessage,
   AccountLoginResultMessage,
+  AccountResetCodeResultMessage,
   AccountSessionResultMessage,
   ClientMessage,
   DeathEvent,
@@ -19,6 +20,7 @@ import type {
   HitEvent,
   JoinAcceptedMessage,
   JoinRejectedMessage,
+  LeaveMatchAckMessage,
   KillEvent,
   LeaderboardMessage,
   LoadoutMessage,
@@ -39,6 +41,7 @@ export interface NetworkHandlers {
   onLobbyState?: (message: LobbyStateMessage) => void;
   onJoinAccepted?: (message: JoinAcceptedMessage) => void;
   onJoinRejected?: (message: JoinRejectedMessage) => void;
+  onLeaveMatchAck?: (message: LeaveMatchAckMessage) => void;
   onLeaderboard?: (message: LeaderboardMessage) => void;
   onEndlessLeaderboard?: (message: EndlessLeaderboardMessage) => void;
   onEndlessState?: (message: EndlessStateMessage) => void;
@@ -81,6 +84,8 @@ export interface NetworkHandlers {
   onAccountLoginResult?: (message: AccountLoginResultMessage) => void;
   /** EPIC 34: session resume result. */
   onAccountSessionResult?: (message: AccountSessionResultMessage) => void;
+  /** EPIC 47: send/resend login code result. */
+  onAccountResetCodeResult?: (message: AccountResetCodeResultMessage) => void;
   onClose?: () => void;
   onError?: (err: Event) => void;
 }
@@ -106,6 +111,8 @@ export class GameConnection {
           handlers.onJoinAccepted?.(message);
         } else if (message.type === "join_rejected") {
           handlers.onJoinRejected?.(message);
+        } else if (message.type === "leave_match_ack") {
+          handlers.onLeaveMatchAck?.(message);
         } else if (message.type === "leaderboard") {
           handlers.onLeaderboard?.(message);
         } else if (message.type === "endless_leaderboard") {
@@ -152,6 +159,8 @@ export class GameConnection {
           handlers.onAccountLoginResult?.(message);
         } else if (message.type === "account_session_result") {
           handlers.onAccountSessionResult?.(message);
+        } else if (message.type === "account_reset_code_result") {
+          handlers.onAccountResetCodeResult?.(message);
         }
       } catch (err) {
         console.error("[client] failed to parse server message", err);

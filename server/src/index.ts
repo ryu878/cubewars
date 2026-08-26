@@ -599,6 +599,73 @@ wss.on("connection", (socket: WebSocket) => {
       return;
     }
 
+    // EPIC 47: send / resend login code (stub — shown on screen, not emailed).
+    if (parsed.type === "account_reset_code") {
+      const email = parsed.email;
+      void (async () => {
+        if (accountId) {
+          sendJson(socket, {
+            type: "account_reset_code_result",
+            ok: false,
+            reason: "already_authenticated",
+          });
+          return;
+        }
+        const result = await accountStore.resetCode(email, playerId);
+        if (result.status === "ok") {
+          sendJson(socket, {
+            type: "account_reset_code_result",
+            ok: true,
+            email: result.account.email,
+            code: result.code,
+          });
+          return;
+        }
+        sendJson(socket, {
+          type: "account_reset_code_result",
+          ok: false,
+          reason:
+            result.status === "rate_limited"
+              ? "rate_limited"
+              : result.status === "invalid_email"
+                ? "invalid_email"
+                : "invalid_credentials",
+        });
+      })().catch((err) => {
+        console.error(`[server] account_reset_code failed for ${playerId}:`, err);
+        sendJson(socket, {
+          type: "account_reset_code_result",
+          ok: false,
+          reason: "invalid_credentials",
+        });
+      });
+      return;
+    }
+
+    // EPIC 47: in-band leave — remove human, return socket to lobby, keep auth/nickname.
+    if (parsed.type === "leave_match") {
+      if (!match) {
+        // Already in lobby — idempotent ack so client UI can recover.
+        sendJson(socket, { type: "leave_match_ack" });
+        return;
+      }
+      const leftMatchId = match.id;
+      const leftMode = match.mode;
+      match.removeHuman(playerId);
+      match = null;
+      lobbySockets.add(socket);
+      sendJson(socket, { type: "leave_match_ack" });
+      sendJson(socket, leaderboardMessage());
+      sendJson(socket, endlessLeaderboardMessage());
+      broadcastLobbyState();
+      broadcastLobbyLeaderboard();
+      broadcastLobbyEndlessLeaderboard();
+      console.log(
+        `[server] player left match "${leftMatchId}" (mode=${leftMode}) via leave_match: ${nickname ?? "?"} (${playerId})`,
+      );
+      return;
+    }
+
     if (parsed.type === "join") {
       if (match) {
         alreadyJoinedDropTracker.record(playerId, now);
@@ -673,8 +740,19 @@ wss.on("connection", (socket: WebSocket) => {
 
         lobbySockets.delete(socket);
         await match.addHuman(playerId, socket, nickname, nicknameKey);
-        const accepted: JoinAcceptedMessage = { type: "join_accepted", matchId: match.id, nickname };
+        const accepted: JoinAcceptedMessage = {
+          type: "join_accepted",
+          matchId: match.id,
+          nickname,
+          mode: match.mode,
+          mapId: match.mode === "endless" ? undefined : match.mapId,
+        };
         sendJson(socket, accepted);
+        if (parsed.mode === "bots" && parsed.mapId === undefined) {
+          console.log(
+            `[server] bots join omitted mapId — using default map=${match.mapId} for ${nickname}`,
+          );
+        }
         sendJson(socket, leaderboardMessage());
         sendJson(socket, endlessLeaderboardMessage());
         console.log(

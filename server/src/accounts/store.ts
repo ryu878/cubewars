@@ -60,6 +60,13 @@ export type ResumeResult =
   | { status: "ok"; account: AccountRecord; token: string }
   | { status: "invalid_token" };
 
+/** EPIC 47: replace stored login code; plaintext returned once (stub, not emailed). */
+export type ResetCodeResult =
+  | { status: "ok"; account: AccountRecord; code: string }
+  | { status: "invalid_credentials" }
+  | { status: "rate_limited" }
+  | { status: "invalid_email" };
+
 interface AccountDocument {
   v: number;
   accountId: string;
@@ -203,6 +210,53 @@ export class AccountStore {
     const token = await this.issueSession(account);
     console.log(`[accounts] login ok accountId=${account.accountId} email=${redactEmail(email)}`);
     return { status: "ok", account, token };
+  }
+
+  /**
+   * EPIC 47: generate a new NNN-NNN code, replace bcrypt hash, return plaintext once.
+   * Rate-limited with the same windows as login. Existing sessions are kept.
+   * Missing emails return the same generic `invalid_credentials` as bad login.
+   */
+  async resetCode(emailRaw: unknown, connectionId: string): Promise<ResetCodeResult> {
+    const email = this.normalizeEmail(emailRaw);
+    if (!email) return { status: "invalid_email" };
+
+    if (this.isRateLimited(email, connectionId)) {
+      console.warn(
+        `[accounts] reset_code rate_limited email=${redactEmail(email)} connection=${connectionId}`,
+      );
+      return { status: "rate_limited" };
+    }
+
+    const account = await this.getByEmail(email);
+    if (!account) {
+      await bcrypt.compare("000-000", DUMMY_CODE_HASH);
+      this.recordFailure(email, connectionId);
+      console.warn(
+        `[accounts] reset_code failed (invalid_credentials) email=${redactEmail(email)} connection=${connectionId}`,
+      );
+      return { status: "invalid_credentials" };
+    }
+
+    const code = generateDisplayCode();
+    const codeHash = await bcrypt.hash(code, BCRYPT_ROUNDS);
+    const doc: AccountDocument = {
+      v: SCHEMA_VERSION,
+      accountId: account.accountId,
+      email: account.email,
+      codeHash,
+      createdAtMs: account.createdAtMs,
+    };
+    await this.redis.set(this.emailKey(email), JSON.stringify(doc));
+
+    // Count successful resets toward the same abuse window so reset cannot be spammed.
+    this.recordFailure(email, connectionId);
+
+    const updated: AccountRecord = { ...account, codeHash };
+    console.log(
+      `[accounts] reset_code ok accountId=${account.accountId} email=${redactEmail(email)}`,
+    );
+    return { status: "ok", account: updated, code };
   }
 
   async resumeSession(tokenRaw: unknown): Promise<ResumeResult> {

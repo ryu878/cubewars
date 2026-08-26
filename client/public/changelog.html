@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CubeWars — Changelog</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0c1016;
+        --panel: #161d27;
+        --line: #2c3a4d;
+        --text: #e8eef5;
+        --muted: #9aa8b8;
+        --accent: #8ab4c4;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        background:
+          radial-gradient(1200px 600px at 20% -10%, rgba(56, 90, 120, 0.35), transparent 60%),
+          radial-gradient(900px 500px at 90% 10%, rgba(40, 70, 50, 0.25), transparent 55%),
+          var(--bg);
+        color: var(--text);
+      }
+      main {
+        width: min(720px, 92vw);
+        margin: 0 auto;
+        padding: 36px 0 64px;
+      }
+      header {
+        margin-bottom: 28px;
+      }
+      .back {
+        color: var(--accent);
+        text-decoration: none;
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .back:hover {
+        text-decoration: underline;
+      }
+      h1 {
+        margin: 14px 0 8px;
+        font-size: 32px;
+        letter-spacing: 0.01em;
+      }
+      .subtitle {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.45;
+      }
+      #status {
+        min-height: 1.2em;
+        margin: 16px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      #entries {
+        display: grid;
+        gap: 14px;
+        margin: 22px 0;
+      }
+      article {
+        padding: 16px 18px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+      }
+      article h2 {
+        margin: 0 0 6px;
+        font-size: 17px;
+        line-height: 1.35;
+      }
+      article .date {
+        margin: 0 0 10px;
+        color: var(--accent);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      article p {
+        margin: 0;
+        color: #c5d0dc;
+        font-size: 14px;
+        line-height: 1.5;
+      }
+      nav.pager {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        justify-content: space-between;
+      }
+      nav.pager .meta {
+        color: var(--muted);
+        font-size: 13px;
+      }
+      nav.pager .buttons {
+        display: flex;
+        gap: 8px;
+      }
+      nav.pager button {
+        padding: 8px 14px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #1c2531;
+        color: var(--text);
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      nav.pager button:hover:not(:disabled) {
+        background: #243042;
+      }
+      nav.pager button:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <a class="back" href="/">← Back to CubeWars</a>
+        <h1>Changelog</h1>
+        <p class="subtitle">Product-facing updates, newest first. 10 entries per page.</p>
+        <p id="status" aria-live="polite">Loading…</p>
+      </header>
+      <div id="entries"></div>
+      <nav class="pager" aria-label="Changelog pagination">
+        <div class="meta" id="pageMeta"></div>
+        <div class="buttons">
+          <button id="prevBtn" type="button">Previous</button>
+          <button id="nextBtn" type="button">Next</button>
+        </div>
+      </nav>
+    </main>
+    <script>
+      const PAGE_SIZE = 10;
+      let entries = [];
+      let page = 1;
+
+      function pageCount() {
+        return Math.max(1, Math.ceil(entries.length / PAGE_SIZE));
+      }
+
+      function readPageFromHash() {
+        const match = /(?:^|[&#?])page=(\d+)/.exec(location.hash || location.search || "");
+        const n = match ? Number(match[1]) : 1;
+        return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1;
+      }
+
+      function writePageToHash(n) {
+        const next = `#page=${n}`;
+        if (location.hash !== next) {
+          history.replaceState(null, "", next);
+        }
+      }
+
+      function render() {
+        const totalPages = pageCount();
+        page = Math.min(Math.max(1, page), totalPages);
+        writePageToHash(page);
+
+        const start = (page - 1) * PAGE_SIZE;
+        const slice = entries.slice(start, start + PAGE_SIZE);
+        const root = document.getElementById("entries");
+        root.replaceChildren();
+        for (const entry of slice) {
+          const article = document.createElement("article");
+          const date = document.createElement("p");
+          date.className = "date";
+          date.textContent = entry.date || "";
+          const title = document.createElement("h2");
+          title.textContent = entry.title || "Update";
+          const body = document.createElement("p");
+          body.textContent = entry.body || "";
+          article.append(date, title, body);
+          root.appendChild(article);
+        }
+
+        document.getElementById("pageMeta").textContent =
+          entries.length === 0
+            ? "No entries"
+            : `Page ${page} of ${totalPages} · ${entries.length} entries`;
+        document.getElementById("prevBtn").disabled = page <= 1;
+        document.getElementById("nextBtn").disabled = page >= totalPages;
+        document.getElementById("status").textContent = "";
+      }
+
+      document.getElementById("prevBtn").addEventListener("click", () => {
+        page -= 1;
+        render();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+      document.getElementById("nextBtn").addEventListener("click", () => {
+        page += 1;
+        render();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+
+      async function main() {
+        page = readPageFromHash();
+        try {
+          const res = await fetch("./changelog.json", { cache: "no-cache" });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          if (!Array.isArray(data)) throw new Error("changelog.json must be an array");
+          // Newest first — data file is authored newest-first; keep stable order.
+          entries = data;
+          render();
+        } catch (err) {
+          console.error(err);
+          document.getElementById("status").textContent = "Failed to load changelog.";
+          document.getElementById("prevBtn").disabled = true;
+          document.getElementById("nextBtn").disabled = true;
+        }
+      }
+
+      main();
+    </script>
+  </body>
+</html>

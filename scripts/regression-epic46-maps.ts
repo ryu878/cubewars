@@ -270,6 +270,7 @@ async function main(): Promise<void> {
     assert.equal(mapState.type, "map_state");
     if (mapState.type === "map_state") {
       const expected = getMap("rust_canyon");
+      assert.equal(mapState.mapId, "rust_canyon");
       assert.equal(mapState.bounds.minX, expected.bounds.minX);
       assert.equal(mapState.geometry.length, expected.geometry.length);
     }

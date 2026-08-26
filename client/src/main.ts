@@ -2,10 +2,13 @@ import * as THREE from "three";
 import {
   ARENA_BOUNDS,
   ARENA_GEOMETRY,
+  DEFAULT_MAP_ID,
   PICKUP_RADIUS,
   WEAPON_STATS,
   type EconomyPool,
   type MapBox,
+  type MapId,
+  type MatchMode,
   type PlayerInputMessage,
   type WeaponType,
   type WorldStateMessage,
@@ -28,7 +31,8 @@ import { buildSkyDome, buildWallTextures } from "./textures";
 import { SoundManager } from "./audio/soundManager";
 import { CombatEffects } from "./combatEffects";
 import { KillLootVfx } from "./killLootVfx";
-import { shouldIgnoreGameHotkey } from "./uiInput";
+import { PauseMenu } from "./pauseMenu";
+import { isLobbyVisible, isPauseMenuVisible, shouldIgnoreGameHotkey } from "./uiInput";
 
 const statusEl = document.getElementById("status") as HTMLDivElement;
 const hintEl = document.getElementById("hint") as HTMLDivElement;
@@ -359,10 +363,34 @@ const scoreboard = new Scoreboard(() => selfId);
  * server `lobbyEconomyPool` — this filter is display-only.
  */
 let lastLobbyBindPool: EconomyPool | null = null;
+/** EPIC 47: current match context for pause menu / economy pool / change-map. */
+let currentMatchMode: MatchMode | null = null;
+let currentMapId: MapId | null = null;
+let joinedMatch = false;
+/** Pending leave reason so leave_match_ack can rejoin or just show lobby. */
+let pendingLeave:
+  | null
+  | { kind: "lobby" }
+  | { kind: "rejoin"; mode: MatchMode; mapId?: MapId } = null;
 
 const modeSelect = new ModeSelect(
   (selection) => {
-    connection.send({ type: "join", ...selection });
+    // Explicit join payload — always pass mapId for public/bots (EPIC 47 harden).
+    const joinPayload =
+      selection.mode === "endless"
+        ? {
+            type: "join" as const,
+            mode: selection.mode,
+            nickname: selection.nickname,
+          }
+        : {
+            type: "join" as const,
+            mode: selection.mode,
+            nickname: selection.nickname,
+            matchId: selection.matchId,
+            mapId: selection.mapId ?? modeSelect.getSelectedMapId() ?? DEFAULT_MAP_ID,
+          };
+    connection.send(joinPayload);
   },
   (pool) => {
     const nickname = modeSelect.getNickname();
@@ -387,6 +415,7 @@ let inventoryOverlay!: InventoryOverlay;
 let auctionPanel!: AuctionPanel;
 let tradePanel!: TradePanel;
 let groundHud!: GroundHud;
+let pauseMenu!: PauseMenu;
 let lastWorldPlayers: WorldStateMessage["players"] = [];
 const connection = new GameConnection(wsUrl, {
   onOpen: () => {
@@ -409,6 +438,9 @@ const connection = new GameConnection(wsUrl, {
   onAccountSessionResult: (message) => {
     accountAuth.handleSessionResult(message);
   },
+  onAccountResetCodeResult: (message) => {
+    accountAuth.handleResetCodeResult(message);
+  },
   onLobbyState: (message) => {
     modeSelect.setLobby(message.matches);
   },
@@ -422,6 +454,11 @@ const connection = new GameConnection(wsUrl, {
     renderMapGeometry(message.geometry);
     resizeGround(message.bounds);
     fps.setCollisionGeometry(message.geometry);
+    if (message.mapId) {
+      currentMapId = message.mapId;
+      pauseMenu.setMatchContext(currentMatchMode, currentMapId);
+      modeSelect.setSelectedMapId(message.mapId);
+    }
   },
   onEndlessState: (message) => {
     endlessHudEl.classList.add("visible");
@@ -434,18 +471,47 @@ const connection = new GameConnection(wsUrl, {
   onJoinAccepted: (message) => {
     lastLobbyBindPool = null;
     modeSelect.joinAccepted(message.nickname);
-    statusEl.textContent = `joined ${message.matchId} — ${message.nickname}`;
-    joinedEndless = message.matchId.startsWith("endless:");
+    joinedMatch = true;
+    currentMatchMode = message.mode ?? (message.matchId.startsWith("endless:") ? "endless" : message.matchId.startsWith("bots:") ? "bots" : "public");
+    currentMapId = message.mapId ?? (currentMatchMode === "endless" ? null : DEFAULT_MAP_ID);
+    pauseMenu.setMatchContext(currentMatchMode, currentMapId);
+    const mapLabel = currentMapId ?? (currentMatchMode === "endless" ? "endless" : "—");
+    statusEl.textContent = `joined ${message.matchId} — ${message.nickname} · map ${mapLabel}`;
+    joinedEndless = message.matchId.startsWith("endless:") || currentMatchMode === "endless";
     endlessHudEl.classList.toggle("visible", joinedEndless);
     fogWall.visible = joinedEndless;
-    // EPIC 14 "Sound System" Design Decision 6: this accepted join follows
-    // the user's mode-select click, the natural point to resume audio before
-    // gameplay input starts.
     soundManager.unlock();
     startInputLoop();
   },
   onJoinRejected: (message) => {
     modeSelect.joinRejected(message.reason);
+    pendingLeave = null;
+  },
+  onLeaveMatchAck: () => {
+    clearMatchClientState();
+    const pending = pendingLeave;
+    pendingLeave = null;
+    if (pending?.kind === "rejoin") {
+      const nickname = modeSelect.getNickname();
+      if (!nickname) {
+        modeSelect.showLobby();
+        return;
+      }
+      if (pending.mode === "endless") {
+        connection.send({ type: "join", mode: "endless", nickname });
+      } else {
+        if (pending.mapId) modeSelect.setSelectedMapId(pending.mapId);
+        connection.send({
+          type: "join",
+          mode: pending.mode,
+          nickname,
+          mapId: pending.mapId ?? modeSelect.getSelectedMapId(),
+        });
+      }
+      return;
+    }
+    modeSelect.showLobby();
+    statusEl.textContent = "back in lobby — choose a mode";
   },
   onWorldState: (message: WorldStateMessage) => {
     lastWorldPlayers = message.players;
@@ -588,6 +654,8 @@ const accountAuth = new AccountAuth(
       connection.send({ type: "account_login", email: message.email, code: message.code });
     } else if (message.type === "account_session_resume" && message.token) {
       connection.send({ type: "account_session_resume", token: message.token });
+    } else if (message.type === "account_reset_code" && message.email) {
+      connection.send({ type: "account_reset_code", email: message.email });
     }
   },
   {
@@ -605,6 +673,89 @@ inventoryOverlay = new InventoryOverlay((message) => connection.send(message));
 auctionPanel = new AuctionPanel((message) => connection.send(message));
 tradePanel = new TradePanel((message) => connection.send(message));
 groundHud = new GroundHud((message) => connection.send(message));
+
+function clearMatchClientState(): void {
+  joinedMatch = false;
+  currentMatchMode = null;
+  currentMapId = null;
+  joinedEndless = false;
+  endlessHudEl.classList.remove("visible");
+  fogWall.visible = false;
+  remotePlayers.sync([], selfId, Date.now());
+  pickupRenderer.sync([]);
+  pauseMenu.setMatchContext(null, null);
+  pauseMenu.setOpen(false);
+  inventoryOverlay.setOpen(false);
+  auctionPanel.setOpen(false);
+  if (document.pointerLockElement) document.exitPointerLock();
+  renderMapGeometry(ARENA_GEOMETRY);
+  resizeGround(ARENA_BOUNDS);
+  fps.setCollisionGeometry(ARENA_GEOMETRY);
+}
+
+function economyPoolForMode(mode: MatchMode | null): EconomyPool {
+  return mode === "public" ? "deathmatch" : "sandbox";
+}
+
+function requestLeave(next: typeof pendingLeave): void {
+  if (!joinedMatch) {
+    pendingLeave = next;
+    // Already out — treat as immediate ack path.
+    clearMatchClientState();
+    modeSelect.showLobby();
+    return;
+  }
+  pendingLeave = next;
+  pauseMenu.setStatus("Leaving match…");
+  connection.send({ type: "leave_match" });
+}
+
+pauseMenu = new PauseMenu((action) => {
+  switch (action.type) {
+    case "resume":
+      pauseMenu.setOpen(false);
+      break;
+    case "exit_lobby":
+      requestLeave({ kind: "lobby" });
+      break;
+    case "change_map": {
+      modeSelect.setSelectedMapId(action.mapId);
+      const mode = currentMatchMode === "endless" ? "bots" : currentMatchMode ?? "bots";
+      requestLeave({ kind: "rejoin", mode, mapId: action.mapId });
+      break;
+    }
+    case "reload_endless":
+      requestLeave({ kind: "rejoin", mode: "endless" });
+      break;
+    case "inventory": {
+      pauseMenu.setOpen(false);
+      const pool = economyPoolForMode(currentMatchMode);
+      const nickname = modeSelect.getNickname();
+      if (!nickname) break;
+      // In-match: profile already pushed for the match pool; still bind when
+      // opening so lobby-style pool filter stays consistent after leave.
+      if (!joinedMatch) {
+        lastLobbyBindPool = pool;
+        connection.send({ type: "lobby_bind_nickname", nickname, economyPool: pool });
+      }
+      inventoryOverlay.setStatus(
+        pool === "sandbox" ? "Bots / Sandbox inventory" : "Deathmatch inventory",
+      );
+      inventoryOverlay.setOpen(true);
+      break;
+    }
+    case "auction": {
+      pauseMenu.setOpen(false);
+      const nickname = modeSelect.getNickname();
+      if (!nickname) break;
+      // Deathmatch auction is usable from all modes (same as lobby).
+      lastLobbyBindPool = "deathmatch";
+      connection.send({ type: "lobby_bind_nickname", nickname, economyPool: "deathmatch" });
+      auctionPanel.setOpen(true);
+      break;
+    }
+  }
+});
 
 // EPIC 38: T opens trade with the nearest other alive human in the match.
 window.addEventListener("keydown", (event) => {
@@ -649,6 +800,21 @@ function startInputLoop(): void {
   if (inputLoopStarted) return;
   inputLoopStarted = true;
   setInterval(() => {
+    // Pre-join: never spam input (server rejects until join).
+    if (!joinedMatch) return;
+    if (isLobbyVisible() || isPauseMenuVisible()) {
+      const intent = fps.getInputIntent();
+      const message: PlayerInputMessage = {
+        type: "input",
+        moveForward: 0,
+        moveRight: 0,
+        yaw: intent.yaw,
+        pitch: intent.pitch,
+        jump: false,
+      };
+      connection.send(message);
+      return;
+    }
     const intent = fps.getInputIntent();
     const message: PlayerInputMessage = { type: "input", ...intent };
     connection.send(message);

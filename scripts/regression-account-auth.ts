@@ -153,6 +153,33 @@ async function unitStoreChecks(): Promise<void> {
     assert.equal(good.status, "ok");
     if (good.status !== "ok") throw new Error("unreachable");
 
+    // EPIC 47: normalizeCode accepts dashed, digit-only, and spaced forms.
+    assert.equal(store.normalizeCode("123-456"), "123-456");
+    assert.equal(store.normalizeCode("123456"), "123-456");
+    assert.equal(store.normalizeCode(" 123 456 "), "123-456");
+    assert.equal(store.normalizeCode("12345"), null);
+    assert.equal(store.normalizeCode("12-34"), null);
+
+    const digitsOnly = created.code.replace("-", "");
+    assert.equal(digitsOnly.length, 6);
+    const goodDigits = await store.login(email, digitsOnly, "conn-digits");
+    assert.equal(goodDigits.status, "ok");
+
+    const spaced = `${created.code.slice(0, 3)} ${created.code.slice(4)}`;
+    const goodSpaced = await store.login(email, spaced, "conn-spaced");
+    assert.equal(goodSpaced.status, "ok");
+
+    // EPIC 47: reset code replaces hash; old code fails; new code works (both forms).
+    const reset = await store.resetCode(email, "conn-reset");
+    assert.equal(reset.status, "ok");
+    if (reset.status !== "ok") throw new Error("unreachable");
+    assert.match(reset.code, /^\d{3}-\d{3}$/);
+    assert.notEqual(reset.code, created.code);
+    const oldFails = await store.login(email, created.code, "conn-old");
+    assert.equal(oldFails.status, "invalid_credentials");
+    const newOk = await store.login(email, reset.code.replace("-", ""), "conn-new");
+    assert.equal(newOk.status, "ok");
+
     const resumed = await store.resumeSession(good.token);
     assert.equal(resumed.status, "ok");
 
@@ -241,6 +268,57 @@ async function liveWsChecks(logs: string[]): Promise<void> {
   if (loginOk.type !== "account_login_result") throw new Error("unreachable");
   assert.equal(loginOk.ok, true);
   assert.ok(loginOk.token);
+  client2.ws.close();
+
+  // EPIC 47: digit-only login form for the same account
+  const clientDigits = await connect();
+  before = clientDigits.messages.length;
+  clientDigits.ws.send(
+    JSON.stringify({ type: "account_login", email, code: code.replace("-", "") }),
+  );
+  const loginDigits = await waitFor(
+    clientDigits,
+    before,
+    (m) => m.type === "account_login_result",
+    "login digits",
+  );
+  assert.equal(loginDigits.type, "account_login_result");
+  if (loginDigits.type !== "account_login_result") throw new Error("unreachable");
+  assert.equal(loginDigits.ok, true);
+  clientDigits.ws.close();
+
+  // EPIC 47: reset code via WS, then login with new digit-only code
+  const clientReset = await connect();
+  before = clientReset.messages.length;
+  clientReset.ws.send(JSON.stringify({ type: "account_reset_code", email }));
+  const resetResult = await waitFor(
+    clientReset,
+    before,
+    (m) => m.type === "account_reset_code_result",
+    "reset code",
+  );
+  assert.equal(resetResult.type, "account_reset_code_result");
+  if (resetResult.type !== "account_reset_code_result") throw new Error("unreachable");
+  assert.equal(resetResult.ok, true);
+  assert.match(resetResult.code ?? "", /^\d{3}-\d{3}$/);
+  const newCode = resetResult.code!;
+  assert.notEqual(newCode, code);
+  clientReset.ws.close();
+
+  const clientNewLogin = await connect();
+  before = clientNewLogin.messages.length;
+  clientNewLogin.ws.send(
+    JSON.stringify({ type: "account_login", email, code: newCode.replace("-", "") }),
+  );
+  const loginNew = await waitFor(
+    clientNewLogin,
+    before,
+    (m) => m.type === "account_login_result",
+    "login after reset",
+  );
+  assert.equal(loginNew.type, "account_login_result");
+  if (loginNew.type !== "account_login_result") throw new Error("unreachable");
+  assert.equal(loginNew.ok, true);
 
   // Session resume
   const client3 = await connect();
@@ -294,8 +372,8 @@ async function liveWsChecks(logs: string[]): Promise<void> {
   assert.ok(!joinedLogs.includes(token), "server must not log session token");
 
   client.ws.close();
-  client2.ws.close();
   client3.ws.close();
+  clientNewLogin.ws.close();
   attacker.ws.close();
 }
 
