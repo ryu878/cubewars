@@ -116,20 +116,10 @@ export const PET_TYPE_RATING: Record<PetType, RatingKind> = {
 };
 
 /**
- * Match application knobs (EPIC 24 Team Lead starters).
+ * Match application knobs (EPIC 24 / EPIC 51 pet combat redesign).
  * Tunable here only — combat code must import these, not literals.
  */
 export const PET_COMBAT = {
-  /** healthRating 200 → +50 max HP. */
-  HEALTH_HP_PER_POINT: 0.25,
-  /** armorRating 200 → 10% DR before EPIC 7 absorptive armor. */
-  ARMOR_DR_PER_POINT: 0.0005,
-  /** Hard cap on pet %DR. */
-  ARMOR_DR_CAP: 0.35,
-  /** speedRating 200 → +10% move speed. */
-  SPEED_PER_POINT: 0.0005,
-  /** damageRating 200 → +20% weapon damage. */
-  DAMAGE_PER_POINT: 0.001,
   /** Slot 1 contributes 100% of pet rating. */
   SLOT1_FRACTION: 1,
   /** Slot 2 (amulet-gated) contributes 40% of the pet's full rating vector. */
@@ -194,13 +184,13 @@ export function aggregateEquippedRatings(
   return ratings;
 }
 
-/** Inventory UI label for a rating axis (EPIC 50/51). Armor axis is pet %DR, not pickup armor. */
+/** Inventory UI label for a rating axis (EPIC 50/51). */
 export function ratingDisplayLabel(kind: RatingKind): string {
   switch (kind) {
     case "health":
       return "HP";
     case "armor":
-      return "DR";
+      return "Armor";
     case "speed":
       return "Speed";
     case "damage":
@@ -210,21 +200,23 @@ export function ratingDisplayLabel(kind: RatingKind): string {
 
 /**
  * Compact inventory grant line for one rating axis (EPIC 51).
- * Armor shows optional % DR; health shows HP only (detail views may append max bonus).
+ * Dog/cat grant flat points; bird/lion grant % bonuses (rating = percent).
  */
 export function formatRatingGrant(kind: RatingKind, amount: number): string {
   const n = Math.max(0, Math.floor(amount));
   if (kind === "armor") {
-    const pct = Math.round(armorDrFromRatings(n) * 100);
-    return `+${n} DR (~${pct}%)`;
+    return `+${n} Armor`;
   }
   if (kind === "health") {
     return `+${n} HP`;
   }
-  return `+${n} ${ratingDisplayLabel(kind)}`;
+  if (kind === "speed") {
+    return `+${n}% Speed`;
+  }
+  return `+${n}% Damage`;
 }
 
-/** e.g. "+156 DR (~8%)" — species primary axis, no slot fraction. */
+/** e.g. "+156 Armor" — species primary axis, no slot fraction. */
 export function formatPetPrimaryGrant(type: PetType, baseValue: number): string {
   const kind = PET_TYPE_RATING[type];
   return formatRatingGrant(kind, baseValue);
@@ -233,9 +225,9 @@ export function formatPetPrimaryGrant(type: PetType, baseValue: number): string 
 export interface PetGrantBreakdown {
   /** Slot fraction used for display lines / totals (1 when unequipped). */
   fraction: number;
-  /** Species primary grant after fraction, e.g. "+156 DR (~8%)". */
+  /** Species primary grant after fraction, e.g. "+156 Armor". */
   primaryText: string;
-  /** Each socketed gem contribution after fraction, e.g. "+20 DR (~1%)". */
+  /** Each socketed gem contribution after fraction, e.g. "+20 Armor". */
   gemTexts: string[];
   /** Non-zero axis totals after the same floor rules as aggregateEquippedRatings. */
   totalTexts: string[];
@@ -317,34 +309,24 @@ export function applyDeathEffectivenessDecay(value: number): number {
   return Math.max(1, Math.floor(value * DEATH_EFFECTIVENESS_FACTOR));
 }
 
-/** Effective max HP = COMBAT.maxHealth + floor(healthRating * HP_PER_POINT). */
+/** Effective max HP bonus: 1 rating point = 1 HP (EPIC 51 cat). */
 export function maxHealthBonusFromRatings(healthRating: number): number {
-  return Math.floor(Math.max(0, healthRating) * PET_COMBAT.HEALTH_HP_PER_POINT);
+  return Math.floor(Math.max(0, healthRating));
 }
 
-/** Pet %DR in [0, ARMOR_DR_CAP]. */
-export function armorDrFromRatings(armorRating: number): number {
-  return Math.min(PET_COMBAT.ARMOR_DR_CAP, Math.max(0, armorRating) * PET_COMBAT.ARMOR_DR_PER_POINT);
+/** Flat absorptive armor points from dog/gem armor rating (EPIC 51). Caller clamps to COMBAT.maxArmor. */
+export function armorBonusFromRatings(armorRating: number): number {
+  return Math.floor(Math.max(0, armorRating));
 }
 
-/** Multiplier on MOVEMENT.maxSpeed (and bunny-hop air speed). */
+/** Multiplier on MOVEMENT.maxSpeed (and bunny-hop air speed). +100 rating → 2×. */
 export function speedMultiplierFromRatings(speedRating: number): number {
-  return 1 + Math.max(0, speedRating) * PET_COMBAT.SPEED_PER_POINT;
+  return 1 + Math.max(0, speedRating) / 100;
 }
 
-/** Multiplier on weapon base damage before zone/splash math. */
+/** Multiplier on weapon base damage before zone/splash math. +50 rating → ×1.5. */
 export function damageMultiplierFromRatings(damageRating: number): number {
-  return 1 + Math.max(0, damageRating) * PET_COMBAT.DAMAGE_PER_POINT;
-}
-
-/**
- * Apply pet %DR to raw incoming damage before EPIC 7 absorptive armor.
- * Returns a non-negative integer.
- */
-export function applyArmorDr(rawDamage: number, armorRating: number): number {
-  if (!Number.isFinite(rawDamage) || rawDamage <= 0) return 0;
-  const reduced = Math.floor(rawDamage * (1 - armorDrFromRatings(armorRating)));
-  return Math.max(0, reduced);
+  return 1 + Math.max(0, damageRating) / 100;
 }
 
 /** Pure drop gate: egg on human kill when under egg/pet caps. */

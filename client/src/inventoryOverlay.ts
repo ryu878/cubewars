@@ -396,7 +396,7 @@ export class InventoryOverlay {
     this.goldEl.textContent = String(this.profile.gold);
     const r = this.profile.ratings;
     this.ratingsEl.textContent =
-      `HP ${r.healthRating} · DR ${r.armorRating} · SPD ${r.speedRating} · DMG ${r.damageRating}` +
+      `HP ${r.healthRating} · ARM ${r.armorRating} · SPD ${r.speedRating} · DMG ${r.damageRating}` +
       (this.profile.slot2Enabled ? " · slot2 on" : " · slot2 off");
 
     const bag = this.bagEntries();

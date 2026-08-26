@@ -13,7 +13,7 @@ import {
   SPAWN_POINTS,
   WEAPON_ORDER,
   WEAPON_STATS,
-  applyArmorDr,
+  armorBonusFromRatings,
   cloneAvatarColors,
   damageMultiplierFromRatings,
   defaultAvatarColors,
@@ -469,19 +469,21 @@ export class PlayerRegistry {
   }
 
   /**
-   * Apply equipped pet ratings to a living (or just-spawned) player (EPIC 24).
+   * Apply equipped pet ratings to a living (or just-spawned) player (EPIC 24/51).
    * Max-HP increase heals only the delta when currently at the old max; if
    * damaged, current HP is kept unless it exceeds the new max (then clamped).
-   * DR / speed / damage multipliers take effect immediately on subsequent
-   * combat/movement ticks.
+   * Flat armor baseline from dog ratings; speed/damage multipliers apply on
+   * subsequent combat/movement ticks.
    */
   applyPetRatings(playerId: string, ratings: ProfileRatings): void {
     const player = this.players.get(playerId);
     if (!player) return;
     const oldMax = player.maxHealth;
     const newMax = COMBAT.maxHealth + maxHealthBonusFromRatings(ratings.healthRating);
+    const armorBaseline = Math.min(COMBAT.maxArmor, armorBonusFromRatings(ratings.armorRating));
     player.petRatings = { ...ratings };
     player.maxHealth = newMax;
+    player.armor = Math.min(COMBAT.maxArmor, Math.max(player.armor, armorBaseline));
     if (player.alive) {
       if (player.health >= oldMax) {
         player.health = newMax;
@@ -806,15 +808,11 @@ export class PlayerRegistry {
     // EPIC 51: dev-console god mode — server-only, session-scoped per life.
     if (target.godMode) return null;
 
-    // EPIC 24: pet %DR applies to raw damage BEFORE EPIC 7 absorptive armor.
-    const afterDr = applyArmorDr(damage, target.petRatings.armorRating);
-    // EPIC 7 damage-absorption order remains unchanged under EPIC 18:
-    // armor absorbs first, then exact spillover comes off health. Only the
-    // incoming `damage` value now varies by hit zone or grenade splash.
-    if (target.armor >= afterDr) {
-      target.armor -= afterDr;
+    // EPIC 7 damage-absorption order: armor absorbs first, then spillover off health.
+    if (target.armor >= damage) {
+      target.armor -= damage;
     } else {
-      const spillover = afterDr - target.armor;
+      const spillover = damage - target.armor;
       target.armor = 0;
       target.health = Math.max(0, target.health - spillover);
     }
@@ -829,7 +827,7 @@ export class PlayerRegistry {
 
     return {
       targetId: target.id,
-      damage: afterDr,
+      damage,
       damageKind,
       hitZone,
       targetHealth: target.health,
@@ -1036,6 +1034,11 @@ export class PlayerRegistry {
       player.spawnProtectedUntilMs = nowMs + COMBAT.spawnProtectionMs;
       player.intent = { moveForward: 0, moveRight: 0, jump: false };
       applyBaselineLoadout(player);
+      // EPIC 51: re-apply pet flat armor baseline after loadout reset zeros armor.
+      player.armor = Math.min(
+        COMBAT.maxArmor,
+        armorBonusFromRatings(player.petRatings.armorRating),
+      );
 
       outcomes.push({ playerId: player.id, position: { ...player.position }, health: player.health });
     }

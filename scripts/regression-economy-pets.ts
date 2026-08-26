@@ -9,9 +9,8 @@ import {
   PET_COMBAT,
   STIMULATOR_SOFT_CAP,
   aggregateEquippedRatings,
-  applyArmorDr,
   applyStimulatorDeadline,
-  armorDrFromRatings,
+  armorBonusFromRatings,
   damageMultiplierFromRatings,
   describePetGrants,
   formatPetPrimaryGrant,
@@ -29,13 +28,15 @@ import {
 } from "../server/src/economy/index.js";
 import { openTestEconomyStore } from "./economy-test-helpers.js";
 
-// --- Shared math knobs ---
-assert.equal(maxHealthBonusFromRatings(200), 50);
-assert.equal(armorDrFromRatings(200), 0.1);
-assert.ok(armorDrFromRatings(9999) <= PET_COMBAT.ARMOR_DR_CAP);
-assert.equal(speedMultiplierFromRatings(200), 1.1);
-assert.equal(damageMultiplierFromRatings(200), 1.2);
-assert.equal(applyArmorDr(100, 200), 90);
+// --- Shared math knobs (EPIC 51 pet combat redesign) ---
+assert.equal(maxHealthBonusFromRatings(9), 9);
+assert.equal(maxHealthBonusFromRatings(200), 200);
+assert.equal(armorBonusFromRatings(159), 159);
+assert.equal(armorBonusFromRatings(200), 200);
+assert.equal(speedMultiplierFromRatings(100), 2);
+assert.equal(speedMultiplierFromRatings(200), 3);
+assert.equal(damageMultiplierFromRatings(50), 1.5);
+assert.equal(damageMultiplierFromRatings(200), 3);
 assert.equal(
   aggregateEquippedRatings([{ type: "lion", baseValue: 100, equipSlot: 1 }]).damageRating,
   100,
@@ -45,25 +46,28 @@ assert.equal(
   0,
   "slot 2 ignored when disabled",
 );
-assert.equal(COMBAT.maxHealth + maxHealthBonusFromRatings(200), 150);
+assert.equal(COMBAT.maxHealth + maxHealthBonusFromRatings(9), 109);
+assert.equal(COMBAT.maxHealth + maxHealthBonusFromRatings(200), 300);
 
 // EPIC 50/51: readable pet grant labels match PET_TYPE_RATING + aggregate math
-assert.equal(formatPetPrimaryGrant("dog", 156), "+156 DR (~8%)");
-assert.equal(formatPetPrimaryGrant("cat", 80), "+80 HP");
-assert.equal(formatPetPrimaryGrant("bird", 40), "+40 Speed");
-assert.equal(formatPetPrimaryGrant("lion", 100), "+100 Damage");
+assert.equal(formatPetPrimaryGrant("dog", 156), "+156 Armor");
+assert.equal(formatPetPrimaryGrant("cat", 9), "+9 HP");
+assert.equal(formatPetPrimaryGrant("bird", 100), "+100% Speed");
+assert.equal(formatPetPrimaryGrant("lion", 50), "+50% Damage");
 assert.equal(ratingDisplayLabel("health"), "HP");
-assert.equal(ratingDisplayLabel("armor"), "DR");
-assert.equal(formatRatingGrant("armor", 200), "+200 DR (~10%)");
+assert.equal(ratingDisplayLabel("armor"), "Armor");
+assert.equal(formatRatingGrant("armor", 159), "+159 Armor");
+assert.equal(formatRatingGrant("speed", 100), "+100% Speed");
+assert.equal(formatRatingGrant("damage", 50), "+50% Damage");
 
 {
   const full = describePetGrants(
     { type: "dog", baseValue: 156, gems: { armor: 20, speed: 10 } },
     { applySlotFraction: false },
   );
-  assert.equal(full.primaryText, "+156 DR (~8%)");
-  assert.ok(full.gemTexts.includes("+20 DR (~1%)"));
-  assert.ok(full.gemTexts.includes("+10 Speed"));
+  assert.equal(full.primaryText, "+156 Armor");
+  assert.ok(full.gemTexts.includes("+20 Armor"));
+  assert.ok(full.gemTexts.includes("+10% Speed"));
   assert.equal(full.totals.armorRating, 176);
   assert.equal(full.totals.speedRating, 10);
 
