@@ -101,10 +101,10 @@ function assertCatalogClearance(): void {
     new Set(["wall", "prop"]),
   );
   const { minX, maxX, minZ, maxZ } = {
-    minX: -80,
-    maxX: -56,
-    minZ: -30,
-    maxZ: -12,
+    minX: -40,
+    maxX: -28,
+    minZ: -15,
+    maxZ: -6,
   };
   assert.ok(
     BASE_BUILDING_INTERIOR_SAMPLE.x > minX &&
@@ -227,8 +227,8 @@ async function main(): Promise<void> {
   for (const map of listMaps()) {
     assert.ok(map.spawnPoints.length >= 8, `${map.id} needs ≥8 spawns`);
     assert.ok(map.pickupPoints.length >= 10, `${map.id} needs denser pickups`);
-    assert.equal(map.bounds.maxX - map.bounds.minX, 184);
-    assert.equal(map.bounds.maxZ - map.bounds.minZ, 104);
+    assert.equal(map.bounds.maxX - map.bounds.minX, 92);
+    assert.equal(map.bounds.maxZ - map.bounds.minZ, 52);
   }
   const base = getMap("base");
   assert.ok(base.geometry.some((box) => box.id.startsWith("base_bld_")));

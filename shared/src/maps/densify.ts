@@ -13,7 +13,11 @@ import type { PickupSpawnPoint } from "../pickups.js";
 
 const PICKUP_CLEARANCE = 0.6;
 
-/** EPIC 48 target counts — mid guidance band for ~184×104 / ~8 players. */
+/**
+ * EPIC 48 target counts — mid guidance band for ~8 players on the playable
+ * half-size arena (~92×52 after EPIC 50). Spread + clearance re-validated
+ * on scaled geometry.
+ */
 export const EPIC48_PICKUP_COUNTS = {
   weapon: 8,
   ammo: 8,
@@ -46,17 +50,20 @@ export function isPickupClear(
 
 type Candidate = { x: number; z: number };
 
-/** Lattice + offset lattice across the standard ~184×104 arena (candidate pool only). */
+/**
+ * Lattice + offset lattice across the playable ~92×52 arena (after EPIC 50).
+ * densify runs on finalized (scaled) geometry.
+ */
 function gridCandidates(): Candidate[] {
   const out: Candidate[] = [];
-  for (let x = -84; x <= 84; x += 12) {
-    for (let z = -44; z <= 44; z += 11) {
+  for (let x = -42; x <= 42; x += 6) {
+    for (let z = -22; z <= 22; z += 5.5) {
       out.push({ x, z });
     }
   }
-  for (let x = -78; x <= 78; x += 14) {
-    for (let z = -38; z <= 38; z += 13) {
-      out.push({ x: x + 5, z: z + 4 });
+  for (let x = -39; x <= 39; x += 7) {
+    for (let z = -19; z <= 19; z += 6.5) {
+      out.push({ x: x + 2.5, z: z + 2 });
     }
   }
   return out;
@@ -204,8 +211,8 @@ export function densePickups(
     if (!p) {
       // Honest fallback when clear pool is exhausted (dense cover maps).
       const fb = {
-        x: -84 + (placed.length % 5) * 4,
-        z: -44 + Math.floor(placed.length / 5) * 4,
+        x: -42 + (placed.length % 5) * 2,
+        z: -22 + Math.floor(placed.length / 5) * 2,
       };
       p = fb;
     } else {
