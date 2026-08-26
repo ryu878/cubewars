@@ -7,44 +7,49 @@
 | Field | Value |
 |-------|-------|
 | Date / time (UTC optional) | 2026-08-26 |
-| Author (Pusya) | Pusya |
+| Author (Pusya) | Programmer (Pusya) |
 | Task / Story / EPIC | EPIC 47 — Map Density + Bots MapId + ESC Menu + Changelog + Auth UX |
-| Branch / commit / PR | `task/epic-47-map-density-bots-esc` — see PR (opened after this handoff); tip SHA filled at push |
+| Branch / commit / PR | `task/epic-47-map-density-bots-esc` (PR URL + SHA filled after push) |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
 
-1. Densified all 8 catalog maps to **56 pickups** each (EPIC 46 was **14**: 4/4/3/3 → 16/16/12/12) via `densePickups` + more AABB cover/walls with clearance.
-2. Bots join always sends lobby `mapId`; server `createBotsMatch(mapId)` + `join_accepted.mapId` / `map_state.mapId` prove non-Base (`rust_canyon`).
-3. In-match ESC pause menu: Resume, Exit to Lobby (`leave_match` → `leave_match_ack`, no ghosts), Change map / Reload Endless, Inventory (match pool), Auction (Deathmatch); pointer unlocked while open.
-4. Lobby footer **Changelog** next to Telegram → static `/changelog.html` + `/changelog.json` (newest first, 10/page, works in Vite prod `dist/`).
-5. `account_reset_code` → `account_reset_code_result`: new `NNN-NNN` stored (bcrypt), shown on screen honestly (not emailed), rate-limited like login; sessions kept.
-6. Login accepts `NNN-NNN` and `NNNNNN` (spaces ok): server `normalizeCode` before bcrypt; client light-normalizes and does not block digit-only (`maxlength=16`).
+1. **Pickup density ~4×** on all 8 catalog maps via `shared/src/maps/densify.ts` (16 weapon / 16 ammo / 12 health / 12 armor = **56** total; EPIC 46 baseline was **14**). Clearance from wall/prop/crate retained; EPIC 46 building-interior sample still asserted.
+2. **More interior cover** on Base + all themed maps (extra walls/crates/props; AABB-only; spawn-clear).
+3. **Bots mapId:** Hardened join payload (always send explicit `mapId` for public/bots); echo `mapId`/`mode` on `join_accepted` and `map_state`. Root cause / note: protocol already honored `mapId` when sent; silent Base fallback when omitted + no in-match map confirmation made failures hard to see. Regression + Playwright prove non-Base (`rust_canyon`).
+4. **ESC pause menu:** Resume; Exit to Lobby; Change Map / Reload (picker; endless = reload without picker); Inventory (pool by mode); Auction (Deathmatch). Pointer unlocked while open; input zeroed.
+5. **In-band leave:** client `leave_match` → server `removeHuman` + re-attach lobbySockets → `leave_match_ack` (WS/auth preserved).
+6. **Changelog:** lobby link near Telegram → `/changelog.html` (static JSON, 10/page, newest first, pagination).
+7. **Auth UX:** `account_reset_code` issues new on-screen code (no fake email); login accepts `NNN-NNN` and digit-only via normalize; regressions extended.
+
+### Pickup before → after (every catalog map)
+
+| Map | Before (EPIC 46) | After (EPIC 47) |
+|-----|------------------|-----------------|
+| base, rust_canyon, glass_dome, dead_station, fuel_depot, crystal_cave, abyss_bridge, elite_quarter | 4W+4A+3H+3Armor = **14** | 16W+16A+12H+12Armor = **56** |
 
 ## Changed files / areas
 
-- `shared/src/maps/{densify,base,themedMaps}.ts`, `shared/src/mapData.ts`, `shared/src/index.ts` (protocol: `leave_match`, `account_reset_code`, mapId echoes)
-- `server/src/{index,match}.ts`, `server/src/accounts/{store,index}.ts`
-- `client/src/{pauseMenu,main,modeSelect,network,uiInput,accountAuth}.ts`, `client/index.html`
-- `client/public/changelog.{html,json}`
-- `scripts/regression-epic47.ts`, `scripts/qa-epic47-programmer-playwright.mjs`, `scripts/regression-account-auth.ts`
-- `package.json` (`regression:epic47`), `README.md`, `docs/tasks/epic-47-*.md`
+- `shared/src/maps/{densify,base,themedMaps}.ts`, `shared/src/mapData.ts`, `shared/src/index.ts` (leave + mapId echo + account_reset_code)
+- `server/src/{index,match}.ts`, `server/src/accounts/*`
+- `client/src/{main,modeSelect,pauseMenu,network,uiInput,accountAuth}.ts`, `client/index.html`, `client/public/changelog.*`
+- `scripts/regression-epic47.ts`, `scripts/qa-epic47-programmer-playwright.mjs`, `scripts/regression-epic46-maps.ts`, `scripts/regression-account-auth.ts`
+- `README.md`, `docs/tasks/epic-47-*`
 
 ## How to verify (steps for Trusya)
 
 1. `export PATH="$HOME/.nvm/versions/node/v24.18.1/bin:$PATH"`
-2. `npm run typecheck && npm run build`
-3. `npm run regression:epic47` — density/clearance, bots `rust_canyon`, `leave_match` rejoin
-4. `npm run regression:account-auth` — digit-only login + reset code + rate limit
-5. `npm run regression:epic46-maps` — public map select / capacity still OK
-6. `node scripts/qa-epic47-programmer-playwright.mjs` — bots non-Base screenshot, ESC menu, Exit to Lobby, changelog page 1→2
-7. Manual: lobby Changelog link near Telegram; auth “Send password / Resend code” shows new code on screen (no “email sent” copy)
+2. `npm run typecheck` && `npm run build`
+3. `npm run regression:epic47` — density/clearance, bots→rust_canyon, leave_match→rejoin glass_dome
+4. `npm run regression:epic46-maps` && `npm run regression:account-auth`
+5. `node scripts/qa-epic47-programmer-playwright.mjs` — screenshots under `qa-artifacts/epic-47/`
+6. Manual: select Rust Canyon → vs Bots → confirm non-Base; ESC → Exit to Lobby → mode-select; Changelog link; Resend code + login with `123456` style digits
 
 ## Build and run
 
 - Build command: `npm run build`
-- Run command: `npm run dev` (or production static client + server)
-- Expected smoke result: typecheck/build clean; regressions PASS; Playwright writes `qa-artifacts/epic-47/` with PASS summary
+- Run command: `npm run dev` (or deploy stack)
+- Expected smoke result: lobby map picker + changelog; bots loads selected map; ESC menu works; leave returns lobby
 
 ## Configuration
 
@@ -56,40 +61,21 @@
 - Where to look at logs: server stdout
 - Key success messages:
   - `[server] match created: bots:… map=rust_canyon`
-  - `[server] player left match "…" via leave_match: …`
-  - `[accounts] reset_code ok accountId=…`
-  - `[accounts] login ok …` after dashed or digit-only code
+  - `[server] player left match "…" via leave_match`
+  - `[accounts] reset_code ok …`
 
 ## Server-authority note (if gameplay-relevant state is touched)
 
-- What is validated/computed server-side: match `mapId`/geometry/pickups; `leave_match` removes human; auth register/login/reset hash + rate limits; client never invents codes or map geometry
-- What the client is allowed to predict/render only: pause UI, changelog static page, display of stub codes returned once by server
+- What is validated/computed server-side: match membership/`mapId`, geometry/pickups from catalog, `leave_match` cleanup, account code hash/normalize/rate-limit
+- What the client is allowed to predict/render only: HUD, pause UI, changelog page, local pointer-lock
 
 ## Risks / known limitations
 
-- Email delivery still stubbed — reset/register honestly show codes on screen
-- Successful `account_reset_code` counts toward the same failure window as login (aggressive anti-spam)
-- Existing sessions remain valid after code reset (documented choice)
-- Playwright needs free ports 7799 / 5219 when self-managing stack
+- Endless Change Map = reload endless only (no catalog picker) — documented in pause UI
+- After leave, a brief pre-join input may be dropped once (server log) — harmless
+- Changelog is static JSON in `client/public/` (manual update per EPIC)
 
 ## Status
 
 - [x] Ready for QA (Trusya)
 - [ ] Draft / WIP (do not take into QA)
-
-## Pickup before/after (all catalog maps)
-
-| Era | weapon | ammo | health | armor | total |
-|-----|--------|------|--------|-------|-------|
-| EPIC 46 | 4 | 4 | 3 | 3 | **14** |
-| EPIC 47 | 16 | 16 | 12 | 12 | **56** (~4×) |
-
-## Bots mapId root cause
-
-Client could omit `mapId` on bots join; server defaulted `createBotsMatch` to `DEFAULT_MAP_ID` (Base). Fix: mode-select always sends catalog `mapId` for public/bots; main join hardens with selected/default mapId; server logs when bots omit mapId.
-
-## Protocol names
-
-- ESC leave: `leave_match` / `leave_match_ack`
-- Password reset: `account_reset_code` / `account_reset_code_result`
-- Changelog path: `/changelog.html` (data `/changelog.json`)
