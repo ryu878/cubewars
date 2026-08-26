@@ -27,7 +27,13 @@ import { AuctionPanel } from "./auctionPanel";
 import { TradePanel } from "./tradePanel";
 import { GroundHud } from "./groundHud";
 import { WeaponViewmodel } from "./viewmodel";
-import { buildSkyDome, buildWallTextures } from "./textures";
+import { buildWallTextures, createFogFadeWallMaterial } from "./textures";
+import {
+  applyMapTheme,
+  getPalette,
+  themeIdFromMapState,
+  type MapThemeScene,
+} from "./mapThemes";
 import { SoundManager } from "./audio/soundManager";
 import { CombatEffects } from "./combatEffects";
 import { KillLootVfx } from "./killLootVfx";
@@ -43,16 +49,9 @@ const endlessKillsEl = document.getElementById("endlessKills") as HTMLSpanElemen
 const endlessFogEl = document.getElementById("endlessFog") as HTMLSpanElement;
 
 // --- Scene: sandy/tan de_dust-inspired arena (EPIC 3), gradient sky (EPIC 10) ---
-// EPIC 10 Story 10.2: a warm tone matching the gradient sky dome's horizon
-// color (client/src/textures.ts buildSkyDome()) so distant fogged geometry
-// blends into the new sky instead of clashing with it — replaces the flat
-// SKY_COLOR fill/fog this used to share with a plain `scene.background` color.
-const FOG_COLOR = 0xf3d9a8;
+// EPIC 49: fog/sky/lights/ground follow per-MapId palettes via applyMapTheme.
 const scene = new THREE.Scene();
-// Keep the atmospheric haze, but let endless-mode chunks stay visibly present
-// far ahead; the dangerous rear fog wall is rendered separately.
-scene.fog = new THREE.Fog(FOG_COLOR, 120, 700);
-scene.add(buildSkyDome());
+scene.fog = new THREE.Fog(0xf3d9a8, 120, 700);
 
 const camera = new THREE.PerspectiveCamera(
   70,
@@ -89,17 +88,22 @@ const ground = new THREE.Mesh(groundGeo, groundMat);
 ground.rotation.x = -Math.PI / 2;
 scene.add(ground);
 
+const themeScene: MapThemeScene = {
+  scene,
+  groundMat,
+  hemiLight,
+  sunLight,
+  skyDome: null,
+};
+applyMapTheme("lobby", themeScene);
+
 // --- Arena geometry: render every wall/crate from the shared, server-matching
 // AABB list (EPIC 3 Story 3.2) — this is the ONE layout definition, also used
 // for collision in fpsController.ts and server/src/playerRegistry.ts.
 //
-// EPIC 10 Story 10.2: replaces the old flat sandstone/wood-crate colors with
-// two procedurally-generated CanvasTextures (wood/brick, built ONCE here at
-// scene setup — see client/src/textures.ts doc comment on why this must
-// never happen inside the render loop), alternated by index so walls/crates
-// show real variety rather than one texture applied uniformly. Purely a
-// materials change — geometry/positions (and thus collision, which reads
-// ARENA_GEOMETRY independently) are untouched. ---
+// EPIC 10 Story 10.2: wood/brick CanvasTextures built ONCE at scene setup.
+// EPIC 49: tint walls/crates from active palette; props use id-prefix materials
+// (wheels, car body, tanks, crystals, rubble, veg, cables…). ---
 const WALL_TEXTURE_TILE_SIZE = 2; // world units per texture tile, both wood & brick
 const wallTextures = buildWallTextures();
 const mapGeometryGroup = new THREE.Group();
@@ -125,6 +129,120 @@ function disposeMeshMaterial(material: THREE.Material): void {
   material.dispose();
 }
 
+/** Prop materials by landmark id patterns — not one grey metal for everything. */
+function materialForProp(box: MapBox): THREE.MeshStandardMaterial {
+  const id = box.id;
+  const palette = getPalette();
+
+  if (id.includes("_wheel_")) {
+    return new THREE.MeshStandardMaterial({
+      color: 0x1a1a1c,
+      metalness: 0.15,
+      roughness: 0.92,
+      emissive: 0x050505,
+      emissiveIntensity: 0.05,
+    });
+  }
+  if (id.includes("_cabin")) {
+    return new THREE.MeshStandardMaterial({
+      color: 0x2a3540,
+      metalness: 0.35,
+      roughness: 0.35,
+      emissive: 0x0a1520,
+      emissiveIntensity: 0.12,
+    });
+  }
+  if (id.includes("_body") || id.includes("_hood") || id.includes("_bed")) {
+    return new THREE.MeshStandardMaterial({
+      color: palette.propAccent,
+      metalness: 0.45,
+      roughness: 0.5,
+      emissive: 0x101010,
+      emissiveIntensity: 0.08,
+    });
+  }
+  if (id.includes("rc_tank_") || id.includes("_turret") || id.includes("_track_")) {
+    return new THREE.MeshStandardMaterial({
+      color: 0x4a5a38,
+      metalness: 0.6,
+      roughness: 0.4,
+      emissive: 0x101408,
+      emissiveIntensity: 0.12,
+    });
+  }
+  if (id.includes("fd_tank_") || id.includes("_cistern") || id.includes("_barrel")) {
+    return new THREE.MeshStandardMaterial({
+      color: 0xb05020,
+      metalness: 0.55,
+      roughness: 0.42,
+      emissive: 0x201008,
+      emissiveIntensity: 0.1,
+    });
+  }
+  if (id.includes("cc_crystal_") || id.includes("_crystal_")) {
+    return new THREE.MeshStandardMaterial({
+      color: palette.propAccent,
+      metalness: 0.2,
+      roughness: 0.25,
+      emissive: palette.emissiveAccent,
+      emissiveIntensity: palette.emissiveIntensity,
+    });
+  }
+  if (id.includes("rubble") || id.includes("ruin") || id.includes("_rock_")) {
+    return new THREE.MeshStandardMaterial({
+      color: 0x6a6460,
+      metalness: 0.08,
+      roughness: 0.95,
+      emissive: 0x101010,
+      emissiveIntensity: 0.06,
+    });
+  }
+  if (id.includes("veg") || id.includes("_bush_") || id.includes("_plant_")) {
+    return new THREE.MeshStandardMaterial({
+      color: 0x3a7a40,
+      metalness: 0.05,
+      roughness: 0.88,
+      emissive: 0x102010,
+      emissiveIntensity: 0.15,
+    });
+  }
+  if (id.includes("cable") || id.includes("_stay_")) {
+    return new THREE.MeshStandardMaterial({
+      color: 0x2a2c30,
+      metalness: 0.75,
+      roughness: 0.35,
+      emissive: 0x080808,
+      emissiveIntensity: 0.08,
+    });
+  }
+  if (id.includes("tower") || id.includes("hangar") || id.includes("_deck_")) {
+    return new THREE.MeshStandardMaterial({
+      color: 0x6a7080,
+      metalness: 0.4,
+      roughness: 0.55,
+      emissive: 0x101418,
+      emissiveIntensity: 0.1,
+    });
+  }
+  if (id.includes("pump") || id.includes("pipe")) {
+    return new THREE.MeshStandardMaterial({
+      color: 0x708090,
+      metalness: 0.7,
+      roughness: 0.35,
+      emissive: 0x101418,
+      emissiveIntensity: 0.1,
+    });
+  }
+
+  return new THREE.MeshStandardMaterial({
+    color: palette.propMetal,
+    metalness: 0.55,
+    roughness: 0.45,
+    emissive: palette.emissiveAccent,
+    emissiveIntensity: Math.min(0.2, palette.emissiveIntensity),
+  });
+}
+
 function renderMapGeometry(boxes: readonly MapBox[]): void {
   for (const child of mapGeometryGroup.children) {
     if (child instanceof THREE.Mesh) {
@@ -137,31 +255,47 @@ function renderMapGeometry(boxes: readonly MapBox[]): void {
     }
   }
   mapGeometryGroup.clear();
+  const palette = getPalette();
   boxes.forEach((box, index) => {
-    const baseTexture = index % 2 === 0 ? wallTextures.wood : wallTextures.brick;
-    // Each box gets its own texture instance (repeat differs per box size) —
-    // cheap, still generated from the same one canvas-drawn image, not a
-    // second draw call.
-    const texture = baseTexture.clone();
-    texture.needsUpdate = true;
-    const longAxis = Math.max(box.size.x, box.size.z);
-    texture.repeat.set(
-      Math.max(1, Math.round(longAxis / WALL_TEXTURE_TILE_SIZE)),
-      Math.max(1, Math.round(box.size.y / WALL_TEXTURE_TILE_SIZE)),
-    );
-
     const geometry = new THREE.BoxGeometry(box.size.x, box.size.y, box.size.z);
-    // Props (cars/tanks): darker metal accent; collision still matches AABB.
-    const material =
-      box.kind === "prop"
-        ? new THREE.MeshStandardMaterial({
-            color: 0x3a4550,
-            metalness: 0.55,
-            roughness: 0.45,
-            emissive: 0x101418,
-            emissiveIntensity: 0.15,
-          })
-        : new THREE.MeshStandardMaterial({ map: texture });
+    let material: THREE.MeshStandardMaterial;
+
+    if (box.kind === "prop") {
+      material = materialForProp(box);
+    } else {
+      // Vegetation crates: solid green (no wood/brick) so lab plants read clearly.
+      if (box.id.includes("veg") || box.id.includes("_bush_") || box.id.includes("_plant_")) {
+        material = new THREE.MeshStandardMaterial({
+          color: 0x3a8a48,
+          metalness: 0.05,
+          roughness: 0.9,
+          emissive: 0x102818,
+          emissiveIntensity: 0.12,
+        });
+      } else {
+        const baseTexture = index % 2 === 0 ? wallTextures.wood : wallTextures.brick;
+        const texture = baseTexture.clone();
+        texture.needsUpdate = true;
+        const longAxis = Math.max(box.size.x, box.size.z);
+        texture.repeat.set(
+          Math.max(1, Math.round(longAxis / WALL_TEXTURE_TILE_SIZE)),
+          Math.max(1, Math.round(box.size.y / WALL_TEXTURE_TILE_SIZE)),
+        );
+        const tint = box.kind === "crate" ? palette.crateTint : palette.wallTint;
+        // EPIC 49.3: walls fog-fade at the top into per-map fog (fair shared AABB).
+        if (box.kind === "wall") {
+          material = createFogFadeWallMaterial(
+            texture,
+            tint,
+            palette.fogColor,
+            box.size.y,
+          );
+        } else {
+          material = new THREE.MeshStandardMaterial({ map: texture, color: tint });
+        }
+      }
+    }
+
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(box.center.x, box.center.y, box.center.z);
     mesh.name = box.id;
@@ -451,14 +585,17 @@ const connection = new GameConnection(wsUrl, {
     modeSelect.setEndlessLeaderboard(message.entries);
   },
   onMapState: (message) => {
-    renderMapGeometry(message.geometry);
-    resizeGround(message.bounds);
-    fps.setCollisionGeometry(message.geometry);
+    const endless = joinedEndless || currentMatchMode === "endless";
     if (message.mapId) {
       currentMapId = message.mapId;
       pauseMenu.setMatchContext(currentMatchMode, currentMapId);
       modeSelect.setSelectedMapId(message.mapId);
     }
+    // EPIC 49: apply palette before geometry so walls/crates/props tint correctly.
+    applyMapTheme(themeIdFromMapState(message.mapId ?? currentMapId, endless), themeScene);
+    renderMapGeometry(message.geometry);
+    resizeGround(message.bounds);
+    fps.setCollisionGeometry(message.geometry);
   },
   onEndlessState: (message) => {
     endlessHudEl.classList.add("visible");
@@ -480,6 +617,8 @@ const connection = new GameConnection(wsUrl, {
     joinedEndless = message.matchId.startsWith("endless:") || currentMatchMode === "endless";
     endlessHudEl.classList.toggle("visible", joinedEndless);
     fogWall.visible = joinedEndless;
+    // Theme may arrive again with map_state; seed endless/default early.
+    applyMapTheme(themeIdFromMapState(currentMapId, joinedEndless), themeScene);
     soundManager.unlock();
     startInputLoop();
   },
@@ -693,6 +832,8 @@ function clearMatchClientState(opts: { resetGeometryToBase?: boolean } = {}): vo
   // that flash made every map change look like "Base always loads" until
   // map_state arrived (and looked stuck if map_state was slow/missed).
   if (opts.resetGeometryToBase !== false) {
+    // EPIC 49: reset desert Base atmosphere so Crystal Cave fog does not bleed into lobby.
+    applyMapTheme("lobby", themeScene);
     renderMapGeometry(ARENA_GEOMETRY);
     resizeGround(ARENA_BOUNDS);
     fps.setCollisionGeometry(ARENA_GEOMETRY);
