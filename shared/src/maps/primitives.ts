@@ -3,6 +3,7 @@
 import {
   CRATE_HEIGHT,
   CRATE_Y,
+  MAP_AUTHORING_BOUNDS,
   STANDARD_MAP_BOUNDS,
   WALL_HEIGHT,
   WALL_Y,
@@ -45,8 +46,11 @@ export function prop(
   return { id, kind: "prop", center: { x: cx, y: cy, z: cz }, size: { x: sx, y: sy, z: sz } };
 }
 
-/** Outer envelope walls for a rectangular map (1-unit thick). */
-export function outerWalls(prefix: string, bounds: MapBounds2D = STANDARD_MAP_BOUNDS): MapBox[] {
+/**
+ * Outer envelope walls for a rectangular map (1-unit thick).
+ * Default uses authoring bounds; `finalizeCatalogMap` scales to playable size.
+ */
+export function outerWalls(prefix: string, bounds: MapBounds2D = MAP_AUTHORING_BOUNDS): MapBox[] {
   const width = bounds.maxX - bounds.minX + 1;
   const depth = bounds.maxZ - bounds.minZ + 1;
   const midX = (bounds.minX + bounds.maxX) / 2;

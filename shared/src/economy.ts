@@ -194,6 +194,108 @@ export function aggregateEquippedRatings(
   return ratings;
 }
 
+/** Inventory UI label for a rating axis (EPIC 50). Health → "HP". */
+export function ratingDisplayLabel(kind: RatingKind): string {
+  switch (kind) {
+    case "health":
+      return "HP";
+    case "armor":
+      return "Armor";
+    case "speed":
+      return "Speed";
+    case "damage":
+      return "Damage";
+  }
+}
+
+/** e.g. "+156 Armor" — species primary axis, no slot fraction. */
+export function formatPetPrimaryGrant(type: PetType, baseValue: number): string {
+  const kind = PET_TYPE_RATING[type];
+  const n = Math.max(0, Math.floor(baseValue));
+  return `+${n} ${ratingDisplayLabel(kind)}`;
+}
+
+export interface PetGrantBreakdown {
+  /** Slot fraction used for display lines / totals (1 when unequipped). */
+  fraction: number;
+  /** Species primary grant after fraction, e.g. "+156 Armor". */
+  primaryText: string;
+  /** Each socketed gem contribution after fraction, e.g. "+20 Armor". */
+  gemTexts: string[];
+  /** Non-zero axis totals after the same floor rules as aggregateEquippedRatings. */
+  totalTexts: string[];
+  totals: ProfileRatings;
+}
+
+/**
+ * Readable pet grant lines for inventory (EPIC 50).
+ * Totals use `aggregateEquippedRatings` so display cannot invent combat math.
+ * When `applySlotFraction` is true and the pet has equipSlot 1|2, SLOT1/SLOT2
+ * fractions apply; otherwise full (unequipped bag) values are shown.
+ */
+export function describePetGrants(
+  pet: {
+    type: PetType;
+    baseValue: number;
+    gems?: PetGemBonuses;
+    equipSlot?: 1 | 2 | null;
+  },
+  options: { applySlotFraction?: boolean } = {},
+): PetGrantBreakdown {
+  const apply = options.applySlotFraction === true;
+  const slot = pet.equipSlot === 1 || pet.equipSlot === 2 ? pet.equipSlot : null;
+  const fraction =
+    apply && slot === 2
+      ? PET_COMBAT.SLOT2_FRACTION
+      : apply && slot === 1
+        ? PET_COMBAT.SLOT1_FRACTION
+        : 1;
+
+  const primaryKind = PET_TYPE_RATING[pet.type];
+  const primaryAmount = Math.floor(Math.max(0, pet.baseValue) * fraction);
+  const primaryText = `+${primaryAmount} ${ratingDisplayLabel(primaryKind)}`;
+
+  const gems = pet.gems ?? {};
+  const gemTexts: string[] = [];
+  for (const kind of GEM_TYPES) {
+    const raw = Math.max(0, gems[kind] ?? 0);
+    if (raw <= 0) continue;
+    const amount = Math.floor(raw * fraction);
+    gemTexts.push(`+${amount} ${ratingDisplayLabel(kind)}`);
+  }
+
+  // Authoritative totals: treat as slot 1 at full strength when not applying
+  // slot fraction; otherwise use the pet's real slot with slot2 enabled.
+  const aggregateSlot: 1 | 2 = apply && slot === 2 ? 2 : 1;
+  const totals = aggregateEquippedRatings(
+    [
+      {
+        type: pet.type,
+        baseValue: pet.baseValue,
+        equipSlot: aggregateSlot,
+        gems,
+      },
+    ],
+    true,
+  );
+
+  const totalTexts: string[] = [];
+  if (totals.healthRating > 0) {
+    totalTexts.push(`+${totals.healthRating} ${ratingDisplayLabel("health")}`);
+  }
+  if (totals.armorRating > 0) {
+    totalTexts.push(`+${totals.armorRating} ${ratingDisplayLabel("armor")}`);
+  }
+  if (totals.speedRating > 0) {
+    totalTexts.push(`+${totals.speedRating} ${ratingDisplayLabel("speed")}`);
+  }
+  if (totals.damageRating > 0) {
+    totalTexts.push(`+${totals.damageRating} ${ratingDisplayLabel("damage")}`);
+  }
+
+  return { fraction, primaryText, gemTexts, totalTexts, totals };
+}
+
 /** Apply death effectiveness decay: max(1, floor(value * 0.9)). */
 export function applyDeathEffectivenessDecay(value: number): number {
   if (!Number.isFinite(value) || value <= 0) return 1;

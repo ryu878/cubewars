@@ -90,14 +90,32 @@ export interface MapDefinition {
 }
 
 /**
- * Preferred EPIC 46 Base scale: 2× linear on X/Z from the original ~92×52
- * arena → ~184×104 playable area (~4× area). Shared by all static catalog maps.
+ * EPIC 50: catalog maps are authored at the pre-EPIC-50 envelope (±92 / ±52),
+ * then scaled by this factor on X/Z (centers + sizes). Y / WALL_HEIGHT unchanged.
  */
-export const STANDARD_MAP_BOUNDS: MapBounds2D = {
+export const MAP_LINEAR_SCALE = 0.5 as const;
+
+/**
+ * Authoring envelope for catalog geometry / densify / preferred pickups
+ * (pre-EPIC-50 / EPIC 46–49 coordinates). Runtime playable bounds are
+ * `STANDARD_MAP_BOUNDS` after `finalizeCatalogMap`.
+ */
+export const MAP_AUTHORING_BOUNDS: MapBounds2D = {
   minX: -92,
   maxX: 92,
   minZ: -52,
   maxZ: 52,
+} as const;
+
+/**
+ * Playable catalog envelope after EPIC 50 half-size: ±46 / ±26
+ * (~92×52 area). Shared by all static catalog maps.
+ */
+export const STANDARD_MAP_BOUNDS: MapBounds2D = {
+  minX: -46,
+  maxX: 46,
+  minZ: -26,
+  maxZ: 26,
 } as const;
 
 export const DEFAULT_MAP_ID: MapId = "base";
@@ -106,8 +124,27 @@ export const DEFAULT_MAP_ID: MapId = "base";
  * Shared wall AABB height (EPIC 49 Story 49.3). Raised from 4 → 6 so
  * collision matches taller client walls; tops dissolve visually into fog
  * (client-only fade — no invisible blockers above this AABB).
+ * EPIC 50: kept at 6 (not scaled) for fog-fade proportion.
  */
 export const WALL_HEIGHT = 6;
 export const WALL_Y = WALL_HEIGHT / 2;
 export const CRATE_HEIGHT = 1.2;
 export const CRATE_Y = CRATE_HEIGHT / 2;
+
+/** Scale one catalog box on X/Z only (Y center/size unchanged). */
+export function scaleCatalogBox(box: MapBox, scale: number = MAP_LINEAR_SCALE): MapBox {
+  return {
+    id: box.id,
+    kind: box.kind,
+    center: {
+      x: box.center.x * scale,
+      y: box.center.y,
+      z: box.center.z * scale,
+    },
+    size: {
+      x: box.size.x * scale,
+      y: box.size.y,
+      z: box.size.z * scale,
+    },
+  };
+}

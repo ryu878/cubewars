@@ -24,6 +24,7 @@ import type {
   EconomyProfileMessage,
   InventoryFootprint,
   InventoryItemType,
+  PetType,
 } from "@cubewars/shared";
 import {
   AVATAR_BODY_PARTS,
@@ -32,6 +33,8 @@ import {
   INVENTORY_GRID,
   cloneAvatarColors,
   defaultAvatarColors,
+  describePetGrants,
+  formatPetPrimaryGrant,
 } from "@cubewars/shared";
 import { shouldIgnoreGameHotkey } from "./uiInput";
 
@@ -72,18 +75,63 @@ const ITEM_DISPLAY_NAME: Record<InventoryItemType, string> = {
   shard_stack: "Shard stack",
 };
 
+/** Species-specific pet glyph (EPIC 50) — replaces the generic pig-snout square. */
+function createPetIcon(petType: PetType, sizeClass = ""): HTMLElement {
+  const icon = document.createElement("div");
+  icon.className = `inv-icon inv-icon-pet inv-icon-pet-${petType}${sizeClass ? ` ${sizeClass}` : ""}`;
+  icon.setAttribute("aria-hidden", "true");
+  icon.dataset.petType = petType;
+
+  if (petType === "dog") {
+    const earL = document.createElement("span");
+    earL.className = "inv-pet-dog-ear inv-pet-dog-ear-l";
+    const earR = document.createElement("span");
+    earR.className = "inv-pet-dog-ear inv-pet-dog-ear-r";
+    const snout = document.createElement("span");
+    snout.className = "inv-pet-dog-snout";
+    icon.append(earL, earR, snout);
+  } else if (petType === "cat") {
+    const earL = document.createElement("span");
+    earL.className = "inv-pet-cat-ear inv-pet-cat-ear-l";
+    const earR = document.createElement("span");
+    earR.className = "inv-pet-cat-ear inv-pet-cat-ear-r";
+    const eyeL = document.createElement("span");
+    eyeL.className = "inv-pet-cat-eye inv-pet-cat-eye-l";
+    const eyeR = document.createElement("span");
+    eyeR.className = "inv-pet-cat-eye inv-pet-cat-eye-r";
+    icon.append(earL, earR, eyeL, eyeR);
+  } else if (petType === "bird") {
+    const beak = document.createElement("span");
+    beak.className = "inv-pet-bird-beak";
+    const eye = document.createElement("span");
+    eye.className = "inv-pet-bird-eye";
+    icon.append(beak, eye);
+  } else {
+    // lion
+    const mane = document.createElement("span");
+    mane.className = "inv-pet-lion-mane";
+    const face = document.createElement("span");
+    face.className = "inv-pet-lion-face";
+    icon.append(mane, face);
+  }
+  return icon;
+}
+
 /** Geometric icon glyph for a bag / rail / ghost cell (CSS classes paint the shape). */
-function createItemIcon(itemType: InventoryItemType, sizeClass = ""): HTMLElement {
+function createItemIcon(
+  itemType: InventoryItemType,
+  sizeClass = "",
+  petType?: PetType,
+): HTMLElement {
+  if (itemType === "pet" && petType) {
+    return createPetIcon(petType, sizeClass);
+  }
   const icon = document.createElement("div");
   icon.className = `inv-icon inv-icon-${itemType}${sizeClass ? ` ${sizeClass}` : ""}`;
   icon.setAttribute("aria-hidden", "true");
-  // Inner parts for multi-shape glyphs (pet face, amulet hole, kit cross, shard stack).
   if (itemType === "pet") {
-    const eyeL = document.createElement("span");
-    eyeL.className = "inv-icon-pet-eye inv-icon-pet-eye-l";
-    const eyeR = document.createElement("span");
-    eyeR.className = "inv-icon-pet-eye inv-icon-pet-eye-r";
-    icon.append(eyeL, eyeR);
+    // Fallback generic (should rarely show — prefer createPetIcon with type).
+    icon.classList.add("inv-icon-pet-unknown");
   } else if (itemType === "amulet") {
     const hole = document.createElement("span");
     hole.className = "inv-icon-amulet-hole";
@@ -104,6 +152,59 @@ function createItemIcon(itemType: InventoryItemType, sizeClass = ""): HTMLElemen
     }
   }
   return icon;
+}
+
+function petGemsMap(
+  profile: EconomyProfileMessage,
+  petId: number,
+): Partial<Record<"health" | "armor" | "speed" | "damage", number>> {
+  const out: Partial<Record<"health" | "armor" | "speed" | "damage", number>> = {};
+  for (const gem of profile.gems) {
+    if (gem.petId !== petId) continue;
+    out[gem.gemType] = (out[gem.gemType] ?? 0) + gem.value;
+  }
+  return out;
+}
+
+function appendPetGrantLines(
+  parent: HTMLElement,
+  pet: EconomyPetDto,
+  profile: EconomyProfileMessage,
+  opts: { applySlotFraction: boolean; className?: string },
+): void {
+  const breakdown = describePetGrants(
+    {
+      type: pet.type,
+      baseValue: pet.baseValue,
+      equipSlot: pet.equipSlot,
+      gems: petGemsMap(profile, pet.id),
+    },
+    { applySlotFraction: opts.applySlotFraction },
+  );
+  const block = document.createElement("div");
+  block.className = opts.className ?? "inv-details-sub";
+
+  const primary = document.createElement("div");
+  primary.textContent = breakdown.primaryText;
+  block.appendChild(primary);
+
+  if (breakdown.gemTexts.length > 0) {
+    const gemsTitle = document.createElement("div");
+    gemsTitle.textContent = `Gems: ${breakdown.gemTexts.join(", ")}`;
+    block.appendChild(gemsTitle);
+  }
+
+  if (breakdown.totalTexts.length > 0) {
+    const totals = document.createElement("div");
+    const fracNote =
+      opts.applySlotFraction && breakdown.fraction !== 1
+        ? ` (slot ×${breakdown.fraction})`
+        : "";
+    totals.textContent = `Total${fracNote}: ${breakdown.totalTexts.join(" · ")}`;
+    block.appendChild(totals);
+  }
+
+  parent.appendChild(block);
 }
 
 export class InventoryOverlay {
@@ -478,7 +579,12 @@ export class InventoryOverlay {
         el.classList.add("selected");
       }
 
-      el.appendChild(createItemIcon(entry.itemType));
+      if (entry.itemType === "pet") {
+        const pet = this.profile!.pets.find((p) => p.id === entry.itemId);
+        el.appendChild(createItemIcon("pet", "", pet?.type));
+      } else {
+        el.appendChild(createItemIcon(entry.itemType));
+      }
 
       const metaText = this.metaFor(entry, now);
       if (metaText) {
@@ -531,7 +637,7 @@ export class InventoryOverlay {
       }
       case "pet": {
         const pet = this.profile.pets.find((p) => p.id === entry.itemId);
-        return pet ? `${pet.type} ${pet.baseValue}` : "";
+        return pet ? formatPetPrimaryGrant(pet.type, pet.baseValue) : "";
       }
       case "gem": {
         const gem = this.profile.gems.find((g) => g.id === entry.itemId);
@@ -556,7 +662,7 @@ export class InventoryOverlay {
       case "pet": {
         const pet = this.profile.pets.find((p) => p.id === entry.itemId);
         return pet
-          ? `Pet (${pet.type}) #${pet.id} · value ${pet.baseValue}`
+          ? `Pet (${pet.type}) #${pet.id} · ${formatPetPrimaryGrant(pet.type, pet.baseValue)}`
           : `Pet #${entry.itemId}`;
       }
       case "egg": {
@@ -649,7 +755,11 @@ export class InventoryOverlay {
         drag.dragging = true;
         const ghost = document.createElement("div");
         ghost.className = `inv-drag-ghost inv-item-${drag.itemType}`;
-        ghost.appendChild(createItemIcon(drag.itemType, "inv-icon-sm"));
+        let ghostPetType: PetType | undefined;
+        if (drag.itemType === "pet" && this.profile) {
+          ghostPetType = this.profile.pets.find((p) => p.id === drag.itemId)?.type;
+        }
+        ghost.appendChild(createItemIcon(drag.itemType, "inv-icon-sm", ghostPetType));
         const ghostLabel = document.createElement("span");
         ghostLabel.className = "inv-drag-ghost-label";
         ghostLabel.textContent = ITEM_DISPLAY_NAME[drag.itemType];
@@ -735,21 +845,27 @@ export class InventoryOverlay {
     }
     const row = document.createElement("div");
     row.className = "inv-rail-item-row";
-    row.appendChild(createItemIcon("pet", "inv-icon-sm"));
+    row.appendChild(createItemIcon("pet", "inv-icon-sm", pet.type));
     const label = document.createElement("div");
     label.className = "inv-rail-item";
-    label.textContent = `Pet (${pet.type}) #${pet.id} · ${pet.baseValue}`;
-    label.title = `Pet (${pet.type}) #${pet.id} · value ${pet.baseValue}`;
+    const grant = describePetGrants(
+      {
+        type: pet.type,
+        baseValue: pet.baseValue,
+        equipSlot: pet.equipSlot,
+        gems: petGemsMap(this.profile!, pet.id),
+      },
+      { applySlotFraction: true },
+    );
+    label.textContent = `${pet.type} · ${grant.primaryText}`;
+    label.title = `Pet (${pet.type}) #${pet.id} · grants ${grant.totalTexts.join(" · ") || grant.primaryText}`;
     row.appendChild(label);
     box.appendChild(row);
 
-    const gems = this.profile!.gems.filter((g) => g.petId === pet.id);
-    if (gems.length > 0) {
-      const gemsLine = document.createElement("div");
-      gemsLine.className = "inv-rail-sub";
-      gemsLine.textContent = gems.map((g) => `${g.gemType}:${g.value}`).join(" ");
-      box.appendChild(gemsLine);
-    }
+    appendPetGrantLines(box, pet, this.profile!, {
+      applySlotFraction: true,
+      className: "inv-rail-sub",
+    });
 
     const unequip = document.createElement("button");
     unequip.type = "button";
@@ -824,7 +940,11 @@ export class InventoryOverlay {
     title.className = "inv-details-title";
     const titleRow = document.createElement("div");
     titleRow.className = "inv-details-title-row";
-    titleRow.appendChild(createItemIcon(itemType, "inv-icon-sm"));
+    let detailPetType: PetType | undefined;
+    if (itemType === "pet") {
+      detailPetType = this.profile.pets.find((p) => p.id === itemId)?.type;
+    }
+    titleRow.appendChild(createItemIcon(itemType, "inv-icon-sm", detailPetType));
     const titleText = document.createElement("span");
     titleText.textContent = this.detailsTitle(itemType, itemId);
     titleRow.appendChild(titleText);
@@ -861,6 +981,10 @@ export class InventoryOverlay {
     } else if (itemType === "pet") {
       const pet = this.profile.pets.find((p) => p.id === itemId) as EconomyPetDto | undefined;
       if (pet) {
+        const equipped = pet.equipSlot === 1 || pet.equipSlot === 2;
+        appendPetGrantLines(this.detailsEl, pet, this.profile, {
+          applySlotFraction: equipped,
+        });
         const colorInfo = document.createElement("div");
         colorInfo.className = "inv-details-sub";
         colorInfo.textContent = `Color palette index ${pet.colorIndex + 1} (see Pet colors below)`;

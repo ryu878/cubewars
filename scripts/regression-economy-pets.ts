@@ -13,7 +13,10 @@ import {
   applyStimulatorDeadline,
   armorDrFromRatings,
   damageMultiplierFromRatings,
+  describePetGrants,
+  formatPetPrimaryGrant,
   maxHealthBonusFromRatings,
+  ratingDisplayLabel,
   shouldGrantEggDrop,
   shouldGrantStimulatorDrop,
   speedMultiplierFromRatings,
@@ -42,6 +45,32 @@ assert.equal(
   "slot 2 ignored when disabled",
 );
 assert.equal(COMBAT.maxHealth + maxHealthBonusFromRatings(200), 150);
+
+// EPIC 50: readable pet grant labels match PET_TYPE_RATING + aggregate math
+assert.equal(formatPetPrimaryGrant("dog", 156), "+156 Armor");
+assert.equal(formatPetPrimaryGrant("cat", 80), "+80 HP");
+assert.equal(formatPetPrimaryGrant("bird", 40), "+40 Speed");
+assert.equal(formatPetPrimaryGrant("lion", 100), "+100 Damage");
+assert.equal(ratingDisplayLabel("health"), "HP");
+
+{
+  const full = describePetGrants(
+    { type: "dog", baseValue: 156, gems: { armor: 20, speed: 10 } },
+    { applySlotFraction: false },
+  );
+  assert.equal(full.primaryText, "+156 Armor");
+  assert.ok(full.gemTexts.includes("+20 Armor"));
+  assert.ok(full.gemTexts.includes("+10 Speed"));
+  assert.equal(full.totals.armorRating, 176);
+  assert.equal(full.totals.speedRating, 10);
+
+  const slot2 = describePetGrants(
+    { type: "dog", baseValue: 156, equipSlot: 2, gems: { armor: 20 } },
+    { applySlotFraction: true },
+  );
+  assert.equal(slot2.fraction, PET_COMBAT.SLOT2_FRACTION);
+  assert.equal(slot2.totals.armorRating, Math.floor((156 + 20) * 0.4));
+}
 
 assert.equal(shouldGrantEggDrop(0, 0, 0.0), true);
 assert.equal(shouldGrantEggDrop(ECONOMY_CAPS.eggs, 0, 0.0), false);

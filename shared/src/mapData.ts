@@ -14,14 +14,20 @@ export {
   type MapDefinition,
   type MapId,
   MAP_IDS,
+  MAP_LINEAR_SCALE,
+  MAP_AUTHORING_BOUNDS,
   STANDARD_MAP_BOUNDS,
   DEFAULT_MAP_ID,
   WALL_HEIGHT,
   WALL_Y,
   CRATE_HEIGHT,
   CRATE_Y,
+  scaleCatalogBox,
   isMapId,
 } from "./maps/types.js";
+
+export { finalizeCatalogMap } from "./maps/finalize.js";
+export type { AuthoredCatalogMap } from "./maps/finalize.js";
 
 export {
   listMaps,
@@ -41,8 +47,9 @@ export {
 import { BASE_MAP } from "./maps/catalog.js";
 
 /**
- * Legacy alias: Base map outer envelope (EPIC 46 — 2× linear vs original arena).
+ * Legacy alias: Base map outer envelope (EPIC 50 — half of EPIC 46–49 ±92/±52).
  * Prefer getMap(mapId).bounds for match-scoped geometry.
+ * Endless mode uses its own procedural chunks and does not share this scale.
  */
 export const ARENA_BOUNDS = BASE_MAP.bounds;
 

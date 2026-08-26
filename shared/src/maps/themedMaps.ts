@@ -1,9 +1,10 @@
-// EPIC 46 themed static maps — same ~184×104 envelope as Base, AABB-only.
+// EPIC 46 themed static maps — authored at ±92/±52, EPIC 50 half-scale via
+// finalizeCatalogMap → playable ±46/±26. AABB-only.
 // EPIC 47: denser interior cover. EPIC 48: balanced/spread pickups via densify.
 // EPIC 49: multi-box thematic props (tanks, cisterns, crystals, cables, rubble).
 
 import type { MapDefinition } from "./types.js";
-import { STANDARD_MAP_BOUNDS } from "./types.js";
+import { finalizeCatalogMap } from "./finalize.js";
 import {
   barrelCluster,
   cableStay,
@@ -22,9 +23,6 @@ import {
   wallWithDoorAlongX,
   wallWithDoorAlongZ,
 } from "./primitives.js";
-import { densePickups } from "./densify.js";
-
-const B = STANDARD_MAP_BOUNDS;
 
 const RUST_CANYON_GEOMETRY = [
   ...outerWalls("rc"),
@@ -66,11 +64,10 @@ const RUST_CANYON_GEOMETRY = [
   prop("rc_rail_post_e", 28, 1.2, -6, 0.6, 2.4, 0.6),
 ];
 
-export const RUST_CANYON: MapDefinition = {
+export const RUST_CANYON: MapDefinition = finalizeCatalogMap({
   id: "rust_canyon",
   displayName: "Rust Canyon",
   displayNameRu: "Ржавый Каньон",
-  bounds: B,
   geometry: RUST_CANYON_GEOMETRY,
   spawnPoints: [
     spawn(-78, -44),
@@ -84,13 +81,14 @@ export const RUST_CANYON: MapDefinition = {
     spawn(0, -44),
     spawn(0, 44),
   ],
-  pickupPoints: densePickups("rc", RUST_CANYON_GEOMETRY, [
+  pickupPrefix: "rc",
+  preferredPickups: [
     { x: -70, z: 36 },
     { x: 70, z: -36 },
     { x: 0, z: 0 },
     { x: 0, z: 44 },
-  ]),
-};
+  ],
+});
 
 const GLASS_DOME_GEOMETRY = [
   ...outerWalls("gd"),
@@ -128,11 +126,10 @@ const GLASS_DOME_GEOMETRY = [
   wall("gd_lab_desk_s", 0, -14, 20, 1),
 ];
 
-export const GLASS_DOME: MapDefinition = {
+export const GLASS_DOME: MapDefinition = finalizeCatalogMap({
   id: "glass_dome",
   displayName: "Glass Dome",
   displayNameRu: "Стеклянный Купол",
-  bounds: B,
   geometry: GLASS_DOME_GEOMETRY,
   spawnPoints: [
     spawn(-78, -44),
@@ -146,8 +143,9 @@ export const GLASS_DOME: MapDefinition = {
     spawn(-12, -16),
     spawn(12, 16),
   ],
-  pickupPoints: densePickups("gd", GLASS_DOME_GEOMETRY),
-};
+  pickupPrefix: "gd",
+  preferredPickups: [],
+});
 
 const DEAD_STATION_GEOMETRY = [
   ...outerWalls("ds"),
@@ -186,11 +184,10 @@ const DEAD_STATION_GEOMETRY = [
   ...carSilhouette("ds_tug_b", -20, -30),
 ];
 
-export const DEAD_STATION: MapDefinition = {
+export const DEAD_STATION: MapDefinition = finalizeCatalogMap({
   id: "dead_station",
   displayName: "Dead Station",
   displayNameRu: "Мёртвая станция",
-  bounds: B,
   geometry: DEAD_STATION_GEOMETRY,
   spawnPoints: [
     spawn(-65, -20),
@@ -204,8 +201,9 @@ export const DEAD_STATION: MapDefinition = {
     spawn(-20, 0),
     spawn(20, 0),
   ],
-  pickupPoints: densePickups("ds", DEAD_STATION_GEOMETRY),
-};
+  pickupPrefix: "ds",
+  preferredPickups: [],
+});
 
 const FUEL_DEPOT_GEOMETRY = [
   ...outerWalls("fd"),
@@ -246,11 +244,10 @@ const FUEL_DEPOT_GEOMETRY = [
   prop("fd_pump_b", 12, 1.2, -16, 1.5, 2.4, 1.5),
 ];
 
-export const FUEL_DEPOT: MapDefinition = {
+export const FUEL_DEPOT: MapDefinition = finalizeCatalogMap({
   id: "fuel_depot",
   displayName: "Fuel Depot",
   displayNameRu: "Топливный склад",
-  bounds: B,
   geometry: FUEL_DEPOT_GEOMETRY,
   spawnPoints: [
     spawn(-75, -44),
@@ -264,8 +261,9 @@ export const FUEL_DEPOT: MapDefinition = {
     spawn(0, -44),
     spawn(0, 44),
   ],
-  pickupPoints: densePickups("fd", FUEL_DEPOT_GEOMETRY),
-};
+  pickupPrefix: "fd",
+  preferredPickups: [],
+});
 
 const CRYSTAL_CAVE_GEOMETRY = [
   ...outerWalls("cc"),
@@ -298,11 +296,10 @@ const CRYSTAL_CAVE_GEOMETRY = [
   crate("cc_crate_h", 0, -24, 2, 2),
 ];
 
-export const CRYSTAL_CAVE: MapDefinition = {
+export const CRYSTAL_CAVE: MapDefinition = finalizeCatalogMap({
   id: "crystal_cave",
   displayName: "Crystal Cave",
   displayNameRu: "Кристальная пещера",
-  bounds: B,
   geometry: CRYSTAL_CAVE_GEOMETRY,
   spawnPoints: [
     spawn(-78, -44),
@@ -316,8 +313,9 @@ export const CRYSTAL_CAVE: MapDefinition = {
     spawn(-10, -20),
     spawn(10, 20),
   ],
-  pickupPoints: densePickups("cc", CRYSTAL_CAVE_GEOMETRY),
-};
+  pickupPrefix: "cc",
+  preferredPickups: [],
+});
 
 const ABYSS_BRIDGE_GEOMETRY = [
   ...outerWalls("ab"),
@@ -353,11 +351,10 @@ const ABYSS_BRIDGE_GEOMETRY = [
   wall("ab_brace_e", 50, -12, 1, 10),
 ];
 
-export const ABYSS_BRIDGE: MapDefinition = {
+export const ABYSS_BRIDGE: MapDefinition = finalizeCatalogMap({
   id: "abyss_bridge",
   displayName: "Abyss Bridge",
   displayNameRu: "Мост через бездну",
-  bounds: B,
   geometry: ABYSS_BRIDGE_GEOMETRY,
   spawnPoints: [
     spawn(-75, -40),
@@ -371,8 +368,9 @@ export const ABYSS_BRIDGE: MapDefinition = {
     spawn(0, -40),
     spawn(0, 40),
   ],
-  pickupPoints: densePickups("ab", ABYSS_BRIDGE_GEOMETRY),
-};
+  pickupPrefix: "ab",
+  preferredPickups: [],
+});
 
 const ELITE_QUARTER_GEOMETRY = [
   ...outerWalls("eq"),
@@ -418,11 +416,10 @@ const ELITE_QUARTER_GEOMETRY = [
   prop("eq_se_floor2", 65, 4.5, -28, 14, 0.6, 8),
 ];
 
-export const ELITE_QUARTER: MapDefinition = {
+export const ELITE_QUARTER: MapDefinition = finalizeCatalogMap({
   id: "elite_quarter",
   displayName: "Elite Quarter",
   displayNameRu: "Квартал элиты",
-  bounds: B,
   geometry: ELITE_QUARTER_GEOMETRY,
   spawnPoints: [
     spawn(-70, -40),
@@ -436,8 +433,9 @@ export const ELITE_QUARTER: MapDefinition = {
     spawn(0, -44),
     spawn(0, 44),
   ],
-  pickupPoints: densePickups("eq", ELITE_QUARTER_GEOMETRY),
-};
+  pickupPrefix: "eq",
+  preferredPickups: [],
+});
 
 export const THEMED_MAPS: MapDefinition[] = [
   RUST_CANYON,

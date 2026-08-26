@@ -1,10 +1,11 @@
-// EPIC 46 Base map: 2× linear scale of the classic arena (~184×104),
-// plus an enterable building (door gaps both sides + window holes) and a
-// collidable car AABB silhouette.
+// EPIC 46 Base map: authored at ±92/±52 (2× classic), then EPIC 50 half-scale
+// via finalizeCatalogMap → playable ±46/±26 (densify on scaled geometry).
 // EPIC 47: denser interior cover. EPIC 48: balanced/spread pickups via densify.
+// EPIC 49: fog walls / thematic props (unchanged here).
 
 import type { MapDefinition } from "./types.js";
-import { STANDARD_MAP_BOUNDS } from "./types.js";
+import { MAP_LINEAR_SCALE } from "./types.js";
+import { finalizeCatalogMap } from "./finalize.js";
 import {
   carSilhouette,
   crate,
@@ -13,13 +14,16 @@ import {
   wall,
   wallWithDoorAlongX,
 } from "./primitives.js";
-import { densePickups } from "./densify.js";
 
 /**
  * Known free xz inside the Base building footprint (away from the interior
- * crate at (-68,-21) and wall segments). Used by EPIC 46 F-002 regression.
+ * crate and wall segments). Authored then × MAP_LINEAR_SCALE (EPIC 50).
+ * Used by EPIC 46 F-002 regression.
  */
-export const BASE_BUILDING_INTERIOR_SAMPLE = { x: -72, z: -21 } as const;
+export const BASE_BUILDING_INTERIOR_SAMPLE = {
+  x: -72 * MAP_LINEAR_SCALE,
+  z: -21 * MAP_LINEAR_SCALE,
+} as const;
 
 const BASE_GEOMETRY = [
   ...outerWalls("base"),
@@ -75,7 +79,7 @@ const BASE_GEOMETRY = [
   wall("base_tunnel_stub_e", 48, 32, 8, 1),
 
   // --- Enterable building (Site A south-west) ---
-  // Footprint x∈[-80,-56], z∈[-30,-12]. Doors on north+south; window
+  // Footprint x∈[-80,-56], z∈[-30,-12] (authoring). Doors on north+south; window
   // holes on east+west = gaps between wall segments (endless door pattern).
   ...wallWithDoorAlongX("base_bld_south", -30, -80, -56, -68, 2.5),
   ...wallWithDoorAlongX("base_bld_north", -12, -80, -56, -68, 2.5),
@@ -95,14 +99,14 @@ const BASE_GEOMETRY = [
 ];
 
 /**
- * Scaled classic layout (2× from EPIC 3): Site A / Site B / mid / tunnel,
- * then building in Site A south and a car near Site B mid.
+ * Scaled classic layout: Site A / Site B / mid / tunnel, building in Site A
+ * south and a car near Site B mid. Authored at EPIC 46 coords; playable
+ * after EPIC 50 `MAP_LINEAR_SCALE` (0.5).
  */
-export const BASE_MAP: MapDefinition = {
+export const BASE_MAP: MapDefinition = finalizeCatalogMap({
   id: "base",
   displayName: "Base",
   displayNameRu: "База",
-  bounds: STANDARD_MAP_BOUNDS,
   geometry: BASE_GEOMETRY,
   spawnPoints: [
     spawn(-68, -32),
@@ -116,7 +120,8 @@ export const BASE_MAP: MapDefinition = {
     spawn(0, -20),
     spawn(0, 32),
   ],
-  pickupPoints: densePickups("base", BASE_GEOMETRY, [
+  pickupPrefix: "base",
+  preferredPickups: [
     { x: -84, z: 40 },
     { x: 84, z: -40 },
     { x: 0, z: 0 },
@@ -129,5 +134,5 @@ export const BASE_MAP: MapDefinition = {
     { x: 84, z: 0 },
     { x: 0, z: -40 },
     { x: 0, z: 20 },
-  ]),
-};
+  ],
+});
