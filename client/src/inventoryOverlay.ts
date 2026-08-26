@@ -107,12 +107,18 @@ function createPetIcon(petType: PetType, sizeClass = ""): HTMLElement {
     eye.className = "inv-pet-bird-eye";
     icon.append(beak, eye);
   } else {
-    // lion
+    // lion: 6-tuft mane + face with eyes/muzzle (species-readable at bag/rail size)
     const mane = document.createElement("span");
     mane.className = "inv-pet-lion-mane";
     const face = document.createElement("span");
     face.className = "inv-pet-lion-face";
-    icon.append(mane, face);
+    const eyeL = document.createElement("span");
+    eyeL.className = "inv-pet-lion-eye inv-pet-lion-eye-l";
+    const eyeR = document.createElement("span");
+    eyeR.className = "inv-pet-lion-eye inv-pet-lion-eye-r";
+    const nose = document.createElement("span");
+    nose.className = "inv-pet-lion-nose";
+    icon.append(mane, face, eyeL, eyeR, nose);
   }
   return icon;
 }
