@@ -476,6 +476,12 @@ export interface AccountResetCodeMessage {
   email: string;
 }
 
+/** EPIC 51: developer console command (client transport only — server validates IDDQD gate). */
+export interface DevConsoleMessage {
+  type: "dev_console";
+  command: string;
+}
+
 export type ClientMessage =
   | PlayerInputMessage
   | FireEvent
@@ -510,7 +516,8 @@ export type ClientMessage =
   | AccountRegisterMessage
   | AccountLoginMessage
   | AccountSessionResumeMessage
-  | AccountResetCodeMessage;
+  | AccountResetCodeMessage
+  | DevConsoleMessage;
 
 /** A single player's authoritative, server-computed state as broadcast to all clients. */
 export interface PlayerState {
@@ -1120,6 +1127,13 @@ export interface AccountResetCodeResultMessage {
   reason?: AccountResetCodeReason;
 }
 
+/** EPIC 51: feedback for a dev console command. */
+export interface DevConsoleResultMessage {
+  type: "dev_console_result";
+  ok: boolean;
+  message: string;
+}
+
 export type ServerMessage =
   | WelcomeMessage
   | WorldStateMessage
@@ -1150,4 +1164,5 @@ export type ServerMessage =
   | AccountCreatedMessage
   | AccountLoginResultMessage
   | AccountSessionResultMessage
-  | AccountResetCodeResultMessage;
+  | AccountResetCodeResultMessage
+  | DevConsoleResultMessage;

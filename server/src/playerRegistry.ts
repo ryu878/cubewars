@@ -13,7 +13,7 @@ import {
   SPAWN_POINTS,
   WEAPON_ORDER,
   WEAPON_STATS,
-  applyArmorDr,
+  armorBonusFromRatings,
   cloneAvatarColors,
   damageMultiplierFromRatings,
   defaultAvatarColors,
@@ -165,6 +165,11 @@ export interface PlayerRecord {
    * 0 or a past timestamp = not protected. Broadcast via PlayerState.
    */
   spawnProtectedUntilMs: number;
+  /**
+   * EPIC 51: server-only dev-console invincibility. When true, applyDamage and
+   * environmental damage are no-ops (same pattern as spawn protection).
+   */
+  godMode: boolean;
   /** Confirmed kill count (EPIC 5 Story 5.2), in-memory only — resets on server restart, no persistence in this scope. Incremented exclusively in fire() below, the same place death is resolved, so this can never drift from what actually killed a player. */
   kills: number;
   /**
@@ -446,6 +451,7 @@ export class PlayerRegistry {
       // EPIC 36: freshly-joined / freshly-spawned players get the same grace
       // window as a post-death respawn — "just became alive."
       spawnProtectedUntilMs: Date.now() + COMBAT.spawnProtectionMs,
+      godMode: false,
       kills: 0,
       // Placeholder values, immediately overwritten below by
       // applyBaselineLoadout() — the same pistol-only baseline (plus zeroed
@@ -463,19 +469,21 @@ export class PlayerRegistry {
   }
 
   /**
-   * Apply equipped pet ratings to a living (or just-spawned) player (EPIC 24).
+   * Apply equipped pet ratings to a living (or just-spawned) player (EPIC 24/51).
    * Max-HP increase heals only the delta when currently at the old max; if
    * damaged, current HP is kept unless it exceeds the new max (then clamped).
-   * DR / speed / damage multipliers take effect immediately on subsequent
-   * combat/movement ticks.
+   * Flat armor baseline from dog ratings; speed/damage multipliers apply on
+   * subsequent combat/movement ticks.
    */
   applyPetRatings(playerId: string, ratings: ProfileRatings): void {
     const player = this.players.get(playerId);
     if (!player) return;
     const oldMax = player.maxHealth;
     const newMax = COMBAT.maxHealth + maxHealthBonusFromRatings(ratings.healthRating);
+    const armorBaseline = Math.min(COMBAT.maxArmor, armorBonusFromRatings(ratings.armorRating));
     player.petRatings = { ...ratings };
     player.maxHealth = newMax;
+    player.armor = Math.min(COMBAT.maxArmor, Math.max(player.armor, armorBaseline));
     if (player.alive) {
       if (player.health >= oldMax) {
         player.health = newMax;
@@ -563,6 +571,14 @@ export class PlayerRegistry {
    */
   getPlayer(id: string): PlayerRecord | undefined {
     return this.players.get(id);
+  }
+
+  /** EPIC 51: toggle dev-console god mode; returns new state or null if unknown. */
+  toggleGodMode(id: string): boolean | null {
+    const player = this.players.get(id);
+    if (!player) return null;
+    player.godMode = !player.godMode;
+    return player.godMode;
   }
 
   hasNicknameKey(nicknameKey: string): boolean {
@@ -789,15 +805,14 @@ export class PlayerRegistry {
     // player, deal no damage and emit no DamageEvent (no hit marker/sound).
     if (isSpawnProtected(target)) return null;
 
-    // EPIC 24: pet %DR applies to raw damage BEFORE EPIC 7 absorptive armor.
-    const afterDr = applyArmorDr(damage, target.petRatings.armorRating);
-    // EPIC 7 damage-absorption order remains unchanged under EPIC 18:
-    // armor absorbs first, then exact spillover comes off health. Only the
-    // incoming `damage` value now varies by hit zone or grenade splash.
-    if (target.armor >= afterDr) {
-      target.armor -= afterDr;
+    // EPIC 51: dev-console god mode — server-only, session-scoped per life.
+    if (target.godMode) return null;
+
+    // EPIC 7 damage-absorption order: armor absorbs first, then spillover off health.
+    if (target.armor >= damage) {
+      target.armor -= damage;
     } else {
-      const spillover = afterDr - target.armor;
+      const spillover = damage - target.armor;
       target.armor = 0;
       target.health = Math.max(0, target.health - spillover);
     }
@@ -812,7 +827,7 @@ export class PlayerRegistry {
 
     return {
       targetId: target.id,
-      damage: afterDr,
+      damage,
       damageKind,
       hitZone,
       targetHealth: target.health,
@@ -1019,6 +1034,11 @@ export class PlayerRegistry {
       player.spawnProtectedUntilMs = nowMs + COMBAT.spawnProtectionMs;
       player.intent = { moveForward: 0, moveRight: 0, jump: false };
       applyBaselineLoadout(player);
+      // EPIC 51: re-apply pet flat armor baseline after loadout reset zeros armor.
+      player.armor = Math.min(
+        COMBAT.maxArmor,
+        armorBonusFromRatings(player.petRatings.armorRating),
+      );
 
       outcomes.push({ playerId: player.id, position: { ...player.position }, health: player.health });
     }

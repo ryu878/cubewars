@@ -29,12 +29,22 @@ import {
   AuctionHouse,
   applyInventoryEconomyAction,
   toEconomyProfileMessage,
+  economyScopeFromMatchMode,
+  EconomyActionError,
+  randomPetTypeForGrant,
+  randomPetBaseValueForGrant,
   type InventoryBagAction,
   type InventoryEconomyPayload,
 } from "./economy/index.js";
 import { AvatarProfileStore } from "./avatarProfile.js";
 import { AccountStore } from "./accounts/index.js";
 import { isSpawnProtected } from "./combat.js";
+import {
+  DEV_CONSOLE_MAX_COMMAND_LEN,
+  cheatsEnabledFromEnv,
+  devConsoleRequiresUnlock,
+  parseDevConsoleCommand,
+} from "./devConsole.js";
 
 const PORT = Number(process.env.CUBEWARS_SERVER_PORT ?? 7777);
 
@@ -408,6 +418,8 @@ wss.on("connection", (socket: WebSocket) => {
   let lobbyBindGeneration = 0;
   /** EPIC 34: authenticated account for this connection (session-scoped). */
   let accountId: string | null = null;
+  /** EPIC 51: per-connection IDDQD unlock for dev console cheats. */
+  let cheatUnlocked = false;
   lobbySockets.add(socket);
 
   const welcome: WelcomeMessage = {
@@ -1046,6 +1058,113 @@ wss.on("connection", (socket: WebSocket) => {
         })();
         return;
       }
+    }
+
+    // EPIC 51: dev console — lobby (economy cheats) or in-match (economy + god_mode).
+    if (parsed.type === "dev_console") {
+      if (typeof parsed.command !== "string") {
+        malformedInputDropTracker.record(playerId, now);
+        return;
+      }
+      const rawCommand = parsed.command.trim();
+      if (rawCommand.length === 0 || rawCommand.length > DEV_CONSOLE_MAX_COMMAND_LEN) {
+        malformedInputDropTracker.record(playerId, now);
+        return;
+      }
+      const sendDevConsoleResult = (ok: boolean, message: string): void => {
+        sendJson(socket, { type: "dev_console_result", ok, message });
+      };
+      const parsedCmd = parseDevConsoleCommand(rawCommand);
+      if (!parsedCmd) {
+        sendDevConsoleResult(false, `Unknown command: ${rawCommand}`);
+        return;
+      }
+      if (!cheatsEnabledFromEnv()) {
+        console.log(`[cheat] rejected (disabled) ${playerId}: ${parsedCmd}`);
+        sendDevConsoleResult(false, "Cheats disabled");
+        return;
+      }
+      if (devConsoleRequiresUnlock(parsedCmd) && !cheatUnlocked) {
+        console.log(`[cheat] rejected (locked) ${playerId}: ${parsedCmd}`);
+        sendDevConsoleResult(false, "Enter IDDQD first");
+        return;
+      }
+      if (parsedCmd === "iddqd") {
+        cheatUnlocked = true;
+        console.log(`[cheat] IDDQD unlocked ${playerId} (${nickname})`);
+        sendDevConsoleResult(true, "Cheat mode unlocked");
+        return;
+      }
+      if (parsedCmd === "god_mode") {
+        if (!match) {
+          sendDevConsoleResult(false, "Join a match first");
+          return;
+        }
+        const enabled = match.registry.toggleGodMode(playerId);
+        if (enabled === null) {
+          sendDevConsoleResult(false, "Player not in match");
+          return;
+        }
+        console.log(`[cheat] god_mode ${enabled ? "on" : "off"} ${playerId} (${nickname})`);
+        sendDevConsoleResult(true, enabled ? "God mode ON" : "God mode OFF");
+        return;
+      }
+      // get_pet / get_amulet — economy scope from match or lobby bind pool.
+      const economyScope = match
+        ? economyScopeFromMatchMode(match.mode)
+        : lobbyEconomyPool;
+      if (!match && !nicknameReady) {
+        sendDevConsoleResult(false, "Bind nickname first");
+        return;
+      }
+      void (async () => {
+        try {
+          if (parsedCmd === "get_pet") {
+            const pet = await economyStore.grantPetForTests(
+              nickname,
+              randomPetTypeForGrant(),
+              randomPetBaseValueForGrant(),
+              Date.now(),
+              economyScope,
+            );
+            if (match) {
+              await match.sendEconomyProfile(playerId, nickname);
+            } else {
+              const profile = await economyStore.getFullProfile(nickname, economyScope);
+              sendJson(socket, toEconomyProfileMessage(profile, economyScope));
+            }
+            console.log(
+              `[cheat] get_pet ok ${playerId} (${nickname}) [${economyScope}] type=${pet.type} base=${pet.baseValue}`,
+            );
+            sendDevConsoleResult(true, `Granted ${pet.type} (+${pet.baseValue} base)`);
+            return;
+          }
+          if (parsedCmd === "get_amulet") {
+            const amulet = await economyStore.grantAmulet(nickname, undefined, Date.now(), economyScope);
+            if (match) {
+              await match.sendEconomyProfile(playerId, nickname);
+            } else {
+              const profile = await economyStore.getFullProfile(nickname, economyScope);
+              sendJson(socket, toEconomyProfileMessage(profile, economyScope));
+            }
+            console.log(
+              `[cheat] get_amulet ok ${playerId} (${nickname}) [${economyScope}] id=${amulet.id} dur=${amulet.durability}`,
+            );
+            sendDevConsoleResult(true, `Granted amulet (durability ${amulet.durability})`);
+            return;
+          }
+        } catch (err) {
+          const code =
+            err instanceof EconomyActionError
+              ? err.code
+              : err && typeof err === "object" && "code" in err
+                ? String((err as { code: string }).code)
+                : "error";
+          console.warn(`[cheat] ${parsedCmd} rejected ${playerId} (${nickname}): ${code}`);
+          sendDevConsoleResult(false, `${parsedCmd} failed: ${code}`);
+        }
+      })();
+      return;
     }
 
     // Every other message type is gameplay-relevant and requires an active

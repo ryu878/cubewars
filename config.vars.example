@@ -29,3 +29,7 @@ CUBEWARS_SERVER_PORT=7777
 # only; default is 24h (AUCTION_DURATION_MS in shared). Use a short value for
 # QA/tests — do not leave a short override set in production.
 # CUBEWARS_AUCTION_MS=86400000
+
+# Dev console IDDQD cheats (EPIC 51). Unset defaults to enabled; set to 0 to
+# disable on production (see docs/ops/production-deploy.md).
+# CUBEWARS_ENABLE_CHEATS=0

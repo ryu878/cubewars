@@ -39,6 +39,7 @@ import { SoundManager } from "./audio/soundManager";
 import { CombatEffects } from "./combatEffects";
 import { KillLootVfx } from "./killLootVfx";
 import { PauseMenu } from "./pauseMenu";
+import { DevConsole } from "./devConsole";
 import { isLobbyVisible, isPauseMenuVisible, shouldIgnoreGameHotkey } from "./uiInput";
 
 const statusEl = document.getElementById("status") as HTMLDivElement;
@@ -551,6 +552,7 @@ let auctionPanel!: AuctionPanel;
 let tradePanel!: TradePanel;
 let groundHud!: GroundHud;
 let pauseMenu!: PauseMenu;
+let devConsole!: DevConsole;
 let lastWorldPlayers: WorldStateMessage["players"] = [];
 const connection = new GameConnection(wsUrl, {
   onOpen: () => {
@@ -755,6 +757,9 @@ const connection = new GameConnection(wsUrl, {
   onEconomyTradeState: (message) => {
     tradePanel.setTradeState(message);
   },
+  onDevConsoleResult: (message) => {
+    devConsole.appendResult(message.ok, message.message);
+  },
   onPickupState: (message) => {
     pickupRenderer.sync(message.pickups);
   },
@@ -814,6 +819,18 @@ inventoryOverlay = new InventoryOverlay((message) => connection.send(message));
 auctionPanel = new AuctionPanel((message) => connection.send(message));
 tradePanel = new TradePanel((message) => connection.send(message));
 groundHud = new GroundHud((message) => connection.send(message));
+devConsole = new DevConsole((command) => connection.send({ type: "dev_console", command }));
+
+window.addEventListener(
+  "keydown",
+  (event) => {
+    devConsole.handleKeyDown(event, {
+      joinedMatch,
+      pauseMenuOpen: isPauseMenuVisible(),
+    });
+  },
+  true,
+);
 
 function clearMatchClientState(opts: { resetGeometryToBase?: boolean } = {}): void {
   joinedMatch = false;
@@ -826,6 +843,7 @@ function clearMatchClientState(opts: { resetGeometryToBase?: boolean } = {}): vo
   pickupRenderer.sync([]);
   pauseMenu.setMatchContext(null, null);
   pauseMenu.setOpen(false);
+  devConsole.setOpen(false);
   inventoryOverlay.setOpen(false);
   auctionPanel.setOpen(false);
   if (document.pointerLockElement) document.exitPointerLock();

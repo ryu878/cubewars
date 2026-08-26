@@ -199,7 +199,7 @@ export class CombatHud {
     const valueEl = document.getElementById("ratingsHudValue");
     if (!el || !valueEl) return;
     valueEl.textContent =
-      `HP ${ratings.healthRating} · DR ${ratings.armorRating} · ` +
+      `HP ${ratings.healthRating} · ARM ${ratings.armorRating} · ` +
       `SPD ${ratings.speedRating} · DMG ${ratings.damageRating}`;
     el.hidden = false;
   }

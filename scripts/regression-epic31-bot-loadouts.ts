@@ -10,7 +10,7 @@
 //     loadout to each spawned bot via registry.applyPetRatings() -- the same
 //     entry point applyEconomyCombatToPlayer() uses for humans -- and that a
 //     geared bot (archetype D) ends up with a measurably different
-//     maxHealth / armor DR / speed multiplier / damage multiplier than a
+//     maxHealth / armor / speed multiplier / damage multiplier than a
 //     bare archetype-A bot.
 //  3. BotAI.spawnBotAt() (the "endless" match-mode path) also assigns a
 //     loadout -- not a bots-mode-only feature.
@@ -18,7 +18,7 @@
 import assert from "node:assert/strict";
 import {
   COMBAT,
-  armorDrFromRatings,
+  armorBonusFromRatings,
   damageMultiplierFromRatings,
   maxHealthBonusFromRatings,
   speedMultiplierFromRatings,
@@ -87,7 +87,7 @@ interface Observed {
   id: string;
   archetype: BotLoadoutArchetype;
   maxHealth: number;
-  armorDr: number;
+  armor: number;
   speedMult: number;
   damageMult: number;
 }
@@ -111,7 +111,7 @@ while (seenArchetypes.size < 4 && spawnCount < 500) {
     id: id!,
     archetype,
     maxHealth: player.maxHealth,
-    armorDr: armorDrFromRatings(player.petRatings.armorRating),
+    armor: player.armor,
     speedMult: speedMultiplierFromRatings(player.petRatings.speedRating),
     damageMult: damageMultiplierFromRatings(player.petRatings.damageRating),
   });
@@ -127,18 +127,22 @@ console.log(`[epic31] observed all 4 archetypes (bots-mode spawnBots()) within $
 
 const bareA = observed.find((o) => o.archetype === "A")!;
 assert.equal(bareA.maxHealth, COMBAT.maxHealth, "archetype A must be exactly baseline maxHealth (unchanged today's behavior)");
-assert.equal(bareA.armorDr, 0, "archetype A must have zero armor DR");
+assert.equal(bareA.armor, 0, "archetype A must have zero armor");
 assert.equal(bareA.speedMult, 1, "archetype A must have a 1x speed multiplier");
 assert.equal(bareA.damageMult, 1, "archetype A must have a 1x damage multiplier");
 
 const gearedD = observed.filter((o) => o.archetype === "D");
 assert.ok(gearedD.length > 0, "expected at least one archetype-D observation");
 const buffedD = gearedD.find(
-  (o) => o.maxHealth > bareA.maxHealth || o.armorDr > 0 || o.speedMult > 1 || o.damageMult > 1,
+  (o) =>
+    o.maxHealth > bareA.maxHealth ||
+    o.armor > 0 ||
+    o.speedMult > 1 ||
+    o.damageMult > 1,
 );
 assert.ok(
   buffedD,
-  "expected at least one archetype-D bot to show a measurable stat increase (maxHealth/DR/speed/damage) over the bare baseline",
+  "expected at least one archetype-D bot to show a measurable stat increase (maxHealth/armor/speed/damage) over the bare baseline",
 );
 console.log("[epic31] archetype A (bare) baseline stats:", bareA);
 console.log("[epic31] archetype D (geared) sample stats, real registry.applyPetRatings() output:", buffedD);
@@ -163,6 +167,11 @@ for (let i = 0; i < 60; i++) {
     player.maxHealth,
     COMBAT.maxHealth + maxHealthBonusFromRatings(player.petRatings.healthRating),
     `endless bot ${id} maxHealth inconsistent with its own stored petRatings`,
+  );
+  assert.equal(
+    player.armor,
+    Math.min(COMBAT.maxArmor, armorBonusFromRatings(player.petRatings.armorRating)),
+    `endless bot ${id} armor inconsistent with its own stored petRatings`,
   );
   endlessBotAI.removeBot(id);
 }
