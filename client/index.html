@@ -774,6 +774,13 @@
         color: #9ab08e;
         text-align: left;
       }
+      #modeSelect .mode-map-hint {
+        margin: 4px 0 0;
+        font-size: 12px;
+        line-height: 1.35;
+        color: #9aabbc;
+        text-align: left;
+      }
 
       /* --- EPIC 47 in-match ESC pause menu --- */
       #pauseMenu {
@@ -1793,6 +1800,9 @@
         <input id="nicknameInput" type="text" maxlength="16" autocomplete="nickname" placeholder="Player" />
         <label for="mapSelect">Map</label>
         <select id="mapSelect" aria-label="Map"></select>
+        <p class="mode-map-hint">
+          Quick Join and vs Bots use this map. Lobby &quot;Join&quot; uses that game&apos;s map (server-owned).
+        </p>
         <div id="lobbyGold">Gold: <span id="lobbyGoldValue">—</span> <span id="lobbyGoldPoolHint">(Deathmatch pool)</span></div>
         <div class="lobby-economy-actions">
           <button id="lobbyDeathmatchInventoryBtn" type="button" disabled>Deathmatch Inventory</button>

@@ -158,7 +158,14 @@ export class ModeSelect {
       button.type = "button";
       button.textContent = match.players >= match.maxPlayers ? "Full" : "Join";
       button.disabled = this.pending || !this.enabled || match.players >= match.maxPlayers;
-      button.addEventListener("click", () => this.select("public", match.id));
+      button.addEventListener("click", () => {
+        // EPIC 48: joining an existing match uses that match's map (server-owned).
+        // Sync the picker so the UI does not look like the selected map was honored.
+        if (match.mapId && listMaps().some((m) => m.id === match.mapId)) {
+          this.setSelectedMapId(match.mapId);
+        }
+        this.select("public", match.id);
+      });
 
       row.append(label, button);
       this.lobbyListEl.appendChild(row);

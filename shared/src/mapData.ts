@@ -35,6 +35,7 @@ export {
 export {
   EPIC46_PICKUP_COUNTS,
   EPIC47_PICKUP_COUNTS,
+  EPIC48_PICKUP_COUNTS,
 } from "./maps/densify.js";
 
 import { BASE_MAP } from "./maps/catalog.js";

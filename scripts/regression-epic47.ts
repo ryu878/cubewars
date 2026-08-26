@@ -1,5 +1,5 @@
-// EPIC 47 regression: ~4× pickup density + clearance, bots mapId → non-Base
-// map_state, leave_match returns socket to lobby (no ghost / can rejoin).
+// EPIC 47 regression: pickup density + clearance (counts updated by EPIC 48),
+ // bots mapId → non-Base map_state, leave_match returns socket to lobby (no ghost / can rejoin).
 
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
 import {
-  EPIC47_PICKUP_COUNTS,
+  EPIC48_PICKUP_COUNTS,
   PLAYER_COLLISION_RADIUS,
   BASE_BUILDING_INTERIOR_SAMPLE,
   boxBounds,
@@ -74,11 +74,11 @@ function assertCatalogDensityAndClearance(): void {
         blocking,
       );
     }
-    assert.equal(byCat.weapon, EPIC47_PICKUP_COUNTS.weapon, `${map.id} weapon count`);
-    assert.equal(byCat.ammo, EPIC47_PICKUP_COUNTS.ammo, `${map.id} ammo count`);
-    assert.equal(byCat.health, EPIC47_PICKUP_COUNTS.health, `${map.id} health count`);
-    assert.equal(byCat.armor, EPIC47_PICKUP_COUNTS.armor, `${map.id} armor count`);
-    assert.equal(map.pickupPoints.length, EPIC47_PICKUP_COUNTS.total, `${map.id} total pickups`);
+    assert.equal(byCat.weapon, EPIC48_PICKUP_COUNTS.weapon, `${map.id} weapon count`);
+    assert.equal(byCat.ammo, EPIC48_PICKUP_COUNTS.ammo, `${map.id} ammo count`);
+    assert.equal(byCat.health, EPIC48_PICKUP_COUNTS.health, `${map.id} health count`);
+    assert.equal(byCat.armor, EPIC48_PICKUP_COUNTS.armor, `${map.id} armor count`);
+    assert.equal(map.pickupPoints.length, EPIC48_PICKUP_COUNTS.total, `${map.id} total pickups`);
 
     for (const point of map.spawnPoints) {
       assertPointClear(
@@ -135,15 +135,23 @@ async function stopServer(child: ReturnType<typeof spawn>): Promise<void> {
   await new Promise<void>((resolve) => {
     if (!child || child.killed) return resolve();
     child.once("exit", () => resolve());
-    child.kill("SIGTERM");
+    try {
+      if (child.pid) process.kill(-child.pid, "SIGTERM");
+    } catch {
+      child.kill("SIGTERM");
+    }
     setTimeout(() => {
       try {
-        child.kill("SIGKILL");
+        if (child.pid) process.kill(-child.pid, "SIGKILL");
       } catch {
-        /* already dead */
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          /* already dead */
+        }
       }
       resolve();
-    }, 3000);
+    }, 2000);
   });
 }
 
@@ -195,10 +203,11 @@ async function main(): Promise<void> {
   assertCatalogDensityAndClearance();
   console.log("[epic47] catalog density + clearance OK");
 
-  const child = spawn("npx", ["tsx", "src/index.ts"], {
+  const child = spawn(join(REPO_ROOT, "node_modules", ".bin", "tsx"), ["src/index.ts"], {
     cwd: join(REPO_ROOT, "server"),
     env: { ...process.env, CUBEWARS_SERVER_PORT: String(SERVER_PORT) },
     stdio: ["ignore", "pipe", "pipe"],
+    detached: true,
   });
   await waitReady(child, "listening on");
 
@@ -282,9 +291,16 @@ async function main(): Promise<void> {
 
     console.log("[epic47] PASS");
   } finally {
-    for (const client of clients) client.ws.close();
+    for (const client of clients) {
+      try {
+        client.ws.close();
+      } catch {
+        /* ignore */
+      }
+    }
     await stopServer(child);
   }
+  process.exit(0);
 }
 
 main().catch((err) => {
