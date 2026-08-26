@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-26 |
 | Author (Pusya) | Programmer (Pusya) |
 | Task / Story / EPIC | EPIC 47 — Map Density + Bots MapId + ESC Menu + Changelog + Auth UX |
-| Branch / commit / PR | `task/epic-47-map-density-bots-esc` (PR URL + SHA filled after push) |
+| Branch / commit / PR | `task/epic-47-map-density-bots-esc` @ `bb9d379` — branch pushed; open PR via https://github.com/ryu878/cubewars/compare/master...task/epic-47-map-density-bots-esc?expand=1 (`gh` logged in as `ltrvtrb2`, cannot see `ryu878/cubewars`) |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
