@@ -13,7 +13,7 @@
 ## Environment
 
 - OS / Docker: Linux 5.15; Node `v24.18.1` via nvm; local Redis
-- Branch / commit: `task/epic-49-map-palettes-thematic-props` (report commit below)
+- Branch / commit: `task/epic-49-map-palettes-thematic-props` @ `2444949` (this report + F-001 evidence; tip may include SHA pin)
 - Worktree: `.claude/worktrees/epic-49-map-palettes-thematic-props`
 - Critic finding: `docs/tasks/epic-49-critic-review.md` F-001
 - Original Tester PASS (context only): `docs/tasks/epic-49-tester-report.md`
