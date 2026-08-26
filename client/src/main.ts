@@ -34,6 +34,7 @@ import {
   themeIdFromMapState,
   type MapThemeScene,
 } from "./mapThemes";
+import { propMaterialKind } from "./propMaterialKind";
 import { SoundManager } from "./audio/soundManager";
 import { CombatEffects } from "./combatEffects";
 import { KillLootVfx } from "./killLootVfx";
@@ -131,10 +132,10 @@ function disposeMeshMaterial(material: THREE.Material): void {
 
 /** Prop materials by landmark id patterns — not one grey metal for everything. */
 function materialForProp(box: MapBox): THREE.MeshStandardMaterial {
-  const id = box.id;
   const palette = getPalette();
+  const kind = propMaterialKind(box.id);
 
-  if (id.includes("_wheel_")) {
+  if (kind === "wheel") {
     return new THREE.MeshStandardMaterial({
       color: 0x1a1a1c,
       metalness: 0.15,
@@ -143,7 +144,7 @@ function materialForProp(box: MapBox): THREE.MeshStandardMaterial {
       emissiveIntensity: 0.05,
     });
   }
-  if (id.includes("_cabin")) {
+  if (kind === "cabin") {
     return new THREE.MeshStandardMaterial({
       color: 0x2a3540,
       metalness: 0.35,
@@ -152,43 +153,7 @@ function materialForProp(box: MapBox): THREE.MeshStandardMaterial {
       emissiveIntensity: 0.12,
     });
   }
-  if (id.includes("_body") || id.includes("_hood") || id.includes("_bed")) {
-    return new THREE.MeshStandardMaterial({
-      color: palette.propAccent,
-      metalness: 0.45,
-      roughness: 0.5,
-      emissive: 0x101010,
-      emissiveIntensity: 0.08,
-    });
-  }
-  if (id.includes("rc_tank_") || id.includes("_turret") || id.includes("_track_")) {
-    return new THREE.MeshStandardMaterial({
-      color: 0x4a5a38,
-      metalness: 0.6,
-      roughness: 0.4,
-      emissive: 0x101408,
-      emissiveIntensity: 0.12,
-    });
-  }
-  if (id.includes("fd_tank_") || id.includes("_cistern") || id.includes("_barrel")) {
-    return new THREE.MeshStandardMaterial({
-      color: 0xb05020,
-      metalness: 0.55,
-      roughness: 0.42,
-      emissive: 0x201008,
-      emissiveIntensity: 0.1,
-    });
-  }
-  if (id.includes("cc_crystal_") || id.includes("_crystal_")) {
-    return new THREE.MeshStandardMaterial({
-      color: palette.propAccent,
-      metalness: 0.2,
-      roughness: 0.25,
-      emissive: palette.emissiveAccent,
-      emissiveIntensity: palette.emissiveIntensity,
-    });
-  }
-  if (id.includes("rubble") || id.includes("ruin") || id.includes("_rock_")) {
+  if (kind === "rock") {
     return new THREE.MeshStandardMaterial({
       color: 0x6a6460,
       metalness: 0.08,
@@ -197,7 +162,43 @@ function materialForProp(box: MapBox): THREE.MeshStandardMaterial {
       emissiveIntensity: 0.06,
     });
   }
-  if (id.includes("veg") || id.includes("_bush_") || id.includes("_plant_")) {
+  if (kind === "body") {
+    return new THREE.MeshStandardMaterial({
+      color: palette.propAccent,
+      metalness: 0.45,
+      roughness: 0.5,
+      emissive: 0x101010,
+      emissiveIntensity: 0.08,
+    });
+  }
+  if (kind === "tank_green") {
+    return new THREE.MeshStandardMaterial({
+      color: 0x4a5a38,
+      metalness: 0.6,
+      roughness: 0.4,
+      emissive: 0x101408,
+      emissiveIntensity: 0.12,
+    });
+  }
+  if (kind === "tank_fuel") {
+    return new THREE.MeshStandardMaterial({
+      color: 0xb05020,
+      metalness: 0.55,
+      roughness: 0.42,
+      emissive: 0x201008,
+      emissiveIntensity: 0.1,
+    });
+  }
+  if (kind === "crystal") {
+    return new THREE.MeshStandardMaterial({
+      color: palette.propAccent,
+      metalness: 0.2,
+      roughness: 0.25,
+      emissive: palette.emissiveAccent,
+      emissiveIntensity: palette.emissiveIntensity,
+    });
+  }
+  if (kind === "veg") {
     return new THREE.MeshStandardMaterial({
       color: 0x3a7a40,
       metalness: 0.05,
@@ -206,7 +207,7 @@ function materialForProp(box: MapBox): THREE.MeshStandardMaterial {
       emissiveIntensity: 0.15,
     });
   }
-  if (id.includes("cable") || id.includes("_stay_")) {
+  if (kind === "cable") {
     return new THREE.MeshStandardMaterial({
       color: 0x2a2c30,
       metalness: 0.75,
@@ -215,7 +216,7 @@ function materialForProp(box: MapBox): THREE.MeshStandardMaterial {
       emissiveIntensity: 0.08,
     });
   }
-  if (id.includes("tower") || id.includes("hangar") || id.includes("_deck_")) {
+  if (kind === "structure") {
     return new THREE.MeshStandardMaterial({
       color: 0x6a7080,
       metalness: 0.4,
@@ -224,7 +225,7 @@ function materialForProp(box: MapBox): THREE.MeshStandardMaterial {
       emissiveIntensity: 0.1,
     });
   }
-  if (id.includes("pump") || id.includes("pipe")) {
+  if (kind === "pipe") {
     return new THREE.MeshStandardMaterial({
       color: 0x708090,
       metalness: 0.7,

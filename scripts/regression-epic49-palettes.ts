@@ -72,6 +72,19 @@ async function main(): Promise<void> {
   assert.ok(byId.glass_dome!.geometry.some((b) => b.id.includes("veg")));
   assert.ok(byId.elite_quarter!.geometry.some((b) => b.id.includes("rubble")));
 
+  // F-001: dry-bed rock piles contain `_bed` + `_rock_`; classifier must return rock (not body).
+  const { propMaterialKind } = await import(join(REPO_ROOT, "client/src/propMaterialKind.ts"));
+  assert.equal(propMaterialKind("rc_bed_w_rock_a"), "rock");
+  assert.equal(propMaterialKind("rc_bed_e_rock_b"), "rock");
+  assert.equal(propMaterialKind("rc_wreck_a_body"), "body");
+  const bedRocks = byId.rust_canyon!.geometry.filter(
+    (b) => b.id.includes("rc_bed_") && b.id.includes("_rock_"),
+  );
+  assert.ok(bedRocks.length >= 6, "rust_canyon dry-bed rock piles present");
+  for (const b of bedRocks) {
+    assert.equal(propMaterialKind(b.id), "rock", `${b.id} must use rock material`);
+  }
+
   console.log("EPIC 49 palette + pickup regression OK");
   void require;
 }
