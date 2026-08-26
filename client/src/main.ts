@@ -745,12 +745,12 @@ pauseMenu = new PauseMenu((action) => {
       break;
     }
     case "auction": {
+      // Pause is in-match only. Open auction without lobby bind /
+      // lastLobbyBindPool — same as U-key. Binding here would set the
+      // EPIC 45 filter to deathmatch and drop sandbox economy_profile for
+      // the rest of bots/endless (EPIC 47 Critic F-001). Lobby Auction on
+      // mode-select still binds Deathmatch pool unchanged.
       pauseMenu.setOpen(false);
-      const nickname = modeSelect.getNickname();
-      if (!nickname) break;
-      // Deathmatch auction is usable from all modes (same as lobby).
-      lastLobbyBindPool = "deathmatch";
-      connection.send({ type: "lobby_bind_nickname", nickname, economyPool: "deathmatch" });
       auctionPanel.setOpen(true);
       break;
     }
