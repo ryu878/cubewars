@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-26 |
 | Author (Pusya) | Pusya |
 | Task / Story / EPIC | EPIC 47 — Critic revision **F-001** only |
-| Branch / commit / PR | `task/epic-47-map-density-bots-esc` / `69eba312621f9c5b4d04c725df69c15497caac50` / existing branch (no new PR; do not merge) |
+| Branch / commit / PR | `task/epic-47-map-density-bots-esc` / `0e03183f91fc8925f69556675e8d104d93a3d5f7` / existing branch (no new PR; do not merge) |
 | Revision round (if this is a Critic/Judge fix, not first pass) | yes — finding IDs: **F-001** |
 
 ## What was done (brief)
