@@ -221,8 +221,19 @@ export interface JoinMessage {
    * EPIC 46: preferred static map when creating a new public/bots match.
    * Ignored when joining an existing public matchId (server map wins).
    * Ignored for endless. Invalid values are rejected with map_invalid.
+   * EPIC 47: bots create path must honor this (defaults to Base only when omitted).
    */
   mapId?: MapId;
+}
+
+/**
+ * Client -> server: leave the current match and return to lobby without
+ * closing the WebSocket (EPIC 47 ESC pause menu). Server removes the human,
+ * re-attaches the socket to lobby broadcasts, and keeps auth/nickname ready
+ * so the player can join again on the same connection.
+ */
+export interface LeaveMatchMessage {
+  type: "leave_match";
 }
 
 /**
@@ -454,11 +465,23 @@ export interface AccountSessionResumeMessage {
   token: string;
 }
 
+/**
+ * Client -> server: issue a new login code for an existing email (EPIC 47).
+ * Stub auth — no email delivery. Server replaces the stored bcrypt hash and
+ * returns the new display code once via `account_reset_code_result`.
+ * Rate-limited like `account_login`. Existing sessions are kept.
+ */
+export interface AccountResetCodeMessage {
+  type: "account_reset_code";
+  email: string;
+}
+
 export type ClientMessage =
   | PlayerInputMessage
   | FireEvent
   | SwitchWeaponEvent
   | JoinMessage
+  | LeaveMatchMessage
   | LobbyBindNicknameMessage
   | EconomyEquipPetMessage
   | EconomyUnequipPetMessage
@@ -486,7 +509,8 @@ export type ClientMessage =
   | AvatarSetColorMessage
   | AccountRegisterMessage
   | AccountLoginMessage
-  | AccountSessionResumeMessage;
+  | AccountSessionResumeMessage
+  | AccountResetCodeMessage;
 
 /** A single player's authoritative, server-computed state as broadcast to all clients. */
 export interface PlayerState {
@@ -646,6 +670,17 @@ export interface JoinAcceptedMessage {
   type: "join_accepted";
   matchId: string;
   nickname: string;
+  /** EPIC 47: server-owned map for this match (endless may omit / use procedural). */
+  mapId?: MapId;
+  mode?: MatchMode;
+}
+
+/**
+ * Server -> client: leave_match succeeded; socket is back in lobby (EPIC 47).
+ * Client should show mode-select and clear match-scoped UI state.
+ */
+export interface LeaveMatchAckMessage {
+  type: "leave_match_ack";
 }
 
 export interface JoinRejectedMessage {
@@ -677,6 +712,8 @@ export interface MapStateMessage {
     minZ: number;
     maxZ: number;
   };
+  /** EPIC 47: catalog map id when static; omitted for endless procedural chunks. */
+  mapId?: MapId;
 }
 
 export interface EndlessStateMessage {
@@ -1062,6 +1099,27 @@ export interface AccountSessionResultMessage {
   reason?: AccountSessionReason;
 }
 
+/** Failure reasons for account_reset_code_result (EPIC 47). */
+export type AccountResetCodeReason =
+  | "invalid_credentials"
+  | "rate_limited"
+  | "invalid_email"
+  | "already_authenticated";
+
+/**
+ * Server -> connection: result of `account_reset_code` (EPIC 47).
+ * TEMPORARY stub: on success `code` is returned in plaintext (not emailed).
+ * Existing sessions stay valid. Failures use generic reasons when possible.
+ */
+export interface AccountResetCodeResultMessage {
+  type: "account_reset_code_result";
+  ok: boolean;
+  email?: string;
+  /** New one-time display code (NNN-NNN). Shown on screen only — not emailed. */
+  code?: string;
+  reason?: AccountResetCodeReason;
+}
+
 export type ServerMessage =
   | WelcomeMessage
   | WorldStateMessage
@@ -1076,6 +1134,7 @@ export type ServerMessage =
   | MapStateMessage
   | LobbyStateMessage
   | JoinAcceptedMessage
+  | LeaveMatchAckMessage
   | JoinRejectedMessage
   | LoadoutMessage
   | PickupStateMessage
@@ -1090,4 +1149,5 @@ export type ServerMessage =
   | EconomyTradeStateMessage
   | AccountCreatedMessage
   | AccountLoginResultMessage
-  | AccountSessionResultMessage;
+  | AccountSessionResultMessage
+  | AccountResetCodeResultMessage;

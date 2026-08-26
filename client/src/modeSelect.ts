@@ -172,6 +172,26 @@ export class ModeSelect {
     this.overlayEl.classList.add("hidden");
   }
 
+  /** EPIC 47: show mode-select again after leave_match (socket stays connected). */
+  showLobby(): void {
+    this.pending = false;
+    this.errorEl.textContent = "";
+    this.overlayEl.classList.remove("hidden");
+    this.updateButtons();
+  }
+
+  /** Selected catalog map (for pause-menu change-map / rejoin). */
+  getSelectedMapId(): MapId {
+    return this.selectedMapId();
+  }
+
+  setSelectedMapId(mapId: MapId): void {
+    if (listMaps().some((map) => map.id === mapId)) {
+      this.mapSelect.value = mapId;
+      localStorage.setItem(MAP_STORAGE_KEY, mapId);
+    }
+  }
+
   /** Server-authored gold (EPIC 23) — display only, never computed client-side. */
   setGold(gold: number): void {
     this.goldValueEl.textContent = String(Math.max(0, Math.round(gold)));
@@ -297,7 +317,12 @@ export class ModeSelect {
     this.pending = true;
     this.errorEl.textContent = "";
     this.updateButtons();
+    // EPIC 47: always include an explicit catalog mapId for public + bots so
+    // the server never silently falls back to Base because of an empty select.
     const mapId = mode === "endless" ? undefined : this.selectedMapId();
+    if (mode !== "endless") {
+      localStorage.setItem(MAP_STORAGE_KEY, mapId!);
+    }
     this.onSelect({ mode, nickname: normalized.nickname, matchId, mapId });
   }
 

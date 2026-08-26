@@ -297,7 +297,13 @@ export class Match {
 
   sendMapState(): void {
     const bounds = this.endlessWorld?.getBounds() ?? this.mapDefinition.bounds;
-    const message: MapStateMessage = { type: "map_state", geometry: [...this.currentGeometry()], bounds };
+    const message: MapStateMessage = {
+      type: "map_state",
+      geometry: [...this.currentGeometry()],
+      bounds,
+      // Endless is procedural — omit catalog mapId so clients don't treat it as Base.
+      mapId: this.mode === "endless" ? undefined : this.mapId,
+    };
     this.broadcast(message);
     this.lastMapVersion = this.endlessWorld?.getVersion() ?? 0;
   }

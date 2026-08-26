@@ -9,6 +9,7 @@ export {
   type AccountStoreOpenOptions,
   type LoginResult,
   type RegisterResult,
+  type ResetCodeResult,
   type ResumeResult,
   type SessionRecord,
 } from "./store.js";
