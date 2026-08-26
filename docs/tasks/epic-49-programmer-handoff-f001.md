@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-26 |
 | Author (Pusya) | Programmer (Pusya) |
 | Task / Story / EPIC | EPIC 49 — Critic REVISE F-001 only (dry-bed rock materials) |
-| Branch / commit / PR | `task/epic-49-map-palettes-thematic-props` (SHA filled after commit) |
+| Branch / commit / PR | `task/epic-49-map-palettes-thematic-props` @ `84d54c0` |
 | Revision round (if this is a Critic/Judge fix, not first pass) | yes — finding IDs: F-001 |
 
 ## What was done (brief)
