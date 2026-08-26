@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-26 |
 | Author (Pusya) | Pusya |
 | Task / Story / EPIC | EPIC 46 — Multi-Map Catalog, Map Picker, Expanded Base, 8-Player Public |
-| Branch / commit / PR | `task/epic-46-multi-map-select-capacity` — see PR (filled after push) |
+| Branch / commit / PR | `task/epic-46-multi-map-select-capacity` @ `ccc437a` — compare/PR: https://github.com/ryu878/cubewars/compare/master...task/epic-46-multi-map-select-capacity?expand=1 |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
