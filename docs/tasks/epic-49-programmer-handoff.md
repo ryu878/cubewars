@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-26 |
 | Author (Pusya) | Programmer (Pusya) |
 | Task / Story / EPIC | EPIC 49 — Map Palettes & Thematic Props (Stories 49.1–49.4) |
-| Branch / commit / PR | `task/epic-49-map-palettes-thematic-props` @ `5b4d753` — compare: https://github.com/ryu878/cubewars/compare/master...task/epic-49-map-palettes-thematic-props (`gh pr create` blocked for this token; open PR from compare) |
+| Branch / commit / PR | `task/epic-49-map-palettes-thematic-props` @ `9a9df32` — compare: https://github.com/ryu878/cubewars/compare/master...task/epic-49-map-palettes-thematic-props (`gh pr create` blocked for this token; open PR from compare) |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
