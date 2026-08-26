@@ -1,0 +1,186 @@
+{
+  "mapPicker": {
+    "visible": true,
+    "disabled": false,
+    "optionCount": 8,
+    "values": [
+      "base",
+      "rust_canyon",
+      "glass_dome",
+      "dead_station",
+      "fuel_depot",
+      "crystal_cave",
+      "abyss_bridge",
+      "elite_quarter"
+    ],
+    "labels": [
+      "Base / База",
+      "Rust Canyon / Ржавый Каньон",
+      "Glass Dome / Стеклянный Купол",
+      "Dead Station / Мёртвая станция",
+      "Fuel Depot / Топливный склад",
+      "Crystal Cave / Кристальная пещера",
+      "Abyss Bridge / Мост через бездну",
+      "Elite Quarter / Квартал элиты"
+    ],
+    "selected": "base"
+  },
+  "lobbyList": {
+    "rows": [
+      "Game 1 · Base · 0/8Join",
+      "Game 2 · Rust Canyon · 1/8Join"
+    ],
+    "matches": [
+      {
+        "id": "public",
+        "displayName": "Game 1",
+        "mapId": "base",
+        "mapDisplayName": "Base",
+        "players": 0,
+        "maxPlayers": 8
+      },
+      {
+        "id": "public-2",
+        "displayName": "Game 2",
+        "mapId": "rust_canyon",
+        "mapDisplayName": "Rust Canyon",
+        "players": 1,
+        "maxPlayers": 8
+      }
+    ]
+  },
+  "baseMatch": {
+    "mapSummary": {
+      "bounds": {
+        "minX": -92,
+        "maxX": 92,
+        "minZ": -52,
+        "maxZ": 52
+      },
+      "boxCount": 39,
+      "kinds": {
+        "wall": 22,
+        "crate": 11,
+        "prop": 6
+      },
+      "buildingIds": [
+        "base_bld_south_w",
+        "base_bld_south_e",
+        "base_bld_north_w",
+        "base_bld_north_e",
+        "base_bld_west_s",
+        "base_bld_west_n",
+        "base_bld_east_s",
+        "base_bld_east_n",
+        "base_bld_crate"
+      ],
+      "carIds": [
+        "base_car_body",
+        "base_car_cabin",
+        "base_car_wheel_fl",
+        "base_car_wheel_fr",
+        "base_car_wheel_rl",
+        "base_car_wheel_rr"
+      ],
+      "propCount": 6,
+      "sampleIds": [
+        "base_outer_west",
+        "base_outer_east",
+        "base_outer_north",
+        "base_outer_south",
+        "base_divider_west_south",
+        "base_divider_west_mid",
+        "base_divider_west_north",
+        "base_divider_east_south",
+        "base_divider_east_mid",
+        "base_divider_east_north",
+        "base_mid_wall_south",
+        "base_mid_wall_north"
+      ]
+    },
+    "joinMapId": "base",
+    "self": {
+      "id": "3dffe9a0-e30f-471b-8cac-c65e393dc264",
+      "position": {
+        "x": -49.21614803803007,
+        "y": 0,
+        "z": 45.981637424997004
+      },
+      "alive": true,
+      "yaw": 0
+    }
+  },
+  "rustCanyon": {
+    "mapSummary": {
+      "bounds": {
+        "minX": -92,
+        "maxX": 92,
+        "minZ": -52,
+        "maxZ": 52
+      },
+      "boxCount": 36,
+      "kinds": {
+        "wall": 16,
+        "prop": 14,
+        "crate": 6
+      },
+      "buildingIds": [],
+      "carIds": [
+        "rc_wreck_a_body",
+        "rc_wreck_a_cabin",
+        "rc_wreck_a_wheel_fl",
+        "rc_wreck_a_wheel_fr",
+        "rc_wreck_a_wheel_rl",
+        "rc_wreck_a_wheel_rr",
+        "rc_wreck_b_body",
+        "rc_wreck_b_cabin",
+        "rc_wreck_b_wheel_fl",
+        "rc_wreck_b_wheel_fr",
+        "rc_wreck_b_wheel_rl",
+        "rc_wreck_b_wheel_rr"
+      ],
+      "propCount": 14,
+      "sampleIds": [
+        "rc_outer_west",
+        "rc_outer_east",
+        "rc_outer_north",
+        "rc_outer_south",
+        "rc_ravine_w_a",
+        "rc_ravine_w_b",
+        "rc_ravine_w_c",
+        "rc_ravine_e_a",
+        "rc_ravine_e_b",
+        "rc_ravine_e_c",
+        "rc_rail_mid_n",
+        "rc_rail_mid_s"
+      ]
+    },
+    "joinMapId": "rust_canyon"
+  },
+  "gameplay": {
+    "pointerLocked": true,
+    "beforePos": {
+      "x": -49.21614803803007,
+      "y": 0,
+      "z": 45.981637424997004
+    },
+    "afterMove": {
+      "x": -49.21614803803007,
+      "y": 0,
+      "z": 36.671637424997115
+    },
+    "moved": true,
+    "spawnPos": {
+      "x": -49.21614803803007,
+      "y": 0,
+      "z": 45.981637424997004
+    },
+    "endPos": {
+      "x": -32.65804100875695,
+      "y": 0,
+      "z": 24.9
+    },
+    "sessionMoved": true
+  },
+  "consoleErrors": []
+}
