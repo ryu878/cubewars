@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-26 |
 | Author (Pusya) | Programmer (Pusya) |
 | Task / Story / EPIC | EPIC 47 — Map Density + Bots MapId + ESC Menu + Changelog + Auth UX |
-| Branch / commit / PR | `task/epic-47-map-density-bots-esc` — feature `29fd60d`; branch tip `git rev-parse HEAD` after push. Open PR: https://github.com/ryu878/cubewars/compare/master...task/epic-47-map-density-bots-esc?expand=1 (`gh` as `ltrvtrb2` cannot see private `ryu878/cubewars`) |
+| Branch / commit / PR | `task/epic-47-map-density-bots-esc` @ `62f583fe79e759e9a75cb72ca1a2b9ee82eb54b2` (feature commit `29fd60d`). PR: open via https://github.com/ryu878/cubewars/compare/master...task/epic-47-map-density-bots-esc?expand=1 — local `gh` user `ltrvtrb2` cannot access private `ryu878/cubewars` |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
