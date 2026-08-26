@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-26 13:09 UTC |
 | Author (Pusya) | Pusya |
 | Task / Story / EPIC | EPIC 46 — Critic REVISE F-001, F-002 |
-| Branch / commit / PR | `task/epic-46-multi-map-select-capacity` @ `409e153` (handoff tip `2522510`) |
+| Branch / commit / PR | `task/epic-46-multi-map-select-capacity` @ impl `409e153` / tip `b317a09` |
 | Revision round (if this is a Critic/Judge fix, not first pass) | yes — finding IDs: F-001, F-002 |
 
 ## What was done (brief)
