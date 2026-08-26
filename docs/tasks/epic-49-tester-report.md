@@ -13,7 +13,7 @@
 ## Environment
 
 - OS / Docker: Linux 5.15; Node `v24.18.1` via nvm; local Redis for server regressions
-- Branch / commit: `task/epic-49-map-palettes-thematic-props` @ `e214ae01c8a6c76b9ca97293e5a1c00359b4bb1a` (QA re-ran at this tip; report commit follows)
+- Branch / commit: `task/epic-49-map-palettes-thematic-props` @ `4229526` (QA verified through `e214ae0`; this SHA includes report + evidence)
 - Worktree: `.claude/worktrees/epic-49-map-palettes-thematic-props`
 - Compare: https://github.com/ryu878/cubewars/compare/master...task/epic-49-map-palettes-thematic-props
 
