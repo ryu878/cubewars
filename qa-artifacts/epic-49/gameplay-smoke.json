@@ -1,0 +1,29 @@
+[
+  {
+    "step": "joined crystal_cave",
+    "theme1": {
+      "fog": null,
+      "status": "joined bots:b58717ed-1832-48eb-83b3-0c4f9ebc3f30 — E49play · map crystal_cave",
+      "hasCanvas": true
+    }
+  },
+  {
+    "step": "leave_sent",
+    "leaveSent": true
+  },
+  {
+    "step": "rejoined",
+    "mapIds": [
+      "fuel_depot"
+    ],
+    "consErr": []
+  },
+  {
+    "step": "fairness",
+    "fairness": {
+      "mapId": "fuel_depot",
+      "boxCount": 63,
+      "wallMax": 6
+    }
+  }
+]
