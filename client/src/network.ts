@@ -5,6 +5,7 @@ import type {
   AccountLoginResultMessage,
   AccountResetCodeResultMessage,
   AccountSessionResultMessage,
+  DevConsoleResultMessage,
   ClientMessage,
   DeathEvent,
   EconomyActionResultMessage,
@@ -86,6 +87,8 @@ export interface NetworkHandlers {
   onAccountSessionResult?: (message: AccountSessionResultMessage) => void;
   /** EPIC 47: send/resend login code result. */
   onAccountResetCodeResult?: (message: AccountResetCodeResultMessage) => void;
+  /** EPIC 51: dev console command feedback. */
+  onDevConsoleResult?: (message: DevConsoleResultMessage) => void;
   onClose?: () => void;
   onError?: (err: Event) => void;
 }
@@ -161,6 +164,8 @@ export class GameConnection {
           handlers.onAccountSessionResult?.(message);
         } else if (message.type === "account_reset_code_result") {
           handlers.onAccountResetCodeResult?.(message);
+        } else if (message.type === "dev_console_result") {
+          handlers.onDevConsoleResult?.(message);
         }
       } catch (err) {
         console.error("[client] failed to parse server message", err);

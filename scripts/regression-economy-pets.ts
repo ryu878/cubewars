@@ -15,6 +15,7 @@ import {
   damageMultiplierFromRatings,
   describePetGrants,
   formatPetPrimaryGrant,
+  formatRatingGrant,
   maxHealthBonusFromRatings,
   ratingDisplayLabel,
   shouldGrantEggDrop,
@@ -46,20 +47,22 @@ assert.equal(
 );
 assert.equal(COMBAT.maxHealth + maxHealthBonusFromRatings(200), 150);
 
-// EPIC 50: readable pet grant labels match PET_TYPE_RATING + aggregate math
-assert.equal(formatPetPrimaryGrant("dog", 156), "+156 Armor");
+// EPIC 50/51: readable pet grant labels match PET_TYPE_RATING + aggregate math
+assert.equal(formatPetPrimaryGrant("dog", 156), "+156 DR (~8%)");
 assert.equal(formatPetPrimaryGrant("cat", 80), "+80 HP");
 assert.equal(formatPetPrimaryGrant("bird", 40), "+40 Speed");
 assert.equal(formatPetPrimaryGrant("lion", 100), "+100 Damage");
 assert.equal(ratingDisplayLabel("health"), "HP");
+assert.equal(ratingDisplayLabel("armor"), "DR");
+assert.equal(formatRatingGrant("armor", 200), "+200 DR (~10%)");
 
 {
   const full = describePetGrants(
     { type: "dog", baseValue: 156, gems: { armor: 20, speed: 10 } },
     { applySlotFraction: false },
   );
-  assert.equal(full.primaryText, "+156 Armor");
-  assert.ok(full.gemTexts.includes("+20 Armor"));
+  assert.equal(full.primaryText, "+156 DR (~8%)");
+  assert.ok(full.gemTexts.includes("+20 DR (~1%)"));
   assert.ok(full.gemTexts.includes("+10 Speed"));
   assert.equal(full.totals.armorRating, 176);
   assert.equal(full.totals.speedRating, 10);

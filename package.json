@@ -24,6 +24,7 @@
     "regression:endless": "tsx scripts/regression-endless-mode.ts",
     "regression:economy-gold": "tsx scripts/regression-economy-gold.ts",
     "regression:economy-pets": "tsx scripts/regression-economy-pets.ts",
+    "regression:dev-console": "tsx scripts/regression-dev-console.ts",
     "regression:economy-gems-amulets": "tsx scripts/regression-economy-gems-amulets.ts",
     "regression:economy-persistence": "tsx scripts/regression-economy-persistence.ts",
     "regression:economy-redis-safety": "tsx scripts/regression-economy-redis-safety.ts",

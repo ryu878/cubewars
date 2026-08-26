@@ -194,13 +194,13 @@ export function aggregateEquippedRatings(
   return ratings;
 }
 
-/** Inventory UI label for a rating axis (EPIC 50). Health → "HP". */
+/** Inventory UI label for a rating axis (EPIC 50/51). Armor axis is pet %DR, not pickup armor. */
 export function ratingDisplayLabel(kind: RatingKind): string {
   switch (kind) {
     case "health":
       return "HP";
     case "armor":
-      return "Armor";
+      return "DR";
     case "speed":
       return "Speed";
     case "damage":
@@ -208,19 +208,34 @@ export function ratingDisplayLabel(kind: RatingKind): string {
   }
 }
 
-/** e.g. "+156 Armor" — species primary axis, no slot fraction. */
+/**
+ * Compact inventory grant line for one rating axis (EPIC 51).
+ * Armor shows optional % DR; health shows HP only (detail views may append max bonus).
+ */
+export function formatRatingGrant(kind: RatingKind, amount: number): string {
+  const n = Math.max(0, Math.floor(amount));
+  if (kind === "armor") {
+    const pct = Math.round(armorDrFromRatings(n) * 100);
+    return `+${n} DR (~${pct}%)`;
+  }
+  if (kind === "health") {
+    return `+${n} HP`;
+  }
+  return `+${n} ${ratingDisplayLabel(kind)}`;
+}
+
+/** e.g. "+156 DR (~8%)" — species primary axis, no slot fraction. */
 export function formatPetPrimaryGrant(type: PetType, baseValue: number): string {
   const kind = PET_TYPE_RATING[type];
-  const n = Math.max(0, Math.floor(baseValue));
-  return `+${n} ${ratingDisplayLabel(kind)}`;
+  return formatRatingGrant(kind, baseValue);
 }
 
 export interface PetGrantBreakdown {
   /** Slot fraction used for display lines / totals (1 when unequipped). */
   fraction: number;
-  /** Species primary grant after fraction, e.g. "+156 Armor". */
+  /** Species primary grant after fraction, e.g. "+156 DR (~8%)". */
   primaryText: string;
-  /** Each socketed gem contribution after fraction, e.g. "+20 Armor". */
+  /** Each socketed gem contribution after fraction, e.g. "+20 DR (~1%)". */
   gemTexts: string[];
   /** Non-zero axis totals after the same floor rules as aggregateEquippedRatings. */
   totalTexts: string[];
@@ -253,7 +268,7 @@ export function describePetGrants(
 
   const primaryKind = PET_TYPE_RATING[pet.type];
   const primaryAmount = Math.floor(Math.max(0, pet.baseValue) * fraction);
-  const primaryText = `+${primaryAmount} ${ratingDisplayLabel(primaryKind)}`;
+  const primaryText = formatRatingGrant(primaryKind, primaryAmount);
 
   const gems = pet.gems ?? {};
   const gemTexts: string[] = [];
@@ -261,7 +276,7 @@ export function describePetGrants(
     const raw = Math.max(0, gems[kind] ?? 0);
     if (raw <= 0) continue;
     const amount = Math.floor(raw * fraction);
-    gemTexts.push(`+${amount} ${ratingDisplayLabel(kind)}`);
+    gemTexts.push(formatRatingGrant(kind, amount));
   }
 
   // Authoritative totals: treat as slot 1 at full strength when not applying
@@ -281,16 +296,16 @@ export function describePetGrants(
 
   const totalTexts: string[] = [];
   if (totals.healthRating > 0) {
-    totalTexts.push(`+${totals.healthRating} ${ratingDisplayLabel("health")}`);
+    totalTexts.push(formatRatingGrant("health", totals.healthRating));
   }
   if (totals.armorRating > 0) {
-    totalTexts.push(`+${totals.armorRating} ${ratingDisplayLabel("armor")}`);
+    totalTexts.push(formatRatingGrant("armor", totals.armorRating));
   }
   if (totals.speedRating > 0) {
-    totalTexts.push(`+${totals.speedRating} ${ratingDisplayLabel("speed")}`);
+    totalTexts.push(formatRatingGrant("speed", totals.speedRating));
   }
   if (totals.damageRating > 0) {
-    totalTexts.push(`+${totals.damageRating} ${ratingDisplayLabel("damage")}`);
+    totalTexts.push(formatRatingGrant("damage", totals.damageRating));
   }
 
   return { fraction, primaryText, gemTexts, totalTexts, totals };

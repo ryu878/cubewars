@@ -165,6 +165,11 @@ export interface PlayerRecord {
    * 0 or a past timestamp = not protected. Broadcast via PlayerState.
    */
   spawnProtectedUntilMs: number;
+  /**
+   * EPIC 51: server-only dev-console invincibility. When true, applyDamage and
+   * environmental damage are no-ops (same pattern as spawn protection).
+   */
+  godMode: boolean;
   /** Confirmed kill count (EPIC 5 Story 5.2), in-memory only — resets on server restart, no persistence in this scope. Incremented exclusively in fire() below, the same place death is resolved, so this can never drift from what actually killed a player. */
   kills: number;
   /**
@@ -446,6 +451,7 @@ export class PlayerRegistry {
       // EPIC 36: freshly-joined / freshly-spawned players get the same grace
       // window as a post-death respawn — "just became alive."
       spawnProtectedUntilMs: Date.now() + COMBAT.spawnProtectionMs,
+      godMode: false,
       kills: 0,
       // Placeholder values, immediately overwritten below by
       // applyBaselineLoadout() — the same pistol-only baseline (plus zeroed
@@ -563,6 +569,14 @@ export class PlayerRegistry {
    */
   getPlayer(id: string): PlayerRecord | undefined {
     return this.players.get(id);
+  }
+
+  /** EPIC 51: toggle dev-console god mode; returns new state or null if unknown. */
+  toggleGodMode(id: string): boolean | null {
+    const player = this.players.get(id);
+    if (!player) return null;
+    player.godMode = !player.godMode;
+    return player.godMode;
   }
 
   hasNicknameKey(nicknameKey: string): boolean {
@@ -788,6 +802,9 @@ export class PlayerRegistry {
     // EPIC 36 safety net: even if a caller somehow still targets a protected
     // player, deal no damage and emit no DamageEvent (no hit marker/sound).
     if (isSpawnProtected(target)) return null;
+
+    // EPIC 51: dev-console god mode — server-only, session-scoped per life.
+    if (target.godMode) return null;
 
     // EPIC 24: pet %DR applies to raw damage BEFORE EPIC 7 absorptive armor.
     const afterDr = applyArmorDr(damage, target.petRatings.armorRating);

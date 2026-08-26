@@ -264,6 +264,15 @@ function randomBaseValue(): number {
   return 1 + Math.floor(Math.random() * 200);
 }
 
+/** EPIC 51: cheat grants reuse the same random bands as hatch drops. */
+export function randomPetTypeForGrant(): PetType {
+  return randomPetType();
+}
+
+export function randomPetBaseValueForGrant(): number {
+  return randomBaseValue();
+}
+
 /** EPIC 39: coerce legacy/missing colorIndex to a valid palette index (default 0). */
 function normalizePetColorIndex(value: unknown): number {
   return isValidPaletteIndex(value) ? value : 0;

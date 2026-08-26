@@ -23,6 +23,8 @@ export {
   type CareerStatsEntry,
   type EndlessCareerEntry,
   type EconomyStoreOpenOptions,
+  randomPetTypeForGrant,
+  randomPetBaseValueForGrant,
 } from "./store.js";
 export {
   AuctionHouse,
