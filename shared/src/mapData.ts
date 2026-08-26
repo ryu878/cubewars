@@ -29,6 +29,7 @@ export {
   getMapOrDefault,
   resolveMapId,
   BASE_MAP,
+  BASE_BUILDING_INTERIOR_SAMPLE,
 } from "./maps/catalog.js";
 
 import { BASE_MAP } from "./maps/catalog.js";

@@ -18,6 +18,12 @@ import {
 } from "./primitives.js";
 
 /**
+ * Known free xz inside the Base building footprint (away from the interior
+ * crate at (-68,-21) and wall segments). Used by EPIC 46 F-002 regression.
+ */
+export const BASE_BUILDING_INTERIOR_SAMPLE = { x: -72, z: -21 } as const;
+
+/**
  * Scaled classic layout (2× from EPIC 3): Site A / Site B / mid / tunnel,
  * then building in Site A south and a car near Site B mid.
  */

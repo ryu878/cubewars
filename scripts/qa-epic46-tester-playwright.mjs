@@ -283,6 +283,73 @@ async function pointerLock(page) {
   return page.evaluate(() => document.pointerLockElement !== null);
 }
 
+/** Matches client/src/fpsController.ts MOUSE_SENSITIVITY. */
+const MOUSE_SENSITIVITY = 0.0025;
+
+/** Local yaw mirror — server `lastSelf.yaw` lags behind synthetic mousemove. */
+let qaLocalYaw = 0;
+
+async function getSelf(page) {
+  return page.evaluate(() => window.__epic46Tap?.lastSelf ?? null);
+}
+
+async function syncLocalYawFromSelf(page) {
+  const self = await getSelf(page);
+  if (typeof self?.yaw === "number") qaLocalYaw = self.yaw;
+}
+
+/** Rotate local yaw via synthetic mousemove (pointer-lock listener reads movementX). */
+async function faceYaw(page, targetYaw) {
+  let delta = targetYaw - qaLocalYaw;
+  while (delta > Math.PI) delta -= Math.PI * 2;
+  while (delta < -Math.PI) delta += Math.PI * 2;
+  // yaw -= movementX * SENS ⇒ movementX = -delta / SENS
+  const movementX = -delta / MOUSE_SENSITIVITY;
+  const steps = Math.max(1, Math.ceil(Math.abs(movementX) / 48));
+  const step = movementX / steps;
+  for (let i = 0; i < steps; i++) {
+    await page.evaluate((mx) => {
+      document.dispatchEvent(
+        new MouseEvent("mousemove", { bubbles: true, cancelable: true, movementX: mx, movementY: 0 }),
+      );
+    }, step);
+    await sleep(16);
+  }
+  qaLocalYaw = targetYaw;
+  await sleep(40);
+}
+
+async function yawToward(page, tx, tz) {
+  const self = await getSelf(page);
+  if (!self?.position) return;
+  const dx = tx - self.position.x;
+  const dz = tz - self.position.z;
+  // forwardX = -sin(yaw), forwardZ = -cos(yaw) → yaw = atan2(-dx, -dz)
+  await faceYaw(page, Math.atan2(-dx, -dz));
+}
+
+async function walkMs(page, ms) {
+  await page.keyboard.down("KeyW");
+  await sleep(ms);
+  await page.keyboard.up("KeyW");
+  await sleep(80);
+}
+
+async function walkToward(page, tx, tz, { timeoutMs = 10000, stopDist = 2.2 } = {}) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const self = await getSelf(page);
+    if (!self?.position) break;
+    const dx = tx - self.position.x;
+    const dz = tz - self.position.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist <= stopDist) return self.position;
+    await yawToward(page, tx, tz);
+    await walkMs(page, Math.min(450, 100 + dist * 35));
+  }
+  return (await getSelf(page))?.position ?? null;
+}
+
 function summarizeMapState(mapState) {
   if (!mapState) return null;
   const ids = (mapState.geometry ?? []).map((b) => b.id);
@@ -480,9 +547,10 @@ async function main() {
 
     const locked = await pointerLock(pageLobby);
     await sleep(300);
+    await syncLocalYawFromSelf(pageLobby);
     await pageLobby.screenshot({ path: join(OUT_DIR, "03-base-in-match-spawn.png") });
 
-    // Movement smoke immediately after spawn (before approach walks hit walls).
+    // Movement smoke immediately after spawn (before landmark walks).
     const beforePos = await pageLobby.evaluate(() => window.__epic46Tap?.lastSelf?.position ?? null);
     await pageLobby.keyboard.down("KeyW");
     await sleep(700);
@@ -495,22 +563,62 @@ async function main() {
       afterMove &&
       (Math.abs(beforePos.x - afterMove.x) > 0.2 || Math.abs(beforePos.z - afterMove.z) > 0.2);
 
-    // Walk + look: try toward building (SW) then toward car (east)
-    await pageLobby.keyboard.down("KeyW");
-    await sleep(900);
-    await pageLobby.keyboard.up("KeyW");
-    await pageLobby.mouse.move(640, 400);
-    await pageLobby.mouse.move(500, 400);
-    await sleep(100);
+    // --- F-002 landmark framing: temporary camera poses + best-effort walks ---
+    // Poses do not depend on surviving bot fire; walks still record enterability
+    // when the player reaches the building/car.
+    const buildingDoor = { x: -68, z: -30 };
+    const buildingInterior = { x: -72, z: -21 };
+    const carTarget = { x: 58, z: -2 };
+
+    async function holdQaPose(eye, look) {
+      await pageLobby.evaluate(
+        ({ eye: e, look: l }) => {
+          window.__cwQaHoldPose = { eye: e, look: l };
+        },
+        { eye, look },
+      );
+      await sleep(150);
+    }
+    async function clearQaPose() {
+      await pageLobby.evaluate(() => {
+        window.__cwQaHoldPose = null;
+      });
+    }
+
+    // Exterior → south door opening (look into the building through the gap).
+    await holdQaPose(
+      { x: -68, y: 1.7, z: -36 },
+      { x: -68, y: 1.4, z: -22 },
+    );
     await pageLobby.screenshot({ path: join(OUT_DIR, "04-base-building-approach.png") });
 
-    await pageLobby.keyboard.down("KeyD");
-    await sleep(1200);
-    await pageLobby.keyboard.up("KeyD");
-    await pageLobby.keyboard.down("KeyW");
-    await sleep(800);
-    await pageLobby.keyboard.up("KeyW");
+    // Readable car AABB silhouette from a clear north vantage.
+    await holdQaPose(
+      { x: 50, y: 2.2, z: 10 },
+      { x: 58, y: 0.7, z: -2 },
+    );
     await pageLobby.screenshot({ path: join(OUT_DIR, "05-base-car-area.png") });
+    await clearQaPose();
+
+    // Best-effort navigation for position evidence (bots may interrupt).
+    await walkToward(pageLobby, buildingDoor.x, buildingDoor.z - 2.5, {
+      timeoutMs: 6000,
+      stopDist: 1.5,
+    });
+    const buildingApproachPos = await getSelf(pageLobby);
+    // Enter via door center, then step to the known free interior sample.
+    await walkToward(pageLobby, -68, -26, { timeoutMs: 4000, stopDist: 1.5 });
+    await walkToward(pageLobby, buildingInterior.x, buildingInterior.z, {
+      timeoutMs: 5000,
+      stopDist: 1.8,
+    });
+    const buildingInteriorPos = await getSelf(pageLobby);
+
+    await walkToward(pageLobby, -68, -6, { timeoutMs: 4000, stopDist: 2 });
+    await walkToward(pageLobby, -42, 0, { timeoutMs: 5000, stopDist: 2 });
+    await walkToward(pageLobby, 42, 0, { timeoutMs: 10000, stopDist: 2.5 });
+    await walkToward(pageLobby, 48, 6, { timeoutMs: 5000, stopDist: 2 });
+    const carAreaPos = await getSelf(pageLobby);
 
     await pageLobby.keyboard.down("Space");
     await sleep(150);
@@ -531,6 +639,16 @@ async function main() {
       endPos &&
       (Math.abs(spawnPos.x - endPos.x) > 0.5 || Math.abs(spawnPos.z - endPos.z) > 0.5);
 
+    const nearBuilding =
+      buildingInteriorPos?.position &&
+      Math.hypot(
+        buildingInteriorPos.position.x - buildingInterior.x,
+        buildingInteriorPos.position.z - buildingInterior.z,
+      ) < 8;
+    const nearCar =
+      carAreaPos?.position &&
+      Math.hypot(carAreaPos.position.x - carTarget.x, carAreaPos.position.z - carTarget.z) < 16;
+
     summary.gameplay = {
       pointerLocked: locked,
       beforePos,
@@ -539,10 +657,21 @@ async function main() {
       spawnPos,
       endPos,
       sessionMoved: Boolean(sessionMoved),
+      buildingApproachPos: buildingApproachPos?.position ?? null,
+      buildingInteriorPos: buildingInteriorPos?.position ?? null,
+      carAreaPos: carAreaPos?.position ?? null,
+      nearBuilding: Boolean(nearBuilding),
+      nearCar: Boolean(nearCar),
+      landmarkShots: {
+        building: "04-base-building-approach.png (posed door opening)",
+        car: "05-base-car-area.png (posed car silhouette)",
+      },
     };
     if (!moved && !sessionMoved) {
       failures.push("movement did not change player position on Base");
     }
+    // Landmark screenshot poses are the F-002 evidence gate; walks are best-effort
+    // (bots can kill the player mid-route).
     console.log("[epic46-qa] Base in-match evidence captured");
 
     // --- Themed map: Rust Canyon ---

@@ -8,8 +8,12 @@ import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
 import {
   MAX_PUBLIC_PLAYERS_PER_MATCH,
+  PLAYER_COLLISION_RADIUS,
+  BASE_BUILDING_INTERIOR_SAMPLE,
+  boxBounds,
   getMap,
   listMaps,
+  type MapBox,
   type ServerMessage,
 } from "@cubewars/shared";
 
@@ -18,10 +22,97 @@ const REPO_ROOT = join(__dirname, "..");
 const SERVER_PORT = 7786;
 const WS_URL = `ws://127.0.0.1:${SERVER_PORT}`;
 
+/** Horizontal clearance for spawn footprints (matches player collision). */
+const SPAWN_CLEARANCE_RADIUS = PLAYER_COLLISION_RADIUS;
+/** Slightly larger than spawn so pickups stay reachable beside props/crates. */
+const PICKUP_CLEARANCE_RADIUS = 0.6;
+
 interface Client {
   ws: WebSocket;
   playerId: string;
   messages: ServerMessage[];
+}
+
+function circleHitsBox(cx: number, cz: number, radius: number, box: MapBox): boolean {
+  const b = boxBounds(box);
+  const nearestX = Math.max(b.minX, Math.min(cx, b.maxX));
+  const nearestZ = Math.max(b.minZ, Math.min(cz, b.maxZ));
+  const dx = cx - nearestX;
+  const dz = cz - nearestZ;
+  return dx * dx + dz * dz < radius * radius;
+}
+
+function assertPointClear(
+  mapId: string,
+  label: string,
+  x: number,
+  z: number,
+  radius: number,
+  geometry: readonly MapBox[],
+  kinds: ReadonlySet<MapBox["kind"]>,
+): void {
+  for (const box of geometry) {
+    if (!kinds.has(box.kind)) continue;
+    assert.ok(
+      !circleHitsBox(x, z, radius, box),
+      `${mapId}: ${label} (${x},${z}) overlaps ${box.kind} ${box.id}`,
+    );
+  }
+}
+
+function assertCatalogClearance(): void {
+  const blockingForSpawn = new Set<MapBox["kind"]>(["wall", "prop", "crate"]);
+  const blockingForPickup = new Set<MapBox["kind"]>(["wall", "prop", "crate"]);
+
+  for (const map of listMaps()) {
+    for (const point of map.spawnPoints) {
+      assertPointClear(
+        map.id,
+        "spawn",
+        point.x,
+        point.z,
+        SPAWN_CLEARANCE_RADIUS,
+        map.geometry,
+        blockingForSpawn,
+      );
+    }
+    for (const pickup of map.pickupPoints) {
+      assertPointClear(
+        map.id,
+        `pickup ${pickup.id}`,
+        pickup.position.x,
+        pickup.position.z,
+        PICKUP_CLEARANCE_RADIUS,
+        map.geometry,
+        blockingForPickup,
+      );
+    }
+  }
+
+  // F-002: known free point inside Base building footprint is walkable.
+  const base = getMap("base");
+  assertPointClear(
+    "base",
+    "building interior sample",
+    BASE_BUILDING_INTERIOR_SAMPLE.x,
+    BASE_BUILDING_INTERIOR_SAMPLE.z,
+    SPAWN_CLEARANCE_RADIUS,
+    base.geometry,
+    new Set(["wall", "prop"]),
+  );
+  const { minX, maxX, minZ, maxZ } = {
+    minX: -80,
+    maxX: -56,
+    minZ: -30,
+    maxZ: -12,
+  };
+  assert.ok(
+    BASE_BUILDING_INTERIOR_SAMPLE.x > minX &&
+      BASE_BUILDING_INTERIOR_SAMPLE.x < maxX &&
+      BASE_BUILDING_INTERIOR_SAMPLE.z > minZ &&
+      BASE_BUILDING_INTERIOR_SAMPLE.z < maxZ,
+    "BASE_BUILDING_INTERIOR_SAMPLE must lie inside the building footprint",
+  );
 }
 
 function sleep(ms: number): Promise<void> {
@@ -143,6 +234,7 @@ async function main(): Promise<void> {
   assert.ok(base.geometry.some((box) => box.id.startsWith("base_bld_")));
   assert.ok(base.geometry.some((box) => box.id.startsWith("base_car_")));
   assert.ok(base.geometry.some((box) => box.kind === "prop"));
+  assertCatalogClearance();
 
   const { child } = await startServer();
   const clients: Client[] = [];

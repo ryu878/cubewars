@@ -1,17 +1,23 @@
 // EPIC 46 themed static maps — same ~184×104 envelope as Base, AABB-only.
+// Pickup/spawn points are placed per-map so footprints stay clear of
+// walls/props/crates (EPIC 46 Critic F-001) — do not blind-reuse
+// `standardPickups()` centers that sit on landmark geometry.
 
 import type { MapDefinition } from "./types.js";
 import { STANDARD_MAP_BOUNDS } from "./types.js";
 import {
+  ammoPickup,
+  armorPickup,
   carSilhouette,
   crate,
+  healthPickup,
   outerWalls,
   prop,
   spawn,
-  standardPickups,
   wall,
   wallWithDoorAlongX,
   wallWithDoorAlongZ,
+  weaponPickup,
 } from "./primitives.js";
 
 const B = STANDARD_MAP_BOUNDS;
@@ -51,18 +57,33 @@ export const RUST_CANYON: MapDefinition = {
     crate("rc_crate_bed2", 0, 16, 2.5, 2.5),
   ],
   spawnPoints: [
-    spawn(-70, -40),
+    spawn(-78, -44),
     spawn(-70, 0),
-    spawn(-70, 40),
-    spawn(70, -40),
+    spawn(-78, 44),
+    spawn(78, -44),
     spawn(70, 0),
-    spawn(70, 40),
+    spawn(78, 44),
     spawn(-40, -44),
     spawn(40, 44),
     spawn(0, -44),
     spawn(0, 44),
   ],
-  pickupPoints: standardPickups("rc"),
+  pickupPoints: [
+    weaponPickup("rc_weapon_rifle_a", "rifle", -70, 36),
+    weaponPickup("rc_weapon_rifle_b", "rifle", 70, -36),
+    weaponPickup("rc_weapon_gl_mid", "grenade_launcher", 0, 0),
+    weaponPickup("rc_weapon_gl_north", "grenade_launcher", 0, 44),
+    ammoPickup("rc_ammo_rifle_a", "rifle", -70, -36),
+    ammoPickup("rc_ammo_rifle_b", "rifle", 70, 36),
+    ammoPickup("rc_ammo_gl_a", "grenade_launcher", -8, 44),
+    ammoPickup("rc_ammo_gl_b", "grenade_launcher", 8, -44),
+    healthPickup("rc_health_a", -70, 0),
+    healthPickup("rc_health_b", 70, 0),
+    healthPickup("rc_health_c", 0, -44),
+    armorPickup("rc_armor_a", -30, 44),
+    armorPickup("rc_armor_b", 30, -44),
+    armorPickup("rc_armor_c", 12, 20),
+  ],
 };
 
 export const GLASS_DOME: MapDefinition = {
@@ -99,18 +120,33 @@ export const GLASS_DOME: MapDefinition = {
     prop("gd_ruin2", 55, 1, 0, 8, 2, 3),
   ],
   spawnPoints: [
-    spawn(-70, -40),
-    spawn(-70, 40),
-    spawn(70, -40),
-    spawn(70, 40),
-    spawn(-50, 0),
-    spawn(50, 0),
+    spawn(-78, -44),
+    spawn(-78, 44),
+    spawn(78, -44),
+    spawn(78, 44),
+    spawn(-50, 8),
+    spawn(50, -8),
     spawn(0, -44),
     spawn(0, 44),
     spawn(-12, -16),
     spawn(12, 16),
   ],
-  pickupPoints: standardPickups("gd"),
+  pickupPoints: [
+    weaponPickup("gd_weapon_rifle_a", "rifle", -70, 36),
+    weaponPickup("gd_weapon_rifle_b", "rifle", 70, -36),
+    weaponPickup("gd_weapon_gl_mid", "grenade_launcher", 0, 8),
+    weaponPickup("gd_weapon_gl_north", "grenade_launcher", 0, 44),
+    ammoPickup("gd_ammo_rifle_a", "rifle", -70, -36),
+    ammoPickup("gd_ammo_rifle_b", "rifle", 70, 36),
+    ammoPickup("gd_ammo_gl_a", "grenade_launcher", -20, 44),
+    ammoPickup("gd_ammo_gl_b", "grenade_launcher", 20, -44),
+    healthPickup("gd_health_a", -80, 0),
+    healthPickup("gd_health_b", 80, 0),
+    healthPickup("gd_health_c", 0, -44),
+    armorPickup("gd_armor_a", -24, 44),
+    armorPickup("gd_armor_b", 24, -44),
+    armorPickup("gd_armor_c", 0, 20),
+  ],
 };
 
 export const DEAD_STATION: MapDefinition = {
@@ -155,7 +191,22 @@ export const DEAD_STATION: MapDefinition = {
     spawn(-20, 0),
     spawn(20, 0),
   ],
-  pickupPoints: standardPickups("ds"),
+  pickupPoints: [
+    weaponPickup("ds_weapon_rifle_a", "rifle", -70, 36),
+    weaponPickup("ds_weapon_rifle_b", "rifle", 70, -36),
+    weaponPickup("ds_weapon_gl_mid", "grenade_launcher", 0, 12),
+    weaponPickup("ds_weapon_gl_north", "grenade_launcher", 12, 44),
+    ammoPickup("ds_ammo_rifle_a", "rifle", -70, -36),
+    ammoPickup("ds_ammo_rifle_b", "rifle", 70, 36),
+    ammoPickup("ds_ammo_gl_a", "grenade_launcher", -20, 44),
+    ammoPickup("ds_ammo_gl_b", "grenade_launcher", 20, -44),
+    healthPickup("ds_health_a", -70, 8),
+    healthPickup("ds_health_b", 70, -8),
+    healthPickup("ds_health_c", 0, -44),
+    armorPickup("ds_armor_a", -30, 44),
+    armorPickup("ds_armor_b", 30, -44),
+    armorPickup("ds_armor_c", 12, 20),
+  ],
 };
 
 export const FUEL_DEPOT: MapDefinition = {
@@ -201,7 +252,22 @@ export const FUEL_DEPOT: MapDefinition = {
     spawn(0, -44),
     spawn(0, 44),
   ],
-  pickupPoints: standardPickups("fd"),
+  pickupPoints: [
+    weaponPickup("fd_weapon_rifle_a", "rifle", -80, 36),
+    weaponPickup("fd_weapon_rifle_b", "rifle", 80, -36),
+    weaponPickup("fd_weapon_gl_mid", "grenade_launcher", 0, 8),
+    weaponPickup("fd_weapon_gl_north", "grenade_launcher", 0, 44),
+    ammoPickup("fd_ammo_rifle_a", "rifle", -80, -36),
+    ammoPickup("fd_ammo_rifle_b", "rifle", 80, 36),
+    ammoPickup("fd_ammo_gl_a", "grenade_launcher", -35, 44),
+    ammoPickup("fd_ammo_gl_b", "grenade_launcher", 35, -44),
+    healthPickup("fd_health_a", -80, 12),
+    healthPickup("fd_health_b", 80, -12),
+    healthPickup("fd_health_c", 0, -44),
+    armorPickup("fd_armor_a", -30, 44),
+    armorPickup("fd_armor_b", 30, -44),
+    armorPickup("fd_armor_c", 12, 8),
+  ],
 };
 
 export const CRYSTAL_CAVE: MapDefinition = {
@@ -230,18 +296,33 @@ export const CRYSTAL_CAVE: MapDefinition = {
     crate("cc_crate_d", 10, -20),
   ],
   spawnPoints: [
-    spawn(-70, -40),
-    spawn(-70, 40),
-    spawn(70, -40),
-    spawn(70, 40),
+    spawn(-78, -44),
+    spawn(-78, 44),
+    spawn(78, -44),
+    spawn(78, 44),
     spawn(-50, 0),
     spawn(50, 0),
-    spawn(0, -44),
-    spawn(0, 44),
+    spawn(0, -48),
+    spawn(0, 48),
     spawn(-10, -20),
     spawn(10, 20),
   ],
-  pickupPoints: standardPickups("cc"),
+  pickupPoints: [
+    weaponPickup("cc_weapon_rifle_a", "rifle", -70, 36),
+    weaponPickup("cc_weapon_rifle_b", "rifle", 70, -36),
+    weaponPickup("cc_weapon_gl_mid", "grenade_launcher", 12, 0),
+    weaponPickup("cc_weapon_gl_north", "grenade_launcher", 0, 48),
+    ammoPickup("cc_ammo_rifle_a", "rifle", -70, -36),
+    ammoPickup("cc_ammo_rifle_b", "rifle", 70, 36),
+    ammoPickup("cc_ammo_gl_a", "grenade_launcher", -20, 48),
+    ammoPickup("cc_ammo_gl_b", "grenade_launcher", 20, -48),
+    healthPickup("cc_health_a", -70, 0),
+    healthPickup("cc_health_b", 70, 0),
+    healthPickup("cc_health_c", 0, -48),
+    armorPickup("cc_armor_a", -24, 48),
+    armorPickup("cc_armor_b", 24, -48),
+    armorPickup("cc_armor_c", 0, 20),
+  ],
 };
 
 export const ABYSS_BRIDGE: MapDefinition = {
@@ -283,7 +364,22 @@ export const ABYSS_BRIDGE: MapDefinition = {
     spawn(0, -40),
     spawn(0, 40),
   ],
-  pickupPoints: standardPickups("ab"),
+  pickupPoints: [
+    weaponPickup("ab_weapon_rifle_a", "rifle", -70, 36),
+    weaponPickup("ab_weapon_rifle_b", "rifle", 70, -36),
+    weaponPickup("ab_weapon_gl_mid", "grenade_launcher", 0, 12),
+    weaponPickup("ab_weapon_gl_north", "grenade_launcher", 0, 44),
+    ammoPickup("ab_ammo_rifle_a", "rifle", -70, -36),
+    ammoPickup("ab_ammo_rifle_b", "rifle", 70, 36),
+    ammoPickup("ab_ammo_gl_a", "grenade_launcher", -20, 44),
+    ammoPickup("ab_ammo_gl_b", "grenade_launcher", 20, -44),
+    healthPickup("ab_health_a", -70, 0),
+    healthPickup("ab_health_b", 70, 0),
+    healthPickup("ab_health_c", 0, -40),
+    armorPickup("ab_armor_a", -24, 44),
+    armorPickup("ab_armor_b", 24, -44),
+    armorPickup("ab_armor_c", 12, 32),
+  ],
 };
 
 export const ELITE_QUARTER: MapDefinition = {
@@ -332,14 +428,30 @@ export const ELITE_QUARTER: MapDefinition = {
     spawn(-70, 40),
     spawn(70, -40),
     spawn(70, 40),
-    spawn(-65, 22),
-    spawn(65, -22),
+    // Inside NW/SE blocks but clear of rubble props (was (-65,22)/(65,-22))
+    spawn(-65, 16),
+    spawn(65, -16),
     spawn(-30, 0),
     spawn(30, 0),
     spawn(0, -44),
     spawn(0, 44),
   ],
-  pickupPoints: standardPickups("eq"),
+  pickupPoints: [
+    weaponPickup("eq_weapon_rifle_a", "rifle", -40, 44),
+    weaponPickup("eq_weapon_rifle_b", "rifle", 40, -44),
+    weaponPickup("eq_weapon_gl_mid", "grenade_launcher", 0, 0),
+    weaponPickup("eq_weapon_gl_north", "grenade_launcher", 12, 46),
+    ammoPickup("eq_ammo_rifle_a", "rifle", -40, -44),
+    ammoPickup("eq_ammo_rifle_b", "rifle", 40, 44),
+    ammoPickup("eq_ammo_gl_a", "grenade_launcher", -30, 44),
+    ammoPickup("eq_ammo_gl_b", "grenade_launcher", 30, -44),
+    healthPickup("eq_health_a", -85, 0),
+    healthPickup("eq_health_b", 85, 0),
+    healthPickup("eq_health_c", 12, -46),
+    armorPickup("eq_armor_a", -30, 46),
+    armorPickup("eq_armor_b", 30, -46),
+    armorPickup("eq_armor_c", 12, 32),
+  ],
 };
 
 export const THEMED_MAPS: MapDefinition[] = [

@@ -203,7 +203,11 @@ export function armorPickup(id: string, x: number, z: number): PickupSpawnPoint 
   return { id, category: "armor", position: { x, y: 0, z } };
 }
 
-/** Default denser pickup set suitable for 8-player maps (~scaled from original Base). */
+/**
+ * Default denser pickup set for 8-player maps (~scaled from original Base).
+ * Prefer per-map layouts when catalog geometry collides with these centers —
+ * themed maps in `themedMaps.ts` do not reuse this blindly (EPIC 46 F-001).
+ */
 export function standardPickups(prefix: string): PickupSpawnPoint[] {
   return [
     weaponPickup(`${prefix}_weapon_rifle_a`, "rifle", -70, 36),

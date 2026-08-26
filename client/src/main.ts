@@ -291,10 +291,27 @@ window.addEventListener("resize", () => {
 });
 
 const clock = new THREE.Clock();
+
+/**
+ * EPIC 46 F-002 QA hook: Playwright can hold a temporary eye/look-at pose so
+ * landmark screenshots (building door / car) actually frame the AABB props.
+ * Cleared after capture; does not affect server authority.
+ */
+type QaHoldPose = {
+  eye: { x: number; y: number; z: number };
+  look: { x: number; y: number; z: number };
+};
+(window as unknown as { __cwQaHoldPose?: QaHoldPose | null }).__cwQaHoldPose = null;
+
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.1); // clamp so a tab-switch pause doesn't cause a huge jump
   fps.update(dt);
+  const qaPose = (window as unknown as { __cwQaHoldPose?: QaHoldPose | null }).__cwQaHoldPose;
+  if (qaPose) {
+    camera.position.set(qaPose.eye.x, qaPose.eye.y, qaPose.eye.z);
+    camera.lookAt(qaPose.look.x, qaPose.look.y, qaPose.look.z);
+  }
   viewmodel.update(dt);
   // EPIC 14 Story 14.3: drives the footstep cadence timer — fps.isRunning()
   // already folds in "locked AND alive AND grounded AND actually moving

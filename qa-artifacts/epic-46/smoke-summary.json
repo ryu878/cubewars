@@ -100,11 +100,11 @@
     },
     "joinMapId": "base",
     "self": {
-      "id": "3dffe9a0-e30f-471b-8cac-c65e393dc264",
+      "id": "835ca580-5378-4f33-924e-48601a716161",
       "position": {
-        "x": -49.21614803803007,
+        "x": -66.07202478140437,
         "y": 0,
-        "z": 45.981637424997004
+        "z": -0.20434860918290115
       },
       "alive": true,
       "yaw": 0
@@ -160,27 +160,48 @@
   "gameplay": {
     "pointerLocked": true,
     "beforePos": {
-      "x": -49.21614803803007,
+      "x": -66.07202478140437,
       "y": 0,
-      "z": 45.981637424997004
+      "z": -0.20434860918290115
     },
     "afterMove": {
-      "x": -49.21614803803007,
+      "x": -66.07202478140437,
       "y": 0,
-      "z": 36.671637424997115
+      "z": -10.179348609182895
     },
     "moved": true,
     "spawnPos": {
-      "x": -49.21614803803007,
+      "x": -66.07202478140437,
       "y": 0,
-      "z": 45.981637424997004
+      "z": -0.20434860918290115
     },
     "endPos": {
-      "x": -32.65804100875695,
+      "x": 48.558087062022565,
       "y": 0,
-      "z": 24.9
+      "z": 6.08233645301825
     },
-    "sessionMoved": true
+    "sessionMoved": true,
+    "buildingApproachPos": {
+      "x": -67.93135870703665,
+      "y": 0,
+      "z": -32.00365923687217
+    },
+    "buildingInteriorPos": {
+      "x": -72.28334784680075,
+      "y": 0,
+      "z": -20.65329449302169
+    },
+    "carAreaPos": {
+      "x": 48.558087062022565,
+      "y": 0,
+      "z": 6.08233645301825
+    },
+    "nearBuilding": true,
+    "nearCar": true,
+    "landmarkShots": {
+      "building": "04-base-building-approach.png (posed door opening)",
+      "car": "05-base-car-area.png (posed car silhouette)"
+    }
   },
   "consoleErrors": []
 }

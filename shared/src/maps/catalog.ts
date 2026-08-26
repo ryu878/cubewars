@@ -35,4 +35,5 @@ export function resolveMapId(mapId: unknown): MapId | null {
 }
 
 export { BASE_MAP, DEFAULT_MAP_ID, isMapId };
+export { BASE_BUILDING_INTERIOR_SAMPLE } from "./base.js";
 export type { MapDefinition, MapId };
