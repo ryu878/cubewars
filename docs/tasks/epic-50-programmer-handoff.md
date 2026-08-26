@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-26 |
 | Author (Pusya) | Pusya (Programmer) |
 | Task / Story / EPIC | EPIC 50 — Half-size maps + pet inventory clarity & type icons |
-| Branch / commit / PR | `task/epic-50-half-maps-pet-clarity` — see PR (opened after this handoff) |
+| Branch / commit / PR | `task/epic-50-half-maps-pet-clarity` @ `2d43a76` — compare: https://github.com/ryu878/cubewars/compare/master...task/epic-50-half-maps-pet-clarity (`gh pr create` blocked: GraphQL repo resolve) |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
