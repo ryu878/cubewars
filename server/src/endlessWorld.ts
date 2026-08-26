@@ -1,16 +1,15 @@
 import {
+  CRATE_HEIGHT,
+  CRATE_Y,
   MOVEMENT,
+  WALL_HEIGHT,
+  WALL_Y,
   type MapBox,
   type PickupCategory,
   type PickupSpawnPoint,
   type Vector3,
   type WeaponType,
 } from "@cubewars/shared";
-
-const WALL_HEIGHT = 4;
-const WALL_Y = WALL_HEIGHT / 2;
-const CRATE_HEIGHT = 1.2;
-const CRATE_Y = CRATE_HEIGHT / 2;
 
 const MAZE_HALF_WIDTH = 22;
 const CHUNK_LENGTH = 28;

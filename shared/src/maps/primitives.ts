@@ -173,6 +173,101 @@ export function carSilhouette(idPrefix: string, cx: number, cz: number, yawDeg =
   ];
 }
 
+/**
+ * Military tank wreck: hull + turret + short track stubs (EPIC 49 silhouette).
+ * Keep clear of spawn/pickup footprints when placing.
+ */
+export function tankWreck(idPrefix: string, cx: number, cz: number): MapBox[] {
+  return [
+    prop(`${idPrefix}_hull`, cx, 1.1, cz, 5.5, 2.2, 3.0),
+    prop(`${idPrefix}_turret`, cx + 0.6, 2.5, cz, 2.4, 1.2, 2.4),
+    prop(`${idPrefix}_track_l`, cx, 0.45, cz + 1.7, 5.2, 0.9, 0.55),
+    prop(`${idPrefix}_track_r`, cx, 0.45, cz - 1.7, 5.2, 0.9, 0.55),
+  ];
+}
+
+/** Fuel cistern: fat tank + rim + short pipe stub. */
+export function cisternProp(idPrefix: string, cx: number, cz: number, scale = 1): MapBox[] {
+  const s = scale;
+  return [
+    prop(`${idPrefix}_cistern`, cx, 2.5 * s, cz, 10 * s, 5 * s, 10 * s),
+    prop(`${idPrefix}_rim`, cx, 5.1 * s, cz, 10.4 * s, 0.35 * s, 10.4 * s),
+    prop(`${idPrefix}_pipe`, cx + 5.5 * s, 1.2 * s, cz, 2.2 * s, 0.5 * s, 0.5 * s),
+  ];
+}
+
+/** Crystal pillar + side shards (emissive materials match `cc_crystal_` / `_crystal_`). */
+export function crystalCluster(idPrefix: string, cx: number, cz: number, h = 5): MapBox[] {
+  return [
+    prop(`${idPrefix}_crystal_main`, cx, h / 2, cz, 2.4, h, 2.4),
+    prop(`${idPrefix}_crystal_a`, cx + 1.6, h * 0.35, cz + 0.8, 1.2, h * 0.7, 1.2),
+    prop(`${idPrefix}_crystal_b`, cx - 1.4, h * 0.28, cz - 1.0, 1.0, h * 0.55, 1.0),
+  ];
+}
+
+/** Low rock / ridge pile for canyon beds. */
+export function rockPile(idPrefix: string, cx: number, cz: number): MapBox[] {
+  return [
+    prop(`${idPrefix}_rock_a`, cx, 0.7, cz, 3.5, 1.4, 2.8),
+    prop(`${idPrefix}_rock_b`, cx + 2.2, 0.45, cz + 1.2, 2.2, 0.9, 2.0),
+    prop(`${idPrefix}_rock_c`, cx - 1.8, 0.55, cz - 0.8, 2.0, 1.1, 1.8),
+  ];
+}
+
+/** Collapsed rubble heap (multi-box, reads as ruined roof/cover). */
+export function rubbleHeap(idPrefix: string, cx: number, cz: number): MapBox[] {
+  return [
+    prop(`${idPrefix}_rubble_base`, cx, 0.7, cz, 7, 1.4, 5),
+    prop(`${idPrefix}_rubble_top`, cx + 1.2, 1.6, cz - 0.5, 3.5, 1.0, 3.2),
+    prop(`${idPrefix}_rubble_chunk`, cx - 2.0, 1.3, cz + 1.2, 2.4, 0.9, 2.0),
+  ];
+}
+
+/** Barrel cluster for fuel alleys. */
+export function barrelCluster(idPrefix: string, cx: number, cz: number): MapBox[] {
+  return [
+    prop(`${idPrefix}_barrel_a`, cx, 0.7, cz, 1.1, 1.4, 1.1),
+    prop(`${idPrefix}_barrel_b`, cx + 1.3, 0.7, cz + 0.4, 1.1, 1.4, 1.1),
+    prop(`${idPrefix}_barrel_c`, cx - 0.4, 0.7, cz + 1.3, 1.1, 1.4, 1.1),
+  ];
+}
+
+/**
+ * Cable-stay segments as thin tall-ish boxes between two X positions at fixed Z.
+ * Visual landmark for abyss bridge; still shared AABB collision.
+ */
+export function cableStay(
+  idPrefix: string,
+  x0: number,
+  x1: number,
+  z: number,
+  y: number,
+  segments = 4,
+): MapBox[] {
+  const out: MapBox[] = [];
+  const dx = x1 - x0;
+  for (let i = 0; i < segments; i++) {
+    const t0 = i / segments;
+    const t1 = (i + 1) / segments;
+    const mid = (t0 + t1) / 2;
+    const cx = x0 + dx * mid;
+    const len = Math.abs(dx) / segments;
+    // Sag: lower in the middle of the span.
+    const sag = Math.sin(Math.PI * mid) * 1.2;
+    out.push(prop(`${idPrefix}_cable_${i}`, cx, y - sag, z, Math.max(0.8, len), 0.25, 0.25));
+  }
+  return out;
+}
+
+/** Low vegetation blocks (kind crate so climbable; client greens by id). */
+export function vegPatch(idPrefix: string, cx: number, cz: number): MapBox[] {
+  return [
+    crate(`${idPrefix}_veg_a`, cx, cz, 2.8, 2.8, 1.6),
+    crate(`${idPrefix}_veg_b`, cx + 2.5, cz + 1.2, 2.2, 2.2, 1.9),
+    crate(`${idPrefix}_bush_c`, cx - 2.0, cz - 1.0, 2.0, 2.0, 1.4),
+  ];
+}
+
 export function spawn(x: number, z: number, y = 0): Vector3 {
   return { x, y, z };
 }

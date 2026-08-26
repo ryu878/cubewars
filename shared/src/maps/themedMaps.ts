@@ -1,14 +1,23 @@
 // EPIC 46 themed static maps — same ~184×104 envelope as Base, AABB-only.
 // EPIC 47: denser interior cover. EPIC 48: balanced/spread pickups via densify.
+// EPIC 49: multi-box thematic props (tanks, cisterns, crystals, cables, rubble).
 
 import type { MapDefinition } from "./types.js";
 import { STANDARD_MAP_BOUNDS } from "./types.js";
 import {
+  barrelCluster,
+  cableStay,
   carSilhouette,
+  cisternProp,
   crate,
+  crystalCluster,
   outerWalls,
   prop,
+  rockPile,
+  rubbleHeap,
   spawn,
+  tankWreck,
+  vegPatch,
   wall,
   wallWithDoorAlongX,
   wallWithDoorAlongZ,
@@ -33,8 +42,10 @@ const RUST_CANYON_GEOMETRY = [
   wall("rc_rail_s_b", 20, -36, 1, 8),
   ...carSilhouette("rc_wreck_a", -50, -20),
   ...carSilhouette("rc_wreck_b", 55, 18),
-  prop("rc_tank_hull", -60, 1.2, 20, 6, 2.4, 3.2),
-  prop("rc_tank_turret", -58, 2.6, 20, 2.5, 1.2, 2.5),
+  // EPIC 49: fuller tank wreck + dry-bed rocks (away from corner spawns)
+  ...tankWreck("rc_tank", -60, 20),
+  ...rockPile("rc_bed_w", -8, -28),
+  ...rockPile("rc_bed_e", 8, 28),
   crate("rc_crate_a", -70, -40),
   crate("rc_crate_b", 70, 40),
   crate("rc_crate_c", -40, 40),
@@ -51,6 +62,8 @@ const RUST_CANYON_GEOMETRY = [
   wall("rc_bunker_w", -70, 12, 10, 1),
   wall("rc_bunker_e", 70, -12, 10, 1),
   ...carSilhouette("rc_wreck_c", 0, -40),
+  prop("rc_rail_post_w", -28, 1.2, 6, 0.6, 2.4, 0.6),
+  prop("rc_rail_post_e", 28, 1.2, -6, 0.6, 2.4, 0.6),
 ];
 
 export const RUST_CANYON: MapDefinition = {
@@ -94,14 +107,16 @@ const GLASS_DOME_GEOMETRY = [
   crate("gd_veg_3", -6, 12, 2.5, 2.5, 1.8),
   crate("gd_veg_4", 8, -14, 2.5, 2.5, 1.8),
   crate("gd_veg_5", 0, 0, 2, 2, 2.2),
+  // EPIC 49: denser interior vegetation silhouette
+  ...vegPatch("gd_grove", -10, 4),
   crate("gd_lab_a", -16, 0, 2, 4),
   crate("gd_lab_b", 16, 0, 2, 4),
   crate("gd_out_a", -70, -40),
   crate("gd_out_b", 70, 40),
   crate("gd_out_c", -70, 40),
   crate("gd_out_d", 70, -40),
-  prop("gd_ruin", -55, 1, 0, 8, 2, 3),
-  prop("gd_ruin2", 55, 1, 0, 8, 2, 3),
+  ...rubbleHeap("gd_ruin", -55, 0),
+  ...rubbleHeap("gd_ruin2", 55, 0),
   // EPIC 47: outer wasteland cover rings
   wall("gd_outer_arc_n", 0, 48, 36, 1),
   wall("gd_outer_arc_s", 0, -48, 36, 1),
@@ -148,7 +163,11 @@ const DEAD_STATION_GEOMETRY = [
   wall("ds_run_n_e", 50, 10, 30, 1),
   wall("ds_run_s_w", -50, -10, 30, 1),
   wall("ds_run_s_e", 50, -10, 30, 1),
-  prop("ds_tower", 0, 2, 36, 6, 4, 6),
+  // EPIC 49: taller tower + runway edge markers
+  prop("ds_tower", 0, 3.5, 36, 5, 7, 5),
+  prop("ds_tower_cabin", 0, 7.2, 36, 3.5, 1.4, 3.5),
+  prop("ds_run_marker_w", -25, 0.4, 0, 1.2, 0.8, 1.2),
+  prop("ds_run_marker_e", 25, 0.4, 0, 1.2, 0.8, 1.2),
   crate("ds_crate_a", -55, 0),
   crate("ds_crate_b", 55, 0),
   crate("ds_crate_c", -20, 40),
@@ -164,6 +183,7 @@ const DEAD_STATION_GEOMETRY = [
   wall("ds_hangar_w_inner", -55, 0, 1, 20),
   wall("ds_hangar_e_inner", 55, 0, 1, 20),
   ...carSilhouette("ds_tug", 20, 30),
+  ...carSilhouette("ds_tug_b", -20, -30),
 ];
 
 export const DEAD_STATION: MapDefinition = {
@@ -189,14 +209,15 @@ export const DEAD_STATION: MapDefinition = {
 
 const FUEL_DEPOT_GEOMETRY = [
   ...outerWalls("fd"),
-  prop("fd_tank_a1", -50, 2.5, -30, 10, 5, 10),
-  prop("fd_tank_a2", -50, 2.5, 0, 10, 5, 10),
-  prop("fd_tank_a3", -50, 2.5, 30, 10, 5, 10),
-  prop("fd_tank_b1", 0, 2.5, -30, 10, 5, 10),
-  prop("fd_tank_b2", 0, 2.5, 30, 10, 5, 10),
-  prop("fd_tank_c1", 50, 2.5, -30, 10, 5, 10),
-  prop("fd_tank_c2", 50, 2.5, 0, 10, 5, 10),
-  prop("fd_tank_c3", 50, 2.5, 30, 10, 5, 10),
+  // EPIC 49: cisterns with rim + pipe (ids keep fd_tank_ prefix for materials)
+  ...cisternProp("fd_tank_a1", -50, -30),
+  ...cisternProp("fd_tank_a2", -50, 0),
+  ...cisternProp("fd_tank_a3", -50, 30),
+  ...cisternProp("fd_tank_b1", 0, -30),
+  ...cisternProp("fd_tank_b2", 0, 30),
+  ...cisternProp("fd_tank_c1", 50, -30),
+  ...cisternProp("fd_tank_c2", 50, 0),
+  ...cisternProp("fd_tank_c3", 50, 30),
   wall("fd_pump_row_n", 0, 16, 120, 1),
   wall("fd_pump_row_s", 0, -16, 120, 1),
   wall("fd_alley_w", -25, 0, 1, 24),
@@ -218,6 +239,11 @@ const FUEL_DEPOT_GEOMETRY = [
   crate("fd_crate_g", -35, 8, 2, 2),
   crate("fd_crate_h", 35, -8, 2, 2),
   wall("fd_barrel_row", 0, 0, 16, 1),
+  // EPIC 49 alley barrels
+  ...barrelCluster("fd_alley_w", -18, 8),
+  ...barrelCluster("fd_alley_e", 18, -8),
+  prop("fd_pump_a", -12, 1.2, 16, 1.5, 2.4, 1.5),
+  prop("fd_pump_b", 12, 1.2, -16, 1.5, 2.4, 1.5),
 ];
 
 export const FUEL_DEPOT: MapDefinition = {
@@ -250,6 +276,9 @@ const CRYSTAL_CAVE_GEOMETRY = [
   prop("cc_crystal_e", -55, 1.8, 30, 3, 3.6, 3),
   prop("cc_crystal_f", 55, 1.8, -30, 3, 3.6, 3),
   prop("cc_crystal_g", 0, 3, 0, 5, 6, 5),
+  // EPIC 49: shard clusters for vertical silhouette (clear of corner spawns)
+  ...crystalCluster("cc_pillar_nw", -48, -8, 5.5),
+  ...crystalCluster("cc_pillar_se", 48, 8, 5.5),
   ...wallWithDoorAlongZ("cc_ridge_w", -30, -40, 40, 0, 6),
   ...wallWithDoorAlongZ("cc_ridge_e", 30, -40, 40, 0, 6),
   wall("cc_shelf_n", 0, 40, 50, 4),
@@ -294,8 +323,13 @@ const ABYSS_BRIDGE_GEOMETRY = [
   ...outerWalls("ab"),
   ...wallWithDoorAlongX("ab_deck_n", 8, -70, 70, -20, 8),
   ...wallWithDoorAlongX("ab_deck_s", -8, -70, 70, 20, 8),
-  prop("ab_tower_w", -60, 3, 0, 4, 6, 4),
-  prop("ab_tower_e", 60, 3, 0, 4, 6, 4),
+  prop("ab_tower_w", -60, 4, 0, 4, 8, 4),
+  prop("ab_tower_e", 60, 4, 0, 4, 8, 4),
+  // EPIC 49: cable-stays between towers and deck
+  ...cableStay("ab_stay_n", -58, -8, 4, 7, 5),
+  ...cableStay("ab_stay_s", 8, 58, -4, 7, 5),
+  ...cableStay("ab_stay_n2", -58, -8, -4, 6.5, 4),
+  ...cableStay("ab_stay_s2", 8, 58, 4, 6.5, 4),
   wall("ab_support_w1", -40, -24, 8, 16),
   wall("ab_support_w2", -40, 24, 8, 16),
   wall("ab_support_e1", 40, -24, 8, 16),
@@ -346,22 +380,22 @@ const ELITE_QUARTER_GEOMETRY = [
   ...wallWithDoorAlongX("eq_nw_n", 35, -80, -50, -65, 3),
   wall("eq_nw_w", -80, 22.5, 1, 25),
   wall("eq_nw_e", -50, 22.5, 1, 25),
-  prop("eq_nw_rubble", -65, 0.8, 22, 8, 1.6, 6),
+  ...rubbleHeap("eq_nw", -65, 22),
   ...wallWithDoorAlongX("eq_ne_s", 10, 50, 80, 65, 3),
   ...wallWithDoorAlongX("eq_ne_n", 35, 50, 80, 65, 3),
   wall("eq_ne_w", 50, 22.5, 1, 25),
   wall("eq_ne_e", 80, 22.5, 1, 25),
-  prop("eq_ne_rubble", 65, 0.8, 22, 8, 1.6, 6),
+  ...rubbleHeap("eq_ne", 65, 22),
   ...wallWithDoorAlongX("eq_sw_s", -35, -80, -50, -65, 3),
   ...wallWithDoorAlongX("eq_sw_n", -10, -80, -50, -65, 3),
   wall("eq_sw_w", -80, -22.5, 1, 25),
   wall("eq_sw_e", -50, -22.5, 1, 25),
-  prop("eq_sw_rubble", -65, 0.8, -22, 8, 1.6, 6),
+  ...rubbleHeap("eq_sw", -65, -22),
   ...wallWithDoorAlongX("eq_se_s", -35, 50, 80, 65, 3),
   ...wallWithDoorAlongX("eq_se_n", -10, 50, 80, 65, 3),
   wall("eq_se_w", 50, -22.5, 1, 25),
   wall("eq_se_e", 80, -22.5, 1, 25),
-  prop("eq_se_rubble", 65, 0.8, -22, 8, 1.6, 6),
+  ...rubbleHeap("eq_se", 65, -22),
   wall("eq_plaza_n", 0, 8, 40, 1),
   wall("eq_plaza_s", 0, -8, 40, 1),
   crate("eq_crate_a", -20, 0),
@@ -379,6 +413,9 @@ const ELITE_QUARTER_GEOMETRY = [
   wall("eq_alley_stub_n", 0, 48, 16, 1),
   wall("eq_alley_stub_s", 0, -48, 16, 1),
   ...carSilhouette("eq_car_b", 0, -24),
+  // EPIC 49: upper-floor shell stubs (kept clear of spawn (-65,16)/(65,-16))
+  prop("eq_nw_floor2", -65, 4.5, 28, 14, 0.6, 8),
+  prop("eq_se_floor2", 65, 4.5, -28, 14, 0.6, 8),
 ];
 
 export const ELITE_QUARTER: MapDefinition = {
