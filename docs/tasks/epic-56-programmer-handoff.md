@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-27 |
 | Author (Pusya) | Programmer (Pusya) |
 | Task / Story / EPIC | EPIC 56 — Pet armor max HUD + pet grant integrity + combat HUD typography |
-| Branch / commit / PR | `feature/epic-56-pet-armor-max-hud` / (see HEAD after commit) / PR to `master` |
+| Branch / commit / PR | `feature/epic-56-pet-armor-max-hud` / ef81c3fc24a0c8c47281f7fd2ab616056d82d971 / PR to `master` |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
