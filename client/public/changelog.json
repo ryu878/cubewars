@@ -1,6 +1,11 @@
 [
   {
     "date": "2026-08-27",
+    "title": "EPIC 56 — Pet armor max HUD + readable ratings strip",
+    "body": "Dog Armor above 100 now raises your armor ceiling (e.g. 156/156 on spawn); weaker dogs stay 22/100 with pickups still capped at 100. Combat ratings strip shows readable grants (+145 HP · +156 Armor · +100% Speed · +50% Damage). Health/armor HUD numbers are smaller; the top ratings strip is larger for mid-fight readability."
+  },
+  {
+    "date": "2026-08-27",
     "title": "EPIC 55 — Ammo does not unlock weapons; HUD current/max HP & armor",
     "body": "Ammo crates no longer unlock weapons — they only refill or stockpile ammo; a weapon pickup is required for ownership and E-cycle. HUD HP and ARMOR show server-authoritative current/max (for example 85/245, 22/100). Medkits heal toward your pet-boosted max HP for the current life after damage."
   },

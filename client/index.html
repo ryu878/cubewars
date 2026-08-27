@@ -167,12 +167,10 @@
       .hud-value {
         font-family: system-ui, sans-serif;
         font-weight: 800;
-        /* User's literal ask: "5x bigger" of the pre-EPIC-13 30px health/armor
-           font-size, i.e. 30px * 5 = 150px (EPIC 13 spec Section 3). Measured
-           clean (no overlap/clipping) at 1280x800 with #healthHud/#armorHud
-           repositioned per above, so the literal 5x target is what ships —
-           no dial-back needed for health/armor. */
-        font-size: 150px; /* 30px * 5 (EPIC 13 Story 13.4 literal-5x target) */
+        /* EPIC 56: health/armor values ÷3 from EPIC 13's 150px (literal 5× of
+           pre-EPIC-13 30px). Target ~50px so pet current/max stays readable
+           without dominating the viewport at 1280×800. */
+        font-size: 50px; /* 150px / 3 (EPIC 56 Story 56.3) */
         line-height: 1;
       }
 
@@ -211,14 +209,14 @@
       #ammoValue {
         font-weight: 800;
         /* EPIC 13 Story 13.4 judgment call (spec Section 3): #weaponHud is
-           horizontally centered and flanked by the now-150px-tall
-           #healthHud/#armorHud badges, unlike health/armor which each have
-           their own uncontested corner-ish region. A literal 5x of the old
-           15px weapon-name size (75px) — or anything close to health/armor's
-           150px — visibly overlapped #healthHud/#armorHud at the standard
-           1280x800 QA viewport once the longest weapon name ("Grenade
-           Launcher") plus a multi-digit ammo count share the same centered
-           badge (measured via qa-artifacts/epic-13-programmer-selfcheck/*.png).
+           horizontally centered and flanked by #healthHud/#armorHud badges
+           (health/armor values were 150px then; EPIC 56 shrinks them to ~50px).
+           A literal 5x of the old 15px weapon-name size (75px) — or anything
+           close to the former 150px health/armor — visibly overlapped those
+           badges at the standard 1280x800 QA viewport once the longest weapon
+           name ("Grenade Launcher") plus a multi-digit ammo count share the
+           same centered badge (measured via
+           qa-artifacts/epic-13-programmer-selfcheck/*.png).
            40px is the largest size that stayed clean (visible gap to both
            neighbors, nothing clipped off either screen edge) across every
            owned weapon's longest display name + a 2-digit ammo count —
@@ -2038,14 +2036,19 @@
         position: fixed;
         top: 64px;
         right: 18px;
-        padding: 6px 12px;
+        padding: 10px 16px;
         background: rgba(0, 0, 0, 0.55);
         color: #b8d4a8;
-        font: 600 12px system-ui, sans-serif;
+        /* EPIC 56: ×3 from prior 12px so pet grants are readable mid-fight;
+           allow wrap + max-width so 1280×800 does not clip the right edge. */
+        font: 600 36px system-ui, sans-serif;
+        line-height: 1.2;
         border-radius: 8px;
         z-index: 10;
         pointer-events: none;
-        white-space: nowrap;
+        white-space: normal;
+        max-width: min(72vw, 920px);
+        text-align: right;
       }
       #ratingsHud[hidden] {
         display: none;
@@ -2083,7 +2086,7 @@
       <span class="hud-label" data-i18n="hud.gold">GOLD</span><span id="goldValue">0</span>
     </div>
     <div id="ratingsHud" hidden>
-      <span id="ratingsHudValue">HP 0 · ARM 0 · SPD 0 · DMG 0</span>
+      <span id="ratingsHudValue">+0 HP · +0 Armor · +0% Speed · +0% Damage</span>
     </div>
     <div id="inventoryOverlay" aria-hidden="true">
       <div id="inventoryPanel">

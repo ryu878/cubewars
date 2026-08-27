@@ -7,6 +7,7 @@
 // that always comes from server broadcasts (see main.ts wiring).
 
 import type { WeaponType } from "@cubewars/shared";
+import { formatRatingGrant } from "@cubewars/shared";
 
 const PULSE_MS = 160;
 
@@ -187,8 +188,9 @@ export class CombatHud {
   }
 
   /**
-   * Show equipped pet ratings from server `economy_profile` (EPIC 24).
-   * Display only — never computed from client pet lists.
+   * Show equipped pet ratings from server `economy_profile` (EPIC 24 / EPIC 56).
+   * Display only — never computed from client pet lists. Uses EPIC 51
+   * `formatRatingGrant` labels; only non-zero axes are shown; all-zero hides.
    */
   setRatings(ratings: {
     healthRating: number;
@@ -199,9 +201,25 @@ export class CombatHud {
     const el = document.getElementById("ratingsHud");
     const valueEl = document.getElementById("ratingsHudValue");
     if (!el || !valueEl) return;
-    valueEl.textContent =
-      `HP ${ratings.healthRating} · ARM ${ratings.armorRating} · ` +
-      `SPD ${ratings.speedRating} · DMG ${ratings.damageRating}`;
+    const parts: string[] = [];
+    if (ratings.healthRating > 0) {
+      parts.push(formatRatingGrant("health", ratings.healthRating));
+    }
+    if (ratings.armorRating > 0) {
+      parts.push(formatRatingGrant("armor", ratings.armorRating));
+    }
+    if (ratings.speedRating > 0) {
+      parts.push(formatRatingGrant("speed", ratings.speedRating));
+    }
+    if (ratings.damageRating > 0) {
+      parts.push(formatRatingGrant("damage", ratings.damageRating));
+    }
+    if (parts.length === 0) {
+      valueEl.textContent = "";
+      el.hidden = true;
+      return;
+    }
+    valueEl.textContent = parts.join(" · ");
     el.hidden = false;
   }
 }
