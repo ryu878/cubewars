@@ -1,6 +1,11 @@
 [
   {
     "date": "2026-08-27",
+    "title": "EPIC 57 — Hold-fire all weapons, cooldown ring, rarer repair kits, sandbox bot shards",
+    "body": "Hold left-click to fire every weapon at its own cooldown. Crosshair cooldown ring fills as you recover (full/transparent = ready); no fake muzzle/recoil/sound when dry, on cooldown, spawn-protected, or dead. Repair kits on kills are much rarer (~0.2%). In Sandbox, bots wearing an amulet can grant a shard once per bot; Deathmatch bot kills still give no economy reward."
+  },
+  {
+    "date": "2026-08-27",
     "title": "EPIC 56 — Pet armor max HUD + readable ratings strip",
     "body": "Dog Armor above 100 now raises your armor ceiling (e.g. 156/156 on spawn); weaker dogs stay 22/100 with pickups still capped at 100. Combat ratings strip shows readable grants (+145 HP · +156 Armor · +100% Speed · +50% Damage). Health/armor HUD numbers are smaller; the top ratings strip is larger for mid-fight readability."
   },

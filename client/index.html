@@ -82,6 +82,26 @@
         width: 18px;
         height: 2px;
       }
+      /* EPIC 57: weapon cooldown ring around the crosshair (full+transparent = ready). */
+      #cooldownRing {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 36px;
+        height: 36px;
+        margin: -18px 0 0 -18px;
+        overflow: visible;
+        pointer-events: none;
+      }
+      #cooldownRingArc {
+        fill: none;
+        stroke: rgba(255, 255, 255, 0.75);
+        stroke-width: 2.5;
+        stroke-linecap: round;
+        transform: rotate(-90deg);
+        transform-origin: 18px 18px;
+        opacity: 0;
+      }
 
       /* --- EPIC 11 Story 11.3: health/armor moved to the bottom of the
          screen, flanking #weaponHud (health-left, armor-right), and made
@@ -2163,7 +2183,11 @@
     <div id="weaponHud" data-empty="false">
       <span id="weaponName">Pistol</span><span class="hud-dash">&mdash;</span><span id="ammoValue">&infin;</span>
     </div>
-    <div id="crosshair" aria-hidden="true"></div>
+    <div id="crosshair" aria-hidden="true">
+      <svg id="cooldownRing" viewBox="0 0 36 36" aria-hidden="true">
+        <circle id="cooldownRingArc" cx="18" cy="18" r="14"></circle>
+      </svg>
+    </div>
     <div id="hitMarker" aria-hidden="true"></div>
     <div id="damageFlash" aria-hidden="true"></div>
     <div id="muzzleFlash" aria-hidden="true"></div>

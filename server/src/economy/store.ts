@@ -206,8 +206,14 @@ export interface KillDropRolls {
 }
 
 export interface VictimDropContext {
-  nickname: string;
+  /** Human victims only — Redis gem/amulet item copy source. Never set for bots. */
+  nickname?: string;
   alreadyGrantedShard: boolean;
+  /**
+   * Humans: Redis amulets.length > 0. Sandbox bots: PlayerRecord.hasAmulet.
+   * Gates shard grant; does not invent Redis amulet rows for bots.
+   */
+  victimHasAmulet: boolean;
 }
 
 export interface CareerStatsEntry {
@@ -1281,35 +1287,10 @@ export class EconomyStore {
     }
 
     if (victim) {
-      const victimProfile = await this.getOrCreateProfile(victim.nickname, scope);
-      const victimDoc = (await this.loadDoc(scope, victimProfile.nicknameKey))!;
-      const victimHasAmulet = victimDoc.amulets.length > 0;
-      const victimEquippedGems = await this.listGemsOnEquippedPets(victimProfile.id);
-      const killerProfile = await this.getOrCreateProfile(nickname, scope);
-      const killerDoc = (await this.loadDoc(scope, killerProfile.nicknameKey))!;
-
-      if (victimEquippedGems.length > 0 && merged.gem < DROP_CHANCE.gem) {
-        const source = victimEquippedGems[Math.floor(Math.random() * victimEquippedGems.length)]!;
-        try {
-          gem = await this.grantGem(nickname, source.gemType, source.value, nowMs, {
-            allowExistingValue: true,
-          }, scope);
-        } catch (err) {
-          if (err instanceof EconomyActionError) {
-            await substitute("gem");
-          } else {
-            console.warn(
-              `[economy] gem loot copy skipped for ${nickname}: ${err instanceof Error ? err.message : String(err)}`,
-            );
-          }
-        }
-      }
-
-      if (
-        victimHasAmulet &&
-        !victim.alreadyGrantedShard &&
-        killerDoc.amulets.length < ECONOMY_CAPS.amulets
-      ) {
+      // Shard path: attempt when victim has amulet tell and opportunity unused.
+      // Shard/inventory caps throw → gold substitute (EPIC 26); killer amulet
+      // count does not gate shards (EPIC 57).
+      if (victim.victimHasAmulet && !victim.alreadyGrantedShard) {
         try {
           await this.addShard(nickname, 1, nowMs, scope);
           shard = true;
@@ -1319,16 +1300,40 @@ export class EconomyStore {
         }
       }
 
-      if (victimHasAmulet && merged.amulet < DROP_CHANCE.amulet) {
-        const equipped = victimDoc.amulets.find((a) => a.equipped);
-        const source =
-          equipped ?? victimDoc.amulets[Math.floor(Math.random() * victimDoc.amulets.length)];
-        if (source) {
+      // Gem/amulet item copies require a human Redis victim nickname — never invent from bots.
+      if (victim.nickname) {
+        const victimProfile = await this.getOrCreateProfile(victim.nickname, scope);
+        const victimDoc = (await this.loadDoc(scope, victimProfile.nicknameKey))!;
+        const victimEquippedGems = await this.listGemsOnEquippedPets(victimProfile.id);
+
+        if (victimEquippedGems.length > 0 && merged.gem < DROP_CHANCE.gem) {
+          const source = victimEquippedGems[Math.floor(Math.random() * victimEquippedGems.length)]!;
           try {
-            amulet = await this.grantAmulet(nickname, source.durability, nowMs, scope);
+            gem = await this.grantGem(nickname, source.gemType, source.value, nowMs, {
+              allowExistingValue: true,
+            }, scope);
           } catch (err) {
-            if (err instanceof EconomyActionError) await substitute("amulet");
-            else throw err;
+            if (err instanceof EconomyActionError) {
+              await substitute("gem");
+            } else {
+              console.warn(
+                `[economy] gem loot copy skipped for ${nickname}: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
+          }
+        }
+
+        if (victimDoc.amulets.length > 0 && merged.amulet < DROP_CHANCE.amulet) {
+          const equipped = victimDoc.amulets.find((a) => a.equipped);
+          const source =
+            equipped ?? victimDoc.amulets[Math.floor(Math.random() * victimDoc.amulets.length)];
+          if (source) {
+            try {
+              amulet = await this.grantAmulet(nickname, source.durability, nowMs, scope);
+            } catch (err) {
+              if (err instanceof EconomyActionError) await substitute("amulet");
+              else throw err;
+            }
           }
         }
       }

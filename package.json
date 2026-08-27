@@ -44,6 +44,7 @@
     "regression:epic47": "tsx scripts/regression-epic47.ts",
     "regression:epic48": "tsx scripts/regression-epic48.ts",
     "regression:epic49-palettes": "tsx scripts/regression-epic49-palettes.ts",
+    "regression:epic57-bot-shards": "tsx scripts/regression-epic57-bot-shards.ts",
     "regression:fire-input-drop-rate": "node scripts/regression-fire-input-drop-rate.mjs",
     "qa:epic17-avatar-selfcheck": "node scripts/qa-epic17-avatar-selfcheck.mjs",
     "qa:epic18-hold-fire": "node scripts/qa-epic18-hold-fire.mjs",
