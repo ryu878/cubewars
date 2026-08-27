@@ -272,6 +272,46 @@ function case8_stockpileThenWeaponPickup(): void {
   );
 }
 
+// --- EPIC 55 F-001 Case 10: unowned stockpile already at maxAmmo must still
+// unlock on a weapon pickup (ammo stays at cap). ---
+function case10_fullStockpileThenWeaponUnlock(): void {
+  const { registry, id } = freshPlayer();
+  const player = registry.getPlayer(id)!;
+  player.ownedWeapons = new Set<WeaponType>(["pistol"]);
+  player.equippedWeapon = "pistol";
+
+  const perPickup = WEAPON_STATS.rifle.ammoPerPickup;
+  const maxAmmo = WEAPON_STATS.rifle.maxAmmo;
+  const pickupsNeeded = Math.ceil(maxAmmo / perPickup);
+  let ammoPickupsApplied = 0;
+  for (let i = 0; i < pickupsNeeded; i++) {
+    if (registry.applyPickup(id, "ammo", "rifle").applied) ammoPickupsApplied++;
+  }
+  const stockpile = player.ammo.rifle ?? 0;
+  const rejectExtraAmmo = registry.applyPickup(id, "ammo", "rifle");
+  const ownedBeforeWeapon = player.ownedWeapons.has("rifle");
+  const weaponPickup = registry.applyPickup(id, "weapon", "rifle");
+  const finalAmmo = player.ammo.rifle ?? 0;
+  const ownedRefillNoop = registry.applyPickup(id, "weapon", "rifle");
+
+  const passed =
+    ammoPickupsApplied === pickupsNeeded &&
+    stockpile === maxAmmo &&
+    !rejectExtraAmmo.applied &&
+    !ownedBeforeWeapon &&
+    weaponPickup.applied &&
+    player.ownedWeapons.has("rifle") &&
+    weaponPickup.autoSwitchedTo === "rifle" &&
+    equippedOf(registry, id) === "rifle" &&
+    finalAmmo === maxAmmo &&
+    !ownedRefillNoop.applied;
+  report(
+    "10. F-001 full unowned stockpile then weapon unlock (ammo stays at max)",
+    passed,
+    `stockpile=${stockpile}/${maxAmmo}, ownedBefore=${ownedBeforeWeapon}, weapon applied=${weaponPickup.applied}, owned=${player.ownedWeapons.has("rifle")}, ammo=${finalAmmo}, equipped=${equippedOf(registry, id)}, extraAmmoApplied=${rejectExtraAmmo.applied}, ownedRefillApplied=${ownedRefillNoop.applied}`,
+  );
+}
+
 // --- EPIC 55 Case 9: pet-boosted maxHealth survives damage; health pickup
 // heals above baseline 100 toward maxHealth. ---
 function case9_petBoostedHealAbove100(): void {
@@ -324,6 +364,7 @@ function main(): void {
   case7_unownedAmmoStockpileNoUnlock();
   case8_stockpileThenWeaponPickup();
   case9_petBoostedHealAbove100();
+  case10_fullStockpileThenWeaponUnlock();
 
   console.log(anyFailed ? "\nOVERALL: FAIL — at least one case above failed." : "\nOVERALL: PASS — all coverage cases hold.");
   process.exit(anyFailed ? 1 : 0);

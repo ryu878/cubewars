@@ -888,13 +888,15 @@ export class PlayerRegistry {
    * if useful": returns `applied: false` (and changes nothing) when the
    * pickup would have no effect.
    *
-   * - "weapon" (EPIC 55): unlock into ownedWeapons, add ammoPerPickup
-   *   (keeping any prior ammo stockpile from unowned ammo crates), cap at
-   *   maxAmmo. Auto-equip if higher tier than current and now usable
-   *   (infinite or ammo > 0) — EPIC 13 Story 13.2.
+   * - "weapon" (EPIC 55 / F-001): unlock into ownedWeapons even when a prior
+   *   ammo stockpile is already at maxAmmo (ammo stays at cap). Otherwise
+   *   add ammoPerPickup (keeping stockpile), cap at maxAmmo. Auto-equip if
+   *   higher tier than current and now usable — EPIC 13 Story 13.2. Owned
+   *   weapon already at maxAmmo is a no-op.
    * - "ammo" (EPIC 55): never grants ownership. Stockpile ammo even when
    *   the weapon is unowned (no auto-equip). When already owned, refill
    *   and keep EPIC 13 auto-equip-on-refill for higher-tier weapons.
+   *   Full stockpile (owned or not) is a no-op.
    * - "health" (EPIC 7 §2 / EPIC 24): heal COMBAT.healthPickupAmount,
    *   capped at player.maxHealth (pet-boosted when applicable); no-op if
    *   already at that max.
@@ -923,12 +925,11 @@ export class PlayerRegistry {
     const stats = WEAPON_STATS[weapon];
     const alreadyOwned = player.ownedWeapons.has(weapon);
     const currentAmmo = player.ammo[weapon] ?? 0;
-    // Full stockpile (owned or not) — nothing useful to apply.
-    if (currentAmmo >= stats.maxAmmo) {
-      return { applied: false };
-    }
+    const atMaxAmmo = currentAmmo >= stats.maxAmmo;
 
     if (category === "ammo") {
+      // Full stockpile — nothing useful (owned or unowned).
+      if (atMaxAmmo) return { applied: false };
       // EPIC 55: ammo never unlocks ownership and never auto-equips when
       // the weapon is not owned. Stockpile for a later weapon pickup.
       const newAmmo = Math.min(stats.maxAmmo, currentAmmo + stats.ammoPerPickup);
@@ -945,9 +946,14 @@ export class PlayerRegistry {
       return { applied: true, autoSwitchedTo };
     }
 
-    // category === "weapon": unlock + add ammo (preserve prior stockpile).
+    // category === "weapon": unlock (even at full stockpile — F-001) + add
+    // ammo when below cap. Owned + already at maxAmmo is a pure no-op.
+    if (alreadyOwned && atMaxAmmo) return { applied: false };
+
     player.ownedWeapons.add(weapon);
-    const newAmmo = Math.min(stats.maxAmmo, currentAmmo + stats.ammoPerPickup);
+    const newAmmo = atMaxAmmo
+      ? currentAmmo
+      : Math.min(stats.maxAmmo, currentAmmo + stats.ammoPerPickup);
     player.ammo[weapon] = newAmmo;
     let autoSwitchedTo: WeaponType | undefined;
     if (stats.tier > WEAPON_STATS[player.equippedWeapon].tier && (stats.infiniteAmmo || newAmmo > 0)) {
