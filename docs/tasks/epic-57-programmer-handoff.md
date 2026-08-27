@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-27 |
 | Author (Pusya) | Pusya |
 | Task / Story / EPIC | EPIC 57 — Hold-fire all weapons; cooldown ring + no fake juice; repairKit 0.002; sandbox bot amulet shards |
-| Branch / commit / PR | `feature/epic-57-hold-fire-cooldown-ring-drops` — see PR (opened after this handoff) |
+| Branch / commit / PR | `feature/epic-57-hold-fire-cooldown-ring-drops` @ `b8a3fe61b2ef306a32a8e3ab2be5976e98b2b65f` — compare: https://github.com/ryu878/cubewars/compare/master...feature/epic-57-hold-fire-cooldown-ring-drops (`gh pr create` blocked: auth account cannot resolve repo; push succeeded) |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
