@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-27 |
 | Author (Pusya) | Pusya |
 | Task / Story / EPIC | EPIC 54 — About page accuracy audit + fresh screenshots |
-| Branch / commit / PR | `feature/epic-54-about-accuracy-screenshots` / `42ca02704bfc8e8e98040b4e19de85f1dbe05280` / (see PR URL after open) |
+| Branch / commit / PR | `feature/epic-54-about-accuracy-screenshots` / `5892ef76069989026a0be3bd0d20a74de0e712ea` / compare: https://github.com/ryu878/cubewars/compare/master...feature/epic-54-about-accuracy-screenshots (gh PR create blocked: token account cannot resolve repo) |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
