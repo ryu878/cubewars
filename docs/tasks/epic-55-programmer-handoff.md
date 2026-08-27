@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-27 |
 | Author (Pusya) | Pusya |
 | Task / Story / EPIC | EPIC 55 — Ammo does not unlock weapons; HUD current/max; maxHealth integrity |
-| Branch / commit / PR |  @ ;  blocked. Compare URL: https://github.com/ryu878/cubewars/compare/master...feature/epic-55-ammo-not-unlock-hud-maxhp?expand=1 |
+| Branch / commit / PR | `feature/epic-55-ammo-not-unlock-hud-maxhp` tip `5d0e876f5d678f34ec28626c5f2f6fb6bc7b4c0b` (F-001 fix `4784ef1535b780457299af80f459b32e1b99544b`); `gh pr create` blocked. Compare URL: https://github.com/ryu878/cubewars/compare/master...feature/epic-55-ammo-not-unlock-hud-maxhp?expand=1 |
 | Revision round (if this is a Critic/Judge fix, not first pass) | yes — finding IDs: **F-001** |
 
 ## What was done (brief)
