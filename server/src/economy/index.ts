@@ -38,6 +38,9 @@ export {
   occupiedCells,
   autoPackDocument,
   needsAutoPack,
+  needsInventoryGridMigration,
+  migrateInventoryGridShrink,
+  hasInvalidOrOverlappingBagAnchors,
 } from "./inventoryGrid.js";
 export { toEconomyProfileMessage } from "./profileMessage.js";
 export {

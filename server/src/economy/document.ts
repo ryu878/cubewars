@@ -90,6 +90,12 @@ export interface EconomyDocument {
   repairKits: StoredRepairKit[];
   career: StoredCareer;
   endless: StoredEndless;
+  /**
+   * EPIC 53: bag grid schema version. Missing/1 = legacy 8×8 anchors;
+   * 2 = migrated (or created) for 6×5. Overflow items may keep null anchors
+   * without re-triggering pack loops once this is 2.
+   */
+  inventoryGridVersion?: number;
 }
 
 export function emptyCareer(nowMs: number): StoredCareer {
@@ -130,6 +136,7 @@ export function createEmptyDocument(
     repairKits: [],
     career: emptyCareer(nowMs),
     endless: emptyEndless(nowMs),
+    inventoryGridVersion: 2,
   };
 }
 

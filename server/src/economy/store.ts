@@ -43,11 +43,11 @@ import {
 } from "./document.js";
 import { maybeImportSqliteToRedis } from "./importSqlite.js";
 import {
-  autoPackDocument,
   canPlaceAt,
   clearItemAnchor,
   findFit,
-  needsAutoPack,
+  migrateInventoryGridShrink,
+  needsInventoryGridMigration,
   setItemAnchor,
 } from "./inventoryGrid.js";
 import { connectRedis, resolveRedisUrl } from "./redis.js";
@@ -66,7 +66,8 @@ export interface EconomyEgg {
   id: number;
   profileId: number;
   hatchDeadlineMs: number;
-  slotAnchor: number;
+  /** Bag anchor; null when unplaced/overflow (EPIC 53). */
+  slotAnchor: number | null;
   createdAt: number;
 }
 
@@ -104,14 +105,16 @@ export interface EconomyAmulet {
 export interface EconomyStimulator {
   id: number;
   profileId: number;
-  slotAnchor: number;
+  /** Bag anchor; null when unplaced/overflow (EPIC 53). */
+  slotAnchor: number | null;
   createdAt: number;
 }
 
 export interface EconomyRepairKit {
   id: number;
   profileId: number;
-  slotAnchor: number;
+  /** Bag anchor; null when unplaced/overflow (EPIC 53). */
+  slotAnchor: number | null;
   createdAt: number;
 }
 
@@ -424,7 +427,7 @@ export class EconomyStore {
       id: egg.id,
       profileId: doc.id,
       hatchDeadlineMs: egg.hatchDeadlineMs,
-      slotAnchor: typeof egg.slotAnchor === "number" ? egg.slotAnchor : -1,
+      slotAnchor: typeof egg.slotAnchor === "number" ? egg.slotAnchor : null,
       createdAt: egg.createdAt,
     };
   }
@@ -489,7 +492,7 @@ export class EconomyStore {
     return {
       id: stim.id,
       profileId: doc.id,
-      slotAnchor: typeof stim.slotAnchor === "number" ? stim.slotAnchor : -1,
+      slotAnchor: typeof stim.slotAnchor === "number" ? stim.slotAnchor : null,
       createdAt: stim.createdAt,
     };
   }
@@ -501,7 +504,7 @@ export class EconomyStore {
     return {
       id: kit.id,
       profileId: doc.id,
-      slotAnchor: typeof kit.slotAnchor === "number" ? kit.slotAnchor : -1,
+      slotAnchor: typeof kit.slotAnchor === "number" ? kit.slotAnchor : null,
       createdAt: kit.createdAt,
     };
   }
@@ -548,11 +551,19 @@ export class EconomyStore {
     return this.redis.get(scopedKey);
   }
 
-  /** One-shot auto-pack for legacy docs missing slotAnchor (EPIC 29). */
+  /**
+   * EPIC 29/53: on load, migrate/repair bag anchors for the current grid.
+   * Preserve valid non-overlapping cells; re-pack the rest; never delete
+   * overflow (null anchors). `inventoryGridVersion` is the one-shot guard so
+   * overflow nulls do not re-trigger packing forever.
+   */
   private async ensureInventoryPacked(scope: EconomyScope, doc: EconomyDocument): Promise<void> {
-    if (!needsAutoPack(doc)) return;
-    autoPackDocument(doc);
-    console.log(`[economy] inventory auto-pack once for ${doc.nicknameKey} [${scope}]`);
+    if (!needsInventoryGridMigration(doc)) return;
+    const result = migrateInventoryGridShrink(doc);
+    console.log(
+      `[economy] inventory grid shrink migration for ${doc.nicknameKey} [${scope}] ` +
+        `preserved=${result.preserved} relocated=${result.relocated} overflow=${result.overflow}`,
+    );
     await this.saveDoc(scope, doc);
   }
 

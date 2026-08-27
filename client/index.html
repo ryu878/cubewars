@@ -1068,12 +1068,9 @@
         display: none;
       }
 
-      /*
-       * EPIC 29: 8x8 inventory grid overlay — replaces the old EPIC 24/25
-       * list-only pets panel (client/src/petsPanel.ts, retired). Same dark
-       * HUD palette as the rest of the game's overlays (scoreboard,
-       * mode-select), plain HTML/CSS, no framework. Toggle with I (P alias).
-       */
+        /* EPIC 29/53: inventory grid overlay — 6×5 bag + equip rail + hero preview.
+         * Same dark HUD palette; plain HTML/CSS, no framework. Toggle with I (P alias).
+         */
       #inventoryOverlay {
         position: fixed;
         inset: 0;
@@ -1087,8 +1084,8 @@
         display: flex;
       }
       #inventoryPanel {
-        /* EPIC 43 F-001: wide enough for ~960 grid + side rail/details at common laptop widths. */
-        width: min(1280px, calc(100vw - 24px));
+        /* EPIC 43 F-001 + EPIC 53: grid + side rail + hero preview on laptop widths. */
+        width: min(1380px, calc(100vw - 24px));
         max-height: min(92vh, 980px);
         overflow: auto;
         padding: 16px 20px 20px;
@@ -1143,25 +1140,24 @@
       .inv-grid-scroll {
         flex: 1 1 auto;
         min-width: 0;
-        max-width: 960px;
-        /* Definite viewport height so the ~960×960 square scrolls here, not the whole panel (F-001). */
+        max-width: 720px;
+        /* Definite viewport height so the grid scrolls here, not the whole panel (F-001). */
         max-height: min(720px, calc(92vh - 150px));
         overflow: auto;
         min-height: 0;
       }
       #inventoryGrid {
         display: grid;
-        grid-template-columns: repeat(8, 1fr);
-        grid-template-rows: repeat(8, 1fr);
+        grid-template-columns: repeat(6, 1fr);
+        grid-template-rows: repeat(5, 1fr);
         gap: 6px;
-        /* EPIC 43: ~2× linear cell size (was min(480px); cells ≈56–60px → ≈112–120px).
-           Full square stays ~960×960; shorter viewports scroll inside .inv-grid-scroll (F-001). */
-        width: min(960px, 100%);
-        aspect-ratio: 1 / 1;
+        /* EPIC 53: 6×5 bag; keep large readable cells (~110px) inside scroll region. */
+        width: min(720px, 100%);
+        aspect-ratio: 6 / 5;
       }
       .inv-side {
-        flex: 0 0 248px;
-        width: 248px;
+        flex: 0 0 220px;
+        width: 220px;
         display: flex;
         flex-direction: column;
         gap: 12px;
@@ -1171,18 +1167,212 @@
         /* Keep rail + details pinned to the top of the body beside the grid. */
         align-self: flex-start;
       }
-      @media (max-width: 1040px) {
+      .inv-hero-preview {
+        flex: 0 0 200px;
+        width: 200px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        min-height: 0;
+        max-height: min(720px, calc(92vh - 150px));
+        overflow: auto;
+        align-self: flex-start;
+        padding: 10px 12px;
+        border: 1px solid rgba(140, 180, 120, 0.28);
+        border-radius: 10px;
+        background: rgba(20, 32, 24, 0.85);
+      }
+      .inv-hero-title {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #c8e6a0;
+      }
+      .inv-hero-stage {
+        position: relative;
+        height: 168px;
+        border-radius: 8px;
+        background:
+          radial-gradient(ellipse at 50% 80%, rgba(80, 120, 70, 0.35), transparent 70%),
+          linear-gradient(180deg, rgba(30, 44, 36, 0.9), rgba(12, 18, 14, 0.95));
+        overflow: hidden;
+      }
+      .inv-hero-avatar {
+        position: absolute;
+        left: 50%;
+        bottom: 10px;
+        transform: translateX(-50%);
+        width: 72px;
+        height: 118px;
+      }
+      .inv-hero-head {
+        position: absolute;
+        left: 50%;
+        top: 0;
+        width: 28px;
+        height: 28px;
+        margin-left: -14px;
+        border-radius: 6px;
+        border: 1px solid rgba(0, 0, 0, 0.35);
+      }
+      .inv-hero-torso {
+        position: absolute;
+        left: 50%;
+        top: 30px;
+        width: 40px;
+        height: 44px;
+        margin-left: -20px;
+        border-radius: 6px;
+        border: 1px solid rgba(0, 0, 0, 0.35);
+      }
+      .inv-hero-amulet {
+        position: absolute;
+        left: 50%;
+        top: 8px;
+        width: 12px;
+        height: 12px;
+        margin-left: -6px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 35% 30%, #ffe9a0, #d4a017 55%, #8a6a10);
+        box-shadow: 0 0 8px rgba(255, 200, 80, 0.65);
+        border: 1px solid rgba(255, 230, 150, 0.7);
+      }
+      .inv-hero-amulet[hidden] {
+        display: none;
+      }
+      .inv-hero-hand {
+        position: absolute;
+        top: 36px;
+        width: 14px;
+        height: 28px;
+        border-radius: 4px;
+        border: 1px solid rgba(0, 0, 0, 0.35);
+      }
+      .inv-hero-hand-l {
+        left: 2px;
+      }
+      .inv-hero-hand-r {
+        right: 2px;
+      }
+      .inv-hero-leg {
+        position: absolute;
+        bottom: 0;
+        width: 16px;
+        height: 36px;
+        border-radius: 4px;
+        border: 1px solid rgba(0, 0, 0, 0.35);
+      }
+      .inv-hero-leg-l {
+        left: 16px;
+      }
+      .inv-hero-leg-r {
+        right: 16px;
+      }
+      .inv-hero-pet {
+        position: absolute;
+        bottom: 28px;
+        width: 44px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+      }
+      .inv-hero-pet-l {
+        left: 8px;
+      }
+      .inv-hero-pet-r {
+        right: 8px;
+      }
+      .inv-hero-pet-empty {
+        font-size: 10px;
+        color: #7a9170;
+      }
+      .inv-hero-pet-meta {
+        font-size: 10px;
+        color: #c8e6a0;
+        text-align: center;
+        line-height: 1.15;
+        max-width: 56px;
+      }
+      .inv-hero-gems {
+        display: flex;
+        gap: 3px;
+        justify-content: center;
+        min-height: 7px;
+      }
+      .inv-hero-stats {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+        color: #d7e8cc;
+      }
+      .inv-hero-stat {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .inv-hero-stat-label {
+        color: #9bb890;
+      }
+      .inv-overflow {
+        margin: 0 0 10px;
+        padding: 8px 10px;
+        border: 1px dashed rgba(255, 180, 90, 0.45);
+        border-radius: 8px;
+        background: rgba(60, 40, 16, 0.35);
+      }
+      .inv-overflow[hidden] {
+        display: none;
+      }
+      .inv-overflow-title {
+        margin: 0 0 6px;
+        font-size: 12px;
+        font-weight: 700;
+        color: #ffd08a;
+      }
+      .inv-overflow-hint {
+        margin: 0 0 8px;
+        font-size: 11px;
+        color: #cbb48a;
+      }
+      .inv-overflow-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .inv-overflow-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 8px 4px 4px;
+        border-radius: 6px;
+        border: 1px solid rgba(255, 200, 120, 0.45);
+        background: rgba(40, 30, 16, 0.9);
+        color: #f0e0c0;
+        font-size: 11px;
+        cursor: pointer;
+      }
+      .inv-overflow-item.selected {
+        outline: 2px solid #ffe082;
+      }
+      @media (max-width: 1180px) {
         .inv-body {
           flex-wrap: wrap;
           max-height: none;
         }
         .inv-grid-scroll {
           max-width: 100%;
-          max-height: min(960px, calc(92vh - 150px));
+          max-height: min(640px, calc(92vh - 150px));
         }
-        .inv-side {
-          flex: 1 1 100%;
-          width: 100%;
+        .inv-side,
+        .inv-hero-preview {
+          flex: 1 1 220px;
+          width: auto;
+          max-width: 100%;
         }
       }
       .inv-cell {
@@ -1905,13 +2095,43 @@
         </p>
         <div id="inventoryRatings" class="inv-meta"></div>
         <div id="inventoryCaps" class="inv-caps"></div>
+        <div id="inventoryOverflow" class="inv-overflow" hidden>
+          <p class="inv-overflow-title" data-i18n="inv.overflowTitle">Unplaced items</p>
+          <p class="inv-overflow-hint" data-i18n="inv.overflowHint">
+            These items did not fit the 6×5 bag. Select one, then use actions or click an empty cell to place it.
+          </p>
+          <div id="inventoryOverflowList" class="inv-overflow-list"></div>
+        </div>
         <div class="inv-body">
           <div class="inv-grid-scroll">
-            <div id="inventoryGrid" role="grid" data-i18n-aria="inv.gridAria" aria-label="8x8 inventory grid"></div>
+            <div id="inventoryGrid" role="grid" data-i18n-aria="inv.gridAria" aria-label="6x5 inventory grid"></div>
           </div>
           <aside class="inv-side" data-i18n-aria="inv.sideAria" aria-label="Equip rail and selected item">
             <div id="inventoryRail" class="inv-rail"></div>
             <div id="inventoryDetails" class="inv-details"></div>
+          </aside>
+          <aside
+            id="inventoryHeroPreview"
+            class="inv-hero-preview"
+            data-i18n-aria="inv.heroAria"
+            aria-label="Hero loadout preview"
+          >
+            <h3 class="inv-hero-title" data-i18n="inv.heroTitle">Loadout</h3>
+            <div class="inv-hero-stage" aria-hidden="true">
+              <div class="inv-hero-pet inv-hero-pet-l" id="inventoryHeroPet1"></div>
+              <div class="inv-hero-avatar">
+                <div class="inv-hero-head" id="inventoryHeroHead"></div>
+                <div class="inv-hero-hand inv-hero-hand-l" id="inventoryHeroHandL"></div>
+                <div class="inv-hero-hand inv-hero-hand-r" id="inventoryHeroHandR"></div>
+                <div class="inv-hero-torso" id="inventoryHeroTorso">
+                  <div class="inv-hero-amulet" id="inventoryHeroAmulet" hidden></div>
+                </div>
+                <div class="inv-hero-leg inv-hero-leg-l" id="inventoryHeroLegL"></div>
+                <div class="inv-hero-leg inv-hero-leg-r" id="inventoryHeroLegR"></div>
+              </div>
+              <div class="inv-hero-pet inv-hero-pet-r" id="inventoryHeroPet2"></div>
+            </div>
+            <div id="inventoryHeroStats" class="inv-hero-stats"></div>
           </aside>
         </div>
         <p class="inv-meta">

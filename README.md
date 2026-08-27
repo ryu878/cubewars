@@ -95,7 +95,7 @@ On connecting, pick a mode first: **vs Bots** (a private match against 2 AI oppo
 - **Space** — jump; press it again while still airborne (a genuine second press, not held) for a one-time bunny-hop boost — farther and higher, once per air-time
 - **E** — switch weapon (cycles forward through weapons you own, in tier order)
 - **Tab** (hold) — show the live scoreboard
-- **I** — toggle the inventory overlay: an 8×8 grid (drag-move, egg timers, hatch/stimulator/equip/socket/repair/craft/discard) plus an equip rail for pet slot 1/2 and amulet, all server-authoritative (**P** still works as an alias, EPIC 24-vintage keybind)
+- **I** — toggle the inventory overlay: a 6×5 grid (drag-move, egg timers, hatch/stimulator/equip/socket/repair/craft/discard) plus an equip rail and a right-side hero loadout preview (colors, pets/amulet, combat stats), all server-authoritative (**P** still works as an alias, EPIC 24-vintage keybind)
 - **Esc** — release pointer lock
 
 Movement/look is predicted locally for responsiveness, but the **server is authoritative**: it computes and broadcasts every player's real position, and no client's self-reported position is ever trusted or relayed to other players directly (see `ai-office/global/security-baseline.mdc`). Every other connected player is rendered as a capsule avatar; you don't see your own (first-person).
@@ -118,7 +118,7 @@ EPIC 45 (Dual Lobby Inventories + Lobby Deathmatch Auction) — see `docs/tasks/
 
 EPIC 44 (Kill Loot Drop VFX, Victim → Killer) — see `docs/tasks/epic-44-kill-loot-drop-vfx.md`. After a kill that grants economy loot, the server broadcasts `economy_kill_loot_fx` listing **only** actually granted kinds (gold and/or items; substituted overflow shows as gold, not fake item kinds). Clients spawn large multicolored emissive low-poly meshes at the victim that arc toward the killer (`client/src/killLootVfx.ts`). Deathmatch/Sandbox reward rules unchanged (EPIC 32/35); DM bot victims still grant nothing and emit no loot FX. Verified via `npm run regression:kill-loot-vfx`, `npm run typecheck`, and `npm run build`.
 
-EPIC 43 (Inventory Cell Size, Icons, and Hover Tooltips) — see `docs/tasks/epic-43-inventory-icons-tooltips.md`. Shared inventory overlay (`InventoryOverlay`, lobby + in-match): 8×8 grid scaled ~**2×** linear (cells ≈115px; full `#inventoryGrid` ~960×960 inside `.inv-grid-scroll`, was ~480 / ≈56px), geometric CSS icons per item type instead of `STM`/`PET`/etc. abbreviations, English CSS hover/focus tooltips with name + detail, readable detail/equip-rail titles. Rail + `#inventoryDetails` sit in `.inv-side` beside the scrollable grid so select→act stays in-viewport on common laptop heights (Critic F-001 / Judge ALL_CLOSED). Client UI only — no economy/protocol/server changes. Verified via `npm run typecheck` and `npm run build`.
+EPIC 43 (Inventory Cell Size, Icons, and Hover Tooltips) — see `docs/tasks/epic-43-inventory-icons-tooltips.md`. Shared inventory overlay (`InventoryOverlay`, lobby + in-match): large readable cells with geometric CSS icons and hover/focus tooltips; rail + details in `.inv-side` beside the scrollable grid (Critic F-001). EPIC 53 later shrinks the bag to **6×5** and adds a hero loadout preview — see Current status / EPIC 53.
 
 EPIC 42 (Lobby Telegram Label + Pre-Match Inventory) — see `docs/tasks/epic-42-lobby-telegram-inventory.md`. Lobby Telegram link label is **Game Developers Telegram Chat - t.me/cubewarsgame**. Authenticated players can open the same inventory overlay from an **Inventory** button on mode-select: the client sends `lobby_bind_nickname`, the server binds without joining a match, and pushes the **Deathmatch** `economy_profile`. Inventory-family `economy_*` mutations work from the lobby on the Deathmatch pool only; drop/trade/ground stay match-only. I/P hotkeys remain ignored on the lobby. Verified via `npm run regression:lobby-inventory`, `npm run typecheck`, and `npm run build`.
 
@@ -179,7 +179,7 @@ EPIC 31 (Randomized Bot Equipment Loadouts) — see `docs/tasks/epic-31-bot-equi
 
 EPIC 29 (Inventory Grid UI) — see `docs/tasks/epic-29-inventory-grid.md`.
 
-- **8×8 grid, server-authoritative:** every bag item (gem, egg, stimulator, repair kit, shard stack — 1 cell; pet, amulet — 2 contiguous cells in the same row) carries a `slotAnchor` (0-63) persisted in the Redis economy document (same profile store as EPIC 27). Legacy profiles without anchors are auto-packed once on load and saved.
+- **6×5 grid, server-authoritative (EPIC 53):** every bag item (gem, egg, stimulator, repair kit, shard stack — 1 cell; pet, amulet — 2 contiguous cells in the same row) carries a `slotAnchor` (0–29) persisted in the Redis economy document. Legacy 8×8 anchors are migrated on load (preserve valid cells, re-pack the rest; overflow keeps `slotAnchor: null` and appears in an Unplaced list — never silently deleted). `inventoryGridVersion: 2` is the one-shot guard against pack loops.
 - **Move/discard:** `economy_move_item` and `economy_discard_item` are the only client intents for rearranging/removing bag contents; the server validates ownership, footprint geometry, and cell-overlap before applying either. Discard permanently destroys the item. As of EPIC 38, Deathmatch also supports `economy_drop_item` (60s ground pickup) and auction listing. Existing hatch/stimulator/equip/unequip/socket/unsocket/craft/repair actions are unchanged and reachable from the new UI.
 - **Equip rail:** pet slot 1, pet slot 2 (when an amulet is equipped), and the amulet slot render outside the 64-cell grid, matching the EPIC 25 slot-2 rules; only unequipped items live on the grid itself.
 - **Client:** the old vertical pets/eggs list panel is retired and replaced by a full inventory overlay — grid cells with drag-and-drop move, egg incubation countdown (`hatchDeadlineMs`, client clock for display only, readiness gated server-side), and action buttons per selected item. Toggled with **I**; **P** is kept as an alias for muscle memory from EPIC 24.
@@ -209,14 +209,14 @@ EPIC 25 (Gems, Amulets, Shards & Death Penalties) — see `docs/tasks/epic-25-ge
 - **Amulets:** equip enables pet slot 2 at 40% contribution; unequip forces slot-2 unequip. Craft from 10 shards. Repair kits +1 durability (cap 10).
 - **Death (humans only):** equipped amulet durability −1 (destroy at 0); each active pet and its socketed gems lose 10% effectiveness (`floor`, min 1).
 - **Shards:** +1 on killing a human who has any amulet, once per victim per match (in-memory), if killer amulets &lt; 4.
-- **Client:** pets panel (P) listed gems/amulets/shards/kits; slot 2 when amulet equipped. As of EPIC 29 this list UI is retired in favor of the 8×8 inventory grid overlay (**I**, **P** kept as alias) — see Current status / EPIC 29.
+- **Client:** pets panel (P) listed gems/amulets/shards/kits; slot 2 when amulet equipped. As of EPIC 29 this list UI is retired in favor of the inventory grid overlay (**I**, **P** kept as alias); EPIC 53 uses a **6×5** bag plus hero loadout preview — see Current status.
 - Verified via `npm run regression:economy-gems-amulets`, `npm run regression:economy-pets`, `npm run regression:economy-gold`, `npm run typecheck`, and `npm run build`.
 
 EPIC 24 (Pets, Eggs, Incubation & Equip Stats) — see `docs/tasks/epic-24-pets-eggs-equip.md`.
 
 - **Pets loop:** human kills can drop eggs (15%) and growth stimulators (8%, soft-cap 20). Eggs incubate (24h, overridable via `CUBEWARS_INCUBATION_MS`), hatch into pets (type + base_value 1–200), and one pet can be equipped in slot 1.
 - **Combat modifiers:** equipped pet ratings adjust max HP, %DR (before EPIC 7 armor), move speed, and weapon damage on the server. Slot 2 stays disabled until amulets (EPIC 25).
-- **Client:** press **P** for a minimal pets/eggs panel; HUD shows gold + ratings from server `economy_profile`. As of EPIC 29 the panel is retired in favor of the 8×8 inventory grid overlay (**I**, **P** kept as alias) — see Current status / EPIC 29.
+- **Client:** press **P** for a minimal pets/eggs panel; HUD shows gold + ratings from server `economy_profile`. As of EPIC 29 the panel is retired in favor of the inventory grid overlay (**I**, **P** kept as alias); EPIC 53 uses a **6×5** bag plus hero loadout preview — see Current status.
 - Verified via `npm run regression:economy-pets`, `npm run regression:economy-gold`, `npm run typecheck`, and `npm run build`.
 
 EPIC 23 (Economy Persistence Foundation) — see `docs/tasks/epic-23-economy-persistence-foundation.md` and product TZ `docs/product/emerald-wasteland-economy-tz-v2.1.md`.

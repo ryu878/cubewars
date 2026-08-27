@@ -1,6 +1,5 @@
-// 8x8 inventory grid overlay (EPIC 29). Plain HTML/CSS/TS — replaces the old
-// list-only PetsPanel (client/src/petsPanel.ts, retired). Toggle with I (P
-// stays as an alias — some players are used to it, see EPIC 29 spec §2.3).
+// 6×5 inventory grid overlay (EPIC 29 / EPIC 53). Plain HTML/CSS/TS —
+// replaces the old list-only PetsPanel. Toggle with I (P stays as an alias).
 //
 // Server-authority discipline (security-baseline.mdc): this module only ever
 // SENDS intents (economy_move_item / economy_discard_item / the existing
@@ -31,10 +30,13 @@ import {
   AVATAR_COLOR_PALETTE,
   ECONOMY_CAPS,
   INVENTORY_GRID,
+  aggregateEquippedRatings,
   cloneAvatarColors,
   defaultAvatarColors,
   describePetGrants,
   formatPetPrimaryGrant,
+  formatRatingGrant,
+  resolveAvatarColor,
 } from "@cubewars/shared";
 import { shouldIgnoreGameHotkey } from "./uiInput";
 import { subscribe, t } from "./i18n";
@@ -215,11 +217,23 @@ export class InventoryOverlay {
   private poolBadgeEl: HTMLElement;
   private ratingsEl: HTMLElement;
   private capsEl: HTMLElement;
+  private overflowEl: HTMLElement;
+  private overflowListEl: HTMLElement;
   private railEl: HTMLElement;
   private detailsEl: HTMLElement;
   private statusEl: HTMLElement;
   private appearanceRowsEl: HTMLElement;
   private petColorRowsEl: HTMLElement;
+  private heroHeadEl: HTMLElement | null;
+  private heroTorsoEl: HTMLElement | null;
+  private heroHandLEl: HTMLElement | null;
+  private heroHandREl: HTMLElement | null;
+  private heroLegLEl: HTMLElement | null;
+  private heroLegREl: HTMLElement | null;
+  private heroAmuletEl: HTMLElement | null;
+  private heroPet1El: HTMLElement | null;
+  private heroPet2El: HTMLElement | null;
+  private heroStatsEl: HTMLElement | null;
 
   private open = false;
   private profile: EconomyProfileMessage | null = null;
@@ -256,11 +270,23 @@ export class InventoryOverlay {
     this.poolBadgeEl = document.getElementById("inventoryPoolBadge") as HTMLElement;
     this.ratingsEl = document.getElementById("inventoryRatings") as HTMLElement;
     this.capsEl = document.getElementById("inventoryCaps") as HTMLElement;
+    this.overflowEl = document.getElementById("inventoryOverflow") as HTMLElement;
+    this.overflowListEl = document.getElementById("inventoryOverflowList") as HTMLElement;
     this.railEl = document.getElementById("inventoryRail") as HTMLElement;
     this.detailsEl = document.getElementById("inventoryDetails") as HTMLElement;
     this.statusEl = document.getElementById("inventoryStatus") as HTMLElement;
     this.appearanceRowsEl = document.getElementById("inventoryAppearanceRows") as HTMLElement;
     this.petColorRowsEl = document.getElementById("inventoryPetColorRows") as HTMLElement;
+    this.heroHeadEl = document.getElementById("inventoryHeroHead");
+    this.heroTorsoEl = document.getElementById("inventoryHeroTorso");
+    this.heroHandLEl = document.getElementById("inventoryHeroHandL");
+    this.heroHandREl = document.getElementById("inventoryHeroHandR");
+    this.heroLegLEl = document.getElementById("inventoryHeroLegL");
+    this.heroLegREl = document.getElementById("inventoryHeroLegR");
+    this.heroAmuletEl = document.getElementById("inventoryHeroAmulet");
+    this.heroPet1El = document.getElementById("inventoryHeroPet1");
+    this.heroPet2El = document.getElementById("inventoryHeroPet2");
+    this.heroStatsEl = document.getElementById("inventoryHeroStats");
 
     window.addEventListener("keydown", (event) => {
       if ((event.code !== "KeyI" && event.code !== "KeyP") || event.repeat) return;
@@ -277,6 +303,9 @@ export class InventoryOverlay {
     craftBtn?.addEventListener("click", () => {
       this.send({ type: "economy_craft_amulet" });
     });
+
+    this.gridEl.addEventListener("click", (ev) => this.onGridClick(ev));
+
     subscribe(() => {
       if (this.open) this.render();
     });
@@ -333,17 +362,22 @@ export class InventoryOverlay {
   /** EPIC 33: sync self avatar colors from authoritative world_state. */
   setAvatarColors(colors: AvatarColors): void {
     this.avatarColors = cloneAvatarColors(colors);
-    if (this.open) this.renderAppearance();
+    if (this.open) {
+      this.renderAppearance();
+      this.renderHeroPreview();
+    }
   }
 
   private bagEntries(): BagEntry[] {
     if (!this.profile) return [];
     const entries: BagEntry[] = [];
     for (const pet of this.profile.pets) {
+      if (pet.equipSlot === 1 || pet.equipSlot === 2) continue;
       if (pet.slotAnchor === null) continue;
       entries.push({ itemType: "pet", itemId: pet.id, anchor: pet.slotAnchor, footprint: 2 });
     }
     for (const egg of this.profile.eggs) {
+      if (egg.slotAnchor === null) continue;
       entries.push({ itemType: "egg", itemId: egg.id, anchor: egg.slotAnchor, footprint: 1 });
     }
     for (const gem of this.profile.gems) {
@@ -351,13 +385,15 @@ export class InventoryOverlay {
       entries.push({ itemType: "gem", itemId: gem.id, anchor: gem.slotAnchor, footprint: 1 });
     }
     for (const amulet of this.profile.amulets) {
-      if (amulet.slotAnchor === null) continue;
+      if (amulet.equipped || amulet.slotAnchor === null) continue;
       entries.push({ itemType: "amulet", itemId: amulet.id, anchor: amulet.slotAnchor, footprint: 2 });
     }
     for (const stim of this.profile.stimulators) {
+      if (stim.slotAnchor === null) continue;
       entries.push({ itemType: "stimulator", itemId: stim.id, anchor: stim.slotAnchor, footprint: 1 });
     }
     for (const kit of this.profile.repairKits) {
+      if (kit.slotAnchor === null) continue;
       entries.push({ itemType: "repair_kit", itemId: kit.id, anchor: kit.slotAnchor, footprint: 1 });
     }
     if (this.profile.shardCount > 0 && this.profile.shardSlotAnchor !== null) {
@@ -371,6 +407,37 @@ export class InventoryOverlay {
     return entries;
   }
 
+  /** Bag-owned items with null anchors (EPIC 53 overflow / unplaced). */
+  private overflowEntries(): SelectedItem[] {
+    if (!this.profile) return [];
+    const out: SelectedItem[] = [];
+    for (const pet of this.profile.pets) {
+      if (pet.equipSlot === 1 || pet.equipSlot === 2) continue;
+      if (pet.slotAnchor === null) out.push({ itemType: "pet", itemId: pet.id });
+    }
+    for (const egg of this.profile.eggs) {
+      if (egg.slotAnchor === null) out.push({ itemType: "egg", itemId: egg.id });
+    }
+    for (const gem of this.profile.gems) {
+      if (gem.petId !== null) continue;
+      if (gem.slotAnchor === null) out.push({ itemType: "gem", itemId: gem.id });
+    }
+    for (const amulet of this.profile.amulets) {
+      if (amulet.equipped) continue;
+      if (amulet.slotAnchor === null) out.push({ itemType: "amulet", itemId: amulet.id });
+    }
+    for (const stim of this.profile.stimulators) {
+      if (stim.slotAnchor === null) out.push({ itemType: "stimulator", itemId: stim.id });
+    }
+    for (const kit of this.profile.repairKits) {
+      if (kit.slotAnchor === null) out.push({ itemType: "repair_kit", itemId: kit.id });
+    }
+    if (this.profile.shardCount > 0 && this.profile.shardSlotAnchor === null) {
+      out.push({ itemType: "shard_stack", itemId: 0 });
+    }
+    return out;
+  }
+
   private render(): void {
     if (!this.profile) {
       this.goldEl.textContent = "—";
@@ -381,7 +448,10 @@ export class InventoryOverlay {
       this.gridEl.replaceChildren();
       this.railEl.replaceChildren();
       this.detailsEl.replaceChildren();
+      this.overflowEl.hidden = true;
+      this.overflowListEl.replaceChildren();
       this.renderAppearance();
+      this.renderHeroPreview();
       return;
     }
     const pool = this.profile.economyPool;
@@ -397,22 +467,26 @@ export class InventoryOverlay {
       (this.profile.slot2Enabled ? " · slot2 on" : " · slot2 off");
 
     const bag = this.bagEntries();
+    const overflow = this.overflowEntries();
     const usedCells = bag.reduce((sum, e) => sum + e.footprint, 0);
     this.capsEl.textContent =
       `Cells ${usedCells}/${INVENTORY_GRID.cells} · Pets ${this.profile.pets.length}/${ECONOMY_CAPS.pets} · ` +
       `Eggs ${this.profile.eggs.length}/${ECONOMY_CAPS.eggs} · Gems ${this.profile.gems.length}/${ECONOMY_CAPS.gems} · ` +
       `Amulets ${this.profile.amulets.length}/${ECONOMY_CAPS.amulets} · Shards ${this.profile.shardCount}/${ECONOMY_CAPS.shards} · ` +
-      `Stim ${this.profile.stimulatorCount} · Kits ${this.profile.repairKitCount}`;
+      `Stim ${this.profile.stimulatorCount} · Kits ${this.profile.repairKitCount}` +
+      (overflow.length > 0 ? ` · ${t("inv.overflowCaps", { n: overflow.length })}` : "");
 
     const craftBtn = document.getElementById("inventoryCraftAmuletBtn") as HTMLButtonElement | null;
     if (craftBtn) {
       craftBtn.disabled = this.profile.shardCount < 10 || this.profile.amulets.length >= 4;
     }
 
+    this.renderOverflow(overflow);
     this.renderGrid(bag);
     this.renderRail();
     this.renderDetails();
     this.renderAppearance();
+    this.renderHeroPreview();
   }
 
   private renderAppearance(): void {
@@ -496,8 +570,180 @@ export class InventoryOverlay {
     // Optimistic local highlight; world_state echo is authoritative.
     this.avatarColors = { ...this.avatarColors, [part]: paletteIndex };
     this.renderAppearance();
+    this.renderHeroPreview();
     this.send({ type: "avatar_set_color", part, paletteIndex });
     this.statusEl.textContent = t("inv.appearanceStatus", { part, n: paletteIndex + 1 });
+  }
+
+  private renderOverflow(items: SelectedItem[]): void {
+    this.overflowListEl.replaceChildren();
+    if (items.length === 0) {
+      this.overflowEl.hidden = true;
+      return;
+    }
+    this.overflowEl.hidden = false;
+    for (const item of items) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "inv-overflow-item";
+      if (
+        this.selected &&
+        this.selected.itemType === item.itemType &&
+        this.selected.itemId === item.itemId
+      ) {
+        btn.classList.add("selected");
+      }
+      let petType: PetType | undefined;
+      if (item.itemType === "pet" && this.profile) {
+        petType = this.profile.pets.find((p) => p.id === item.itemId)?.type;
+      }
+      btn.appendChild(createItemIcon(item.itemType, "inv-icon-sm", petType));
+      const label = document.createElement("span");
+      label.textContent =
+        item.itemType === "shard_stack"
+          ? `${itemDisplayName(item.itemType)} ×${this.profile!.shardCount}`
+          : `${itemDisplayName(item.itemType)} #${item.itemId}`;
+      btn.appendChild(label);
+      btn.addEventListener("click", () => this.onItemClicked(item.itemType, item.itemId));
+      this.overflowListEl.appendChild(btn);
+    }
+  }
+
+  /**
+   * EPIC 53: stylized 2D/CSS hero preview (not a second Three.js scene).
+   * Reuses EPIC 33 palette + inventory pet/amulet icon language from
+   * remotePlayers / bag icons so art stays consistent without canvas cost.
+   */
+  private renderHeroPreview(): void {
+    const hex = (part: AvatarBodyPart): string =>
+      `#${resolveAvatarColor(this.avatarColors[part]).toString(16).padStart(6, "0")}`;
+    if (this.heroHeadEl) this.heroHeadEl.style.background = hex("head");
+    if (this.heroTorsoEl) this.heroTorsoEl.style.background = hex("torso");
+    if (this.heroHandLEl) this.heroHandLEl.style.background = hex("hands");
+    if (this.heroHandREl) this.heroHandREl.style.background = hex("hands");
+    if (this.heroLegLEl) this.heroLegLEl.style.background = hex("legs");
+    if (this.heroLegREl) this.heroLegREl.style.background = hex("legs");
+
+    const hasAmulet = Boolean(this.profile?.amulets.some((a) => a.equipped));
+    if (this.heroAmuletEl) this.heroAmuletEl.hidden = !hasAmulet;
+
+    this.renderHeroPetSlot(this.heroPet1El, 1);
+    this.renderHeroPetSlot(this.heroPet2El, 2);
+
+    if (!this.heroStatsEl) return;
+    this.heroStatsEl.replaceChildren();
+    if (!this.profile) {
+      const empty = document.createElement("div");
+      empty.className = "inv-hero-stat";
+      empty.textContent = t("inv.waiting");
+      this.heroStatsEl.appendChild(empty);
+      return;
+    }
+
+    const equippedInputs = this.profile.pets
+      .filter((p) => p.equipSlot === 1 || p.equipSlot === 2)
+      .map((p) => ({
+        type: p.type,
+        baseValue: p.baseValue,
+        equipSlot: p.equipSlot,
+        gems: petGemsMap(this.profile!, p.id),
+      }));
+    const totals = aggregateEquippedRatings(equippedInputs, this.profile.slot2Enabled);
+    const rows: Array<{ label: string; text: string }> = [
+      { label: t("inv.heroStatHp"), text: formatRatingGrant("health", totals.healthRating) },
+      { label: t("inv.heroStatArmor"), text: formatRatingGrant("armor", totals.armorRating) },
+      { label: t("inv.heroStatSpeed"), text: formatRatingGrant("speed", totals.speedRating) },
+      { label: t("inv.heroStatDamage"), text: formatRatingGrant("damage", totals.damageRating) },
+    ];
+    for (const row of rows) {
+      const el = document.createElement("div");
+      el.className = "inv-hero-stat";
+      const lab = document.createElement("span");
+      lab.className = "inv-hero-stat-label";
+      lab.textContent = row.label;
+      const val = document.createElement("span");
+      val.textContent = row.text;
+      el.append(lab, val);
+      this.heroStatsEl.appendChild(el);
+    }
+  }
+
+  private renderHeroPetSlot(host: HTMLElement | null, slot: 1 | 2): void {
+    if (!host) return;
+    host.replaceChildren();
+    if (!this.profile) {
+      const empty = document.createElement("div");
+      empty.className = "inv-hero-pet-empty";
+      empty.textContent = t("inv.empty");
+      host.appendChild(empty);
+      return;
+    }
+    if (slot === 2 && !this.profile.slot2Enabled) {
+      const locked = document.createElement("div");
+      locked.className = "inv-hero-pet-empty";
+      locked.textContent = t("inv.heroSlot2Locked");
+      host.appendChild(locked);
+      return;
+    }
+    const pet = this.profile.pets.find((p) => p.equipSlot === slot);
+    if (!pet) {
+      const empty = document.createElement("div");
+      empty.className = "inv-hero-pet-empty";
+      empty.textContent = t("inv.empty");
+      host.appendChild(empty);
+      return;
+    }
+    const icon = createItemIcon("pet", "inv-icon-sm", pet.type);
+    const colorHex = `#${resolveAvatarColor(pet.colorIndex).toString(16).padStart(6, "0")}`;
+    icon.style.boxShadow = `inset 0 0 0 2px ${colorHex}`;
+    host.appendChild(icon);
+    const meta = document.createElement("div");
+    meta.className = "inv-hero-pet-meta";
+    const side = slot === 1 ? t("inv.heroSideLeft") : t("inv.heroSideRight");
+    meta.textContent = `${pet.type} · ${side}`;
+    host.appendChild(meta);
+    const gems = this.profile.gems.filter((g) => g.petId === pet.id);
+    const gemRow = document.createElement("div");
+    gemRow.className = "inv-hero-gems";
+    gemRow.title = t("inv.heroGemsSocketed", {
+      n: gems.length,
+      max: ECONOMY_CAPS.petGemSlots,
+    });
+    for (let i = 0; i < ECONOMY_CAPS.petGemSlots; i++) {
+      const dot = document.createElement("span");
+      const gem = gems[i];
+      dot.className = gem ? `inv-badge inv-badge-${gem.gemType}` : "inv-badge";
+      if (!gem) {
+        dot.style.background = "rgba(255,255,255,0.12)";
+        dot.style.border = "1px solid rgba(255,255,255,0.2)";
+      }
+      gemRow.appendChild(dot);
+    }
+    host.appendChild(gemRow);
+  }
+
+  /** Click empty cell while an unplaced item is selected → economy_move_item. */
+  private onGridClick(ev: MouseEvent): void {
+    if (!this.profile || !this.selected) return;
+    if (this.dragState) return;
+    const target = (ev.target as HTMLElement | null)?.closest?.(".inv-cell") as HTMLElement | null;
+    if (!target || target.dataset.anchor === undefined) return;
+    // Ignore clicks that landed on a bag item sitting above the cell.
+    if ((ev.target as HTMLElement).closest?.(".inv-item")) return;
+    const isOverflow = this.overflowEntries().some(
+      (o) => o.itemType === this.selected!.itemType && o.itemId === this.selected!.itemId,
+    );
+    if (!isOverflow) return;
+    const toAnchor = Number(target.dataset.anchor);
+    if (!Number.isInteger(toAnchor)) return;
+    this.pending = { itemType: this.selected.itemType, itemId: this.selected.itemId };
+    this.render();
+    this.send({
+      type: "economy_move_item",
+      itemType: this.selected.itemType,
+      itemId: this.selected.itemId,
+      toAnchor,
+    });
   }
 
   private onPetColorClick(petId: number, paletteIndex: number): void {

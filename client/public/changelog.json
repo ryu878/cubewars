@@ -1,6 +1,11 @@
 [
   {
     "date": "2026-08-27",
+    "title": "EPIC 53 — Inventory 6×5 grid + hero loadout preview",
+    "body": "Bag grid shrinks from 8×8 to 6×5 (30 cells) with safe server-side migration (no silent item loss; unplaced overflow list when the bag cannot fit everything). Inventory overlay adds a right-side hero loadout preview: body colors, equipped amulet tell, equipped pets (type/side/color + gem sockets), and HP / Armor / Speed% / Damage% stats. Lobby and in-match; both economy pools."
+  },
+  {
+    "date": "2026-08-27",
     "title": "EPIC 52 — Client i18n (RU/EN) + About the Game",
     "body": "Lobby EN|RU language switcher with localStorage persistence (cubewars.locale; default saved → browser ru* → en). Player-facing UI strings localized via client dictionaries. Map picker shows Russian display names when locale is ru. New About page (/about.html) explains modes, maps, weapons, pets (dog Armor / cat HP / bird speed% / lion damage%), inventory/auction/trade, spawn protection, ESC, hotkeys, and economy pools with examples and images. Footer About link beside Changelog and Telegram. Process: player-facing mechanic changes must update About + Last updated + Changelog in the same delivery."
   },

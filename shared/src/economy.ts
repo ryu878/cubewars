@@ -14,7 +14,7 @@ export const ECONOMY_CAPS = {
   gems: 20,
   amulets: 4,
   shards: 10,
-  inventoryCells: 64,
+  inventoryCells: 30,
   petGemSlots: 4,
   amuletDurabilityMax: 10,
   amuletCraftShards: 10,
@@ -383,13 +383,20 @@ export function isEggReady(hatchDeadlineMs: number, nowMs: number): boolean {
   return nowMs >= hatchDeadlineMs;
 }
 
-// --- Inventory grid (EPIC 29 / TZ §2.9) ---
+// --- Inventory grid (EPIC 29 / TZ §2.9; EPIC 53 shrink to 6×5) ---
 
-/** 8×8 bag grid; cells indexed 0..63 row-major. */
+/**
+ * Persisted bag-grid schema version.
+ * 1 = legacy 8×8 (implicit for docs without the field).
+ * 2 = 6×5 / 30 cells (EPIC 53).
+ */
+export const INVENTORY_GRID_VERSION = 2 as const;
+
+/** 6×5 bag grid; cells indexed 0..29 row-major. */
 export const INVENTORY_GRID = {
-  cols: 8,
-  rows: 8,
-  cells: 64,
+  cols: 6,
+  rows: 5,
+  cells: 30,
 } as const;
 
 /** Logical bag item kinds for move/discard and footprint lookup. */

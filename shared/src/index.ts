@@ -832,7 +832,8 @@ export interface EconomyPetDto {
 export interface EconomyEggDto {
   id: number;
   hatchDeadlineMs: number;
-  slotAnchor: number;
+  /** Bag anchor; null when unplaced/overflow (EPIC 53). */
+  slotAnchor: number | null;
 }
 
 /** Wire DTO for a gem (EPIC 25/29). `petId` null when unequipped / in bag. */
@@ -857,13 +858,15 @@ export interface EconomyAmuletDto {
 /** Wire DTO for a growth stimulator bag row (EPIC 29). Footprint = 1. */
 export interface EconomyStimulatorDto {
   id: number;
-  slotAnchor: number;
+  /** Bag anchor; null when unplaced/overflow (EPIC 53). */
+  slotAnchor: number | null;
 }
 
 /** Wire DTO for a repair kit bag row (EPIC 29). Footprint = 1. */
 export interface EconomyRepairKitDto {
   id: number;
-  slotAnchor: number;
+  /** Bag anchor; null when unplaced/overflow (EPIC 53). */
+  slotAnchor: number | null;
 }
 
 /**
