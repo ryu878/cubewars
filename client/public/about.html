@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CubeWars — About</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0c1016;
+        --panel: #161d27;
+        --line: #2c3a4d;
+        --text: #e8eef5;
+        --muted: #9aa8b8;
+        --accent: #8ab4c4;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        background:
+          radial-gradient(1200px 600px at 20% -10%, rgba(56, 90, 120, 0.35), transparent 60%),
+          radial-gradient(900px 500px at 90% 10%, rgba(40, 70, 50, 0.25), transparent 55%),
+          var(--bg);
+        color: var(--text);
+      }
+      main {
+        width: min(760px, 92vw);
+        margin: 0 auto;
+        padding: 36px 0 64px;
+      }
+      header {
+        margin-bottom: 28px;
+      }
+      .back {
+        color: var(--accent);
+        text-decoration: none;
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .back:hover {
+        text-decoration: underline;
+      }
+      h1 {
+        margin: 14px 0 8px;
+        font-size: 32px;
+        letter-spacing: 0.01em;
+      }
+      .subtitle,
+      .meta,
+      .sync-note {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.45;
+      }
+      .meta {
+        margin-top: 10px;
+      }
+      .sync-note {
+        margin-top: 8px;
+        font-size: 13px;
+      }
+      .locale-switcher {
+        display: inline-flex;
+        gap: 4px;
+        margin-top: 14px;
+        align-items: center;
+      }
+      .locale-switcher button {
+        min-width: 40px;
+        padding: 6px 10px;
+        font-size: 12px;
+        font-weight: 700;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #1c2531;
+        color: var(--text);
+        cursor: pointer;
+      }
+      .locale-switcher button.locale-active {
+        border-color: var(--accent);
+        background: #243042;
+      }
+      section {
+        margin: 22px 0;
+        padding: 16px 18px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+      }
+      section h2 {
+        margin: 0 0 8px;
+        font-size: 17px;
+        line-height: 1.35;
+      }
+      section p {
+        margin: 0 0 10px;
+        color: #c5d0dc;
+        font-size: 14px;
+        line-height: 1.5;
+      }
+      section p:last-child {
+        margin-bottom: 0;
+      }
+      section ul {
+        margin: 0 0 10px;
+        padding-left: 1.2em;
+        color: #c5d0dc;
+        font-size: 14px;
+        line-height: 1.5;
+      }
+      figure {
+        margin: 12px 0 0;
+      }
+      figure img {
+        display: block;
+        width: 100%;
+        max-height: 320px;
+        object-fit: cover;
+        object-position: top;
+        border: 1px solid var(--line);
+        background: #0f151c;
+      }
+      figcaption {
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      a.inline {
+        color: var(--accent);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <a class="back" href="/" data-i18n="about.back">← Back to CubeWars</a>
+        <div class="locale-switcher" role="group" aria-label="Language">
+          <button type="button" data-locale="en">EN</button>
+          <button type="button" data-locale="ru">RU</button>
+        </div>
+        <h1 data-i18n="about.title">About the game</h1>
+        <p class="subtitle" data-i18n="about.subtitle">Mechanics, examples, and pictures for new players.</p>
+        <p class="meta" id="lastUpdated"></p>
+        <p class="meta">
+          <a class="inline" href="/changelog.html" data-i18n="about.changelogLink">See Changelog for release history.</a>
+        </p>
+        <p class="sync-note" data-i18n="about.syncNote">
+          This page is kept in sync with player-facing mechanics. When features change, About is updated in the same delivery.
+        </p>
+      </header>
+
+      <section data-section="modes">
+        <h2 data-i18n="about.modes.title">Modes</h2>
+        <p data-i18n="about.modes.body">
+          Choose a mode in the lobby. Deathmatch (Quick Join) is competitive multiplayer. vs Bots and Endless are Sandbox practice modes. Each mode uses its own economy pool — gold and inventory do not mix across Deathmatch and Sandbox.
+        </p>
+        <ul>
+          <li data-i18n="about.modes.dm">Deathmatch — fight other players; shared public lobbies.</li>
+          <li data-i18n="about.modes.bots">vs Bots — private sandbox match against bots on your selected map.</li>
+          <li data-i18n="about.modes.endless">Endless — infinite run with distance and bot kills on a Sandbox pool.</li>
+        </ul>
+        <figure>
+          <img src="/about/modes.png" alt="Lobby mode buttons" />
+          <figcaption data-i18n="about.modes.cap">Example: lobby mode buttons and economy actions.</figcaption>
+        </figure>
+      </section>
+
+      <section data-section="maps">
+        <h2 data-i18n="about.maps.title">Maps</h2>
+        <p data-i18n="about.maps.body">
+          Use the lobby map picker before Quick Join or vs Bots. Joining an existing lobby game uses that match’s map (server-owned). Maps are shared across modes where the catalog applies.
+        </p>
+        <figure>
+          <img src="/about/maps.png" alt="Map picker" />
+          <figcaption data-i18n="about.maps.cap">Example: map picker in the lobby.</figcaption>
+        </figure>
+      </section>
+
+      <section data-section="weapons">
+        <h2 data-i18n="about.weapons.title">Weapons &amp; pickups</h2>
+        <p data-i18n="about.weapons.body">
+          Click to fire while pointer-locked. Pick up health, armor, ammo, and weapons from the arena. Press E to switch among owned weapons. Empty weapons pulse on the HUD until you find ammo.
+        </p>
+        <figure>
+          <img src="/about/combat.png" alt="In-match combat" />
+          <figcaption data-i18n="about.weapons.cap">Example: in-match view with HUD health and weapon.</figcaption>
+        </figure>
+      </section>
+
+      <section data-section="pets">
+        <h2 data-i18n="about.pets.title">Pets</h2>
+        <p data-i18n="about.pets.body">
+          Pets hatch from eggs and grant combat bonuses when equipped. Species map to primary grants (EPIC 51):
+        </p>
+        <ul>
+          <li data-i18n="about.pets.dog">Dog — flat Armor</li>
+          <li data-i18n="about.pets.cat">Cat — flat HP</li>
+          <li data-i18n="about.pets.bird">Bird — speed %</li>
+          <li data-i18n="about.pets.lion">Lion — damage %</li>
+        </ul>
+        <p data-i18n="about.pets.gems">
+          Gems socketed into pets add secondary bonuses. Equip up to two pets (slots) plus an optional amulet.
+        </p>
+        <figure>
+          <img src="/about/pets-inventory.png" alt="Inventory with pets" />
+          <figcaption data-i18n="about.pets.cap">Example: inventory grid with pet icons and tooltips.</figcaption>
+        </figure>
+      </section>
+
+      <section data-section="economy">
+        <h2 data-i18n="about.economy.title">Inventory / auction / trade</h2>
+        <p data-i18n="about.economy.body">
+          Open inventory with I (or P). The 8×8 bag holds pets, eggs, gems, amulets, stimulators, repair kits, and shards. Equip pets on the rail; craft amulets from shards. Auction (U) is Deathmatch-only. Trade (T) is same-match player-to-player. F picks up nearby ground drops.
+        </p>
+        <figure>
+          <img src="/about/inventory.png" alt="Lobby inventory" />
+          <figcaption data-i18n="about.economy.capInv">Example: lobby inventory overlay.</figcaption>
+        </figure>
+        <figure>
+          <img src="/about/auction.png" alt="Auction panel" />
+          <figcaption data-i18n="about.economy.capAuction">Example: Deathmatch auction panel.</figcaption>
+        </figure>
+      </section>
+
+      <section data-section="spawn">
+        <h2 data-i18n="about.spawn.title">Spawn protection</h2>
+        <p data-i18n="about.spawn.body">
+          After spawn or respawn you briefly cannot be damaged and cannot fire. A HUD cue shows remaining protection time (server-driven).
+        </p>
+      </section>
+
+      <section data-section="pause">
+        <h2 data-i18n="about.pause.title">ESC / pause menu</h2>
+        <p data-i18n="about.pause.body">
+          Press Esc in a match to pause: Resume, Change Map / Reload, Inventory, Auction (Deathmatch), Exit to Lobby. Changing map leaves the current match and starts a new one on the chosen catalog map.
+        </p>
+        <figure>
+          <img src="/about/pause.png" alt="Pause menu" />
+          <figcaption data-i18n="about.pause.cap">Example: ESC pause menu with change-map panel.</figcaption>
+        </figure>
+      </section>
+
+      <section data-section="hotkeys">
+        <h2 data-i18n="about.hotkeys.title">Hotkeys</h2>
+        <ul>
+          <li data-i18n="about.hotkeys.move">WASD — move · Mouse — look · Space — jump</li>
+          <li data-i18n="about.hotkeys.fire">Click — fire · E — switch weapon</li>
+          <li data-i18n="about.hotkeys.inv">I / P — inventory · U — auction · T — trade · F — ground pickup</li>
+          <li data-i18n="about.hotkeys.pause">Esc — pause / release pointer · Tab (hold) — scoreboard</li>
+        </ul>
+        <figure>
+          <img src="/about/gameplay.png" alt="Gameplay" />
+          <figcaption data-i18n="about.hotkeys.cap">Example: gameplay with HUD chrome.</figcaption>
+        </figure>
+      </section>
+
+      <section data-section="pools">
+        <h2 data-i18n="about.pools.title">Economy pools</h2>
+        <p data-i18n="about.pools.body">
+          Deathmatch and Sandbox (Bots / Endless) keep separate gold and inventory. Farming in Sandbox cannot feed Deathmatch rankings or auction listings. Lobby buttons open the matching pool before you join.
+        </p>
+      </section>
+    </main>
+    <script>
+      const STORAGE_KEY = "cubewars.locale";
+      const LAST_UPDATED = "2026-08-27";
+
+      const dict = {
+        en: {
+          "about.back": "← Back to CubeWars",
+          "about.title": "About the game",
+          "about.subtitle": "Mechanics, examples, and pictures for new players.",
+          "about.lastUpdated": "Last updated: {date}",
+          "about.changelogLink": "See Changelog for release history.",
+          "about.syncNote":
+            "This page is kept in sync with player-facing mechanics. When features change, About is updated in the same delivery.",
+          "about.modes.title": "Modes",
+          "about.modes.body":
+            "Choose a mode in the lobby. Deathmatch (Quick Join) is competitive multiplayer. vs Bots and Endless are Sandbox practice modes. Each mode uses its own economy pool — gold and inventory do not mix across Deathmatch and Sandbox.",
+          "about.modes.dm": "Deathmatch — fight other players; shared public lobbies.",
+          "about.modes.bots": "vs Bots — private sandbox match against bots on your selected map.",
+          "about.modes.endless": "Endless — infinite run with distance and bot kills on a Sandbox pool.",
+          "about.modes.cap": "Example: lobby mode buttons and economy actions.",
+          "about.maps.title": "Maps",
+          "about.maps.body":
+            "Use the lobby map picker before Quick Join or vs Bots. Joining an existing lobby game uses that match’s map (server-owned). Maps are shared across modes where the catalog applies.",
+          "about.maps.cap": "Example: map picker in the lobby.",
+          "about.weapons.title": "Weapons & pickups",
+          "about.weapons.body":
+            "Click to fire while pointer-locked. Pick up health, armor, ammo, and weapons from the arena. Press E to switch among owned weapons. Empty weapons pulse on the HUD until you find ammo.",
+          "about.weapons.cap": "Example: in-match view with HUD health and weapon.",
+          "about.pets.title": "Pets",
+          "about.pets.body":
+            "Pets hatch from eggs and grant combat bonuses when equipped. Species map to primary grants (EPIC 51):",
+          "about.pets.dog": "Dog — flat Armor",
+          "about.pets.cat": "Cat — flat HP",
+          "about.pets.bird": "Bird — speed %",
+          "about.pets.lion": "Lion — damage %",
+          "about.pets.gems":
+            "Gems socketed into pets add secondary bonuses. Equip up to two pets (slots) plus an optional amulet.",
+          "about.pets.cap": "Example: inventory grid with pet icons and tooltips.",
+          "about.economy.title": "Inventory / auction / trade",
+          "about.economy.body":
+            "Open inventory with I (or P). The 8×8 bag holds pets, eggs, gems, amulets, stimulators, repair kits, and shards. Equip pets on the rail; craft amulets from shards. Auction (U) is Deathmatch-only. Trade (T) is same-match player-to-player. F picks up nearby ground drops.",
+          "about.economy.capInv": "Example: lobby inventory overlay.",
+          "about.economy.capAuction": "Example: Deathmatch auction panel.",
+          "about.spawn.title": "Spawn protection",
+          "about.spawn.body":
+            "After spawn or respawn you briefly cannot be damaged and cannot fire. A HUD cue shows remaining protection time (server-driven).",
+          "about.pause.title": "ESC / pause menu",
+          "about.pause.body":
+            "Press Esc in a match to pause: Resume, Change Map / Reload, Inventory, Auction (Deathmatch), Exit to Lobby. Changing map leaves the current match and starts a new one on the chosen catalog map.",
+          "about.pause.cap": "Example: ESC pause menu with change-map panel.",
+          "about.hotkeys.title": "Hotkeys",
+          "about.hotkeys.move": "WASD — move · Mouse — look · Space — jump",
+          "about.hotkeys.fire": "Click — fire · E — switch weapon",
+          "about.hotkeys.inv": "I / P — inventory · U — auction · T — trade · F — ground pickup",
+          "about.hotkeys.pause": "Esc — pause / release pointer · Tab (hold) — scoreboard",
+          "about.hotkeys.cap": "Example: gameplay with HUD chrome.",
+          "about.pools.title": "Economy pools",
+          "about.pools.body":
+            "Deathmatch and Sandbox (Bots / Endless) keep separate gold and inventory. Farming in Sandbox cannot feed Deathmatch rankings or auction listings. Lobby buttons open the matching pool before you join.",
+        },
+        ru: {
+          "about.back": "← Назад в CubeWars",
+          "about.title": "Об игре",
+          "about.subtitle": "Механики, примеры и картинки для новых игроков.",
+          "about.lastUpdated": "Обновлено: {date}",
+          "about.changelogLink": "История релизов — в Changelog.",
+          "about.syncNote":
+            "Страница синхронизируется с игровыми механиками. При изменениях About обновляется в той же поставке.",
+          "about.modes.title": "Режимы",
+          "about.modes.body":
+            "Выберите режим в лобби. Deathmatch (быстрый вход) — соревновательный мультиплеер. «Против ботов» и Endless — песочница Sandbox. У каждого режима свой экономический пул: золото и инвентарь Deathmatch и Sandbox не смешиваются.",
+          "about.modes.dm": "Deathmatch — бой с игроками; общие публичные лобби.",
+          "about.modes.bots": "Против ботов — приватный матч Sandbox на выбранной карте.",
+          "about.modes.endless": "Endless — бесконечный забег: дистанция и убийства ботов, пул Sandbox.",
+          "about.modes.cap": "Пример: кнопки режимов и экономии в лобби.",
+          "about.maps.title": "Карты",
+          "about.maps.body":
+            "Выберите карту в лобби перед быстрым входом или ботами. Вход в существующую игру использует карту того матча (сервер). Карты из каталога доступны в подходящих режимах.",
+          "about.maps.cap": "Пример: выбор карты в лобби.",
+          "about.weapons.title": "Оружие и подборы",
+          "about.weapons.body":
+            "Стреляйте кликом при захвате указателя. Подбирайте здоровье, броню, патроны и оружие на арене. E — смена оружия. Пустое оружие мигает на HUD, пока нет патронов.",
+          "about.weapons.cap": "Пример: матч с HUD здоровья и оружия.",
+          "about.pets.title": "Пэты",
+          "about.pets.body":
+            "Пэты вылупляются из яиц и дают бонусы в бою при экипировке. Виды и основные бонусы (EPIC 51):",
+          "about.pets.dog": "Собака — плоская броня (Armor)",
+          "about.pets.cat": "Кошка — плоское HP",
+          "about.pets.bird": "Птица — скорость %",
+          "about.pets.lion": "Лев — урон %",
+          "about.pets.gems":
+            "Самоцветы в пэтах дают дополнительные бонусы. Можно экипировать до двух пэтов и опциональный амулет.",
+          "about.pets.cap": "Пример: сетка инвентаря с иконками пэтов.",
+          "about.economy.title": "Инвентарь / аукцион / обмен",
+          "about.economy.body":
+            "Инвентарь — I (или P). Сумка 8×8: пэты, яйца, самоцветы, амулеты, стимуляторы, ремнаборы, осколки. Экипируйте пэтов на рейле; амулеты крафтятся из осколков. Аукцион (U) — только Deathmatch. Обмен (T) — в том же матче. F — поднять предметы с земли.",
+          "about.economy.capInv": "Пример: инвентарь из лобби.",
+          "about.economy.capAuction": "Пример: панель аукциона Deathmatch.",
+          "about.spawn.title": "Защита спавна",
+          "about.spawn.body":
+            "После появления вы кратко неуязвимы и не можете стрелять. HUD показывает оставшееся время (с сервера).",
+          "about.pause.title": "ESC / меню паузы",
+          "about.pause.body":
+            "Esc в матче: Продолжить, Сменить карту / Перезапуск, Инвентарь, Аукцион (Deathmatch), В лобби. Смена карты завершает матч и начинает новый на выбранной карте.",
+          "about.pause.cap": "Пример: меню паузы со сменой карты.",
+          "about.hotkeys.title": "Горячие клавиши",
+          "about.hotkeys.move": "WASD — ходьба · Мышь — обзор · Пробел — прыжок",
+          "about.hotkeys.fire": "Клик — стрельба · E — смена оружия",
+          "about.hotkeys.inv": "I / P — инвентарь · U — аукцион · T — обмен · F — поднять",
+          "about.hotkeys.pause": "Esc — пауза / отпустить мышь · Tab (удерж.) — табло",
+          "about.hotkeys.cap": "Пример: геймплей с HUD.",
+          "about.pools.title": "Экономические пулы",
+          "about.pools.body":
+            "Deathmatch и Sandbox (боты / Endless) хранят золото и инвентарь отдельно. Фарм в Sandbox не кормит Deathmatch и аукцион. Кнопки лобби открывают нужный пул до входа в матч.",
+        },
+      };
+
+      function isLocale(v) {
+        return v === "en" || v === "ru";
+      }
+
+      function browserPrefersRu() {
+        const candidates = [navigator.language, ...(navigator.languages || [])].filter(Boolean);
+        return candidates.some((lang) => lang.toLowerCase().startsWith("ru"));
+      }
+
+      function resolveLocale() {
+        try {
+          const saved = localStorage.getItem(STORAGE_KEY);
+          if (isLocale(saved)) return saved;
+        } catch (_) {}
+        return browserPrefersRu() ? "ru" : "en";
+      }
+
+      let locale = resolveLocale();
+
+      function t(key, params) {
+        let text = (dict[locale] && dict[locale][key]) || dict.en[key] || key;
+        if (params) {
+          for (const [k, v] of Object.entries(params)) {
+            text = text.split("{" + k + "}").join(String(v));
+          }
+        }
+        return text;
+      }
+
+      function apply() {
+        document.documentElement.lang = locale;
+        document.querySelectorAll("[data-i18n]").forEach((el) => {
+          const key = el.getAttribute("data-i18n");
+          if (key) el.textContent = t(key);
+        });
+        document.querySelectorAll("[data-locale]").forEach((el) => {
+          const loc = el.getAttribute("data-locale");
+          el.classList.toggle("locale-active", loc === locale);
+          el.setAttribute("aria-pressed", loc === locale ? "true" : "false");
+        });
+        const updated = document.getElementById("lastUpdated");
+        if (updated) updated.textContent = t("about.lastUpdated", { date: LAST_UPDATED });
+        document.title = locale === "ru" ? "CubeWars — Об игре" : "CubeWars — About";
+      }
+
+      function setLocale(next) {
+        if (!isLocale(next)) return;
+        locale = next;
+        try {
+          localStorage.setItem(STORAGE_KEY, locale);
+        } catch (_) {}
+        apply();
+      }
+
+      document.querySelectorAll("[data-locale]").forEach((el) => {
+        el.addEventListener("click", () => setLocale(el.getAttribute("data-locale")));
+      });
+
+      apply();
+    </script>
+  </body>
+</html>

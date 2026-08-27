@@ -20,6 +20,7 @@ import {
   type MapId,
   type MatchMode,
 } from "@cubewars/shared";
+import { localizedMapName, subscribe, t } from "./i18n";
 
 export interface JoinSelection {
   mode: MatchMode;
@@ -48,6 +49,9 @@ export class ModeSelect {
   private goldValueEl: HTMLElement;
   private pending = false;
   private enabled = false;
+  private lastLobby: LobbyMatchSummary[] = [];
+  private lastLeaderboard: LeaderboardEntry[] = [];
+  private lastEndlessLeaderboard: EndlessLeaderboardEntry[] = [];
 
   /**
    * `onSelect` fires when a mode join button is clicked.
@@ -95,6 +99,16 @@ export class ModeSelect {
     this.mapSelect.addEventListener("change", () => {
       localStorage.setItem(MAP_STORAGE_KEY, this.mapSelect.value);
     });
+    subscribe(() => this.onLocaleChange());
+  }
+
+  private onLocaleChange(): void {
+    const selected = this.mapSelect.value;
+    this.populateMapSelect();
+    if (selected) this.mapSelect.value = selected;
+    this.setLobby(this.lastLobby);
+    this.setLeaderboard(this.lastLeaderboard);
+    this.setEndlessLeaderboard(this.lastEndlessLeaderboard);
   }
 
   private populateMapSelect(): void {
@@ -103,9 +117,7 @@ export class ModeSelect {
     for (const map of listMaps()) {
       const option = document.createElement("option");
       option.value = map.id;
-      option.textContent = map.displayNameRu
-        ? `${map.displayName} / ${map.displayNameRu}`
-        : map.displayName;
+      option.textContent = localizedMapName(map);
       if (map.id === saved) option.selected = true;
       this.mapSelect.appendChild(option);
     }
@@ -136,11 +148,12 @@ export class ModeSelect {
   }
 
   setLobby(matches: LobbyMatchSummary[]): void {
+    this.lastLobby = matches;
     this.lobbyListEl.replaceChildren();
     if (matches.length === 0) {
       const empty = document.createElement("div");
       empty.className = "lobby-empty";
-      empty.textContent = "No games yet";
+      empty.textContent = t("lobby.noGames");
       this.lobbyListEl.appendChild(empty);
       return;
     }
@@ -151,12 +164,16 @@ export class ModeSelect {
 
       const label = document.createElement("span");
       label.className = "lobby-name";
-      const mapLabel = match.mapDisplayName ?? match.mapId ?? "Base";
+      const catalog = match.mapId ? listMaps().find((m) => m.id === match.mapId) : undefined;
+      const mapLabel = catalog
+        ? localizedMapName(catalog)
+        : (match.mapDisplayName ?? match.mapId ?? "Base");
       label.textContent = `${match.displayName} · ${mapLabel} · ${match.players}/${match.maxPlayers}`;
 
       const button = document.createElement("button");
       button.type = "button";
-      button.textContent = match.players >= match.maxPlayers ? "Full" : "Join";
+      button.textContent =
+        match.players >= match.maxPlayers ? t("lobby.full") : t("lobby.join");
       button.disabled = this.pending || !this.enabled || match.players >= match.maxPlayers;
       button.addEventListener("click", () => {
         // EPIC 48: joining an existing match uses that match's map (server-owned).
@@ -208,23 +225,24 @@ export class ModeSelect {
     this.pending = false;
     this.errorEl.textContent =
       reason === "nickname_taken"
-        ? "This nickname is already used in that game"
+        ? t("lobby.err.nicknameTaken")
         : reason === "match_full"
-          ? "That game is full"
+          ? t("lobby.err.matchFull")
           : reason === "match_not_found"
-            ? "That game is gone"
+            ? t("lobby.err.matchGone")
             : reason === "map_invalid"
-              ? "That map is not available"
-              : "Use 3-16 letters, numbers, spaces, _ or -";
+              ? t("lobby.err.mapInvalid")
+              : t("lobby.err.nicknameRules");
     this.updateButtons();
   }
 
   setLeaderboard(entries: LeaderboardEntry[]): void {
+    this.lastLeaderboard = entries;
     this.leaderboardListEl.replaceChildren();
     if (entries.length === 0) {
       const empty = document.createElement("div");
       empty.className = "leaderboard-empty";
-      empty.textContent = "No scores yet";
+      empty.textContent = t("lobby.noScores");
       this.leaderboardListEl.appendChild(empty);
       return;
     }
@@ -243,7 +261,7 @@ export class ModeSelect {
 
       const statsEl = document.createElement("span");
       statsEl.className = "leaderboard-stats";
-      statsEl.textContent = `${entry.kills} K / ${entry.deaths} D`;
+      statsEl.textContent = t("lobby.kd", { kills: entry.kills, deaths: entry.deaths });
 
       row.append(rankEl, nameEl, statsEl);
       this.leaderboardListEl.appendChild(row);
@@ -251,11 +269,12 @@ export class ModeSelect {
   }
 
   setEndlessLeaderboard(entries: EndlessLeaderboardEntry[]): void {
+    this.lastEndlessLeaderboard = entries;
     this.endlessLeaderboardListEl.replaceChildren();
     if (entries.length === 0) {
       const empty = document.createElement("div");
       empty.className = "leaderboard-empty";
-      empty.textContent = "No endless runs yet";
+      empty.textContent = t("lobby.noEndless");
       this.endlessLeaderboardListEl.appendChild(empty);
       return;
     }
@@ -274,7 +293,10 @@ export class ModeSelect {
 
       const statsEl = document.createElement("span");
       statsEl.className = "leaderboard-stats";
-      statsEl.textContent = `${entry.botKills} bots / ${entry.distanceKm.toFixed(2)} km`;
+      statsEl.textContent = t("lobby.endlessStats", {
+        bots: entry.botKills,
+        km: entry.distanceKm.toFixed(2),
+      });
 
       row.append(rankEl, nameEl, statsEl);
       this.endlessLeaderboardListEl.appendChild(row);
@@ -284,12 +306,12 @@ export class ModeSelect {
   /** EPIC 42/45: open lobby inventory for the chosen pool after nickname / auth checks. */
   private requestInventory(pool: EconomyPool): void {
     if (!this.enabled) {
-      this.errorEl.textContent = "Sign in first to open inventory";
+      this.errorEl.textContent = t("lobby.err.signInInventory");
       return;
     }
     const normalized = normalizeNickname(this.nicknameInput.value);
     if (!normalized.ok) {
-      this.errorEl.textContent = "Enter a valid nickname to load inventory";
+      this.errorEl.textContent = t("lobby.err.nickInventory");
       return;
     }
     this.errorEl.textContent = "";
@@ -300,12 +322,12 @@ export class ModeSelect {
   /** EPIC 45: open Deathmatch auction from lobby after nickname / auth checks. */
   private requestAuction(): void {
     if (!this.enabled) {
-      this.errorEl.textContent = "Sign in first to open auction";
+      this.errorEl.textContent = t("lobby.err.signInAuction");
       return;
     }
     const normalized = normalizeNickname(this.nicknameInput.value);
     if (!normalized.ok) {
-      this.errorEl.textContent = "Enter a valid nickname to open auction";
+      this.errorEl.textContent = t("lobby.err.nickAuction");
       return;
     }
     this.errorEl.textContent = "";
@@ -317,7 +339,7 @@ export class ModeSelect {
     if (!this.enabled || this.pending) return;
     const normalized = normalizeNickname(this.nicknameInput.value);
     if (!normalized.ok) {
-      this.errorEl.textContent = "Use 3-16 letters, numbers, spaces, _ or -";
+      this.errorEl.textContent = t("lobby.err.nicknameRules");
       this.updateButtons();
       return;
     }
@@ -345,8 +367,9 @@ export class ModeSelect {
     this.botsInventoryBtn.disabled = lobbyDisabled;
     this.auctionBtn.disabled = lobbyDisabled;
     this.mapSelect.disabled = lobbyDisabled;
+    const fullLabel = t("lobby.full");
     for (const button of this.lobbyListEl.querySelectorAll("button")) {
-      if (button.textContent !== "Full") {
+      if (button.textContent !== fullLabel) {
         button.disabled = disabled;
       }
     }

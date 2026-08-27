@@ -4,6 +4,7 @@
 
 import { isMapId, listMaps, type MapId, type MatchMode } from "@cubewars/shared";
 import { isEditableTarget } from "./uiInput";
+import { localizedMapName, subscribe, t } from "./i18n";
 
 export type PauseMenuAction =
   | { type: "resume" }
@@ -50,7 +51,7 @@ export class PauseMenu {
       }
       const raw = this.mapSelectEl.value;
       if (!isMapId(raw)) {
-        this.setStatus("Pick a valid catalog map");
+        this.setStatus(t("pause.err.invalidMap"));
         return;
       }
       this.onAction({ type: "change_map", mapId: raw });
@@ -79,6 +80,10 @@ export class PauseMenu {
       } else {
         this.setOpen(true);
       }
+    });
+    subscribe(() => {
+      this.populateMapSelect();
+      this.updateLabels();
     });
   }
 
@@ -126,14 +131,16 @@ export class PauseMenu {
   }
 
   private populateMapSelect(): void {
+    const prev = this.mapSelectEl.value;
     this.mapSelectEl.replaceChildren();
     for (const map of listMaps()) {
       const option = document.createElement("option");
       option.value = map.id;
-      option.textContent = map.displayNameRu
-        ? `${map.displayName} / ${map.displayNameRu}`
-        : map.displayName;
+      option.textContent = localizedMapName(map);
       this.mapSelectEl.appendChild(option);
+    }
+    if (prev && listMaps().some((m) => m.id === prev)) {
+      this.mapSelectEl.value = prev;
     }
   }
 
@@ -151,25 +158,30 @@ export class PauseMenu {
   }
 
   private updateLabels(): void {
-    const mapLabel = this.mapId
-      ? listMaps().find((m) => m.id === this.mapId)?.displayName ?? this.mapId
+    const catalog = this.mapId ? listMaps().find((m) => m.id === this.mapId) : undefined;
+    const mapLabel = catalog
+      ? localizedMapName(catalog)
       : this.mode === "endless"
-        ? "Endless"
+        ? t("pause.mode.endless")
         : "—";
     const modeLabel =
-      this.mode === "public" ? "Deathmatch" : this.mode === "bots" ? "Bots" : this.mode === "endless" ? "Endless" : "—";
-    this.statusEl.textContent = `${modeLabel} · ${mapLabel}`;
+      this.mode === "public"
+        ? t("pause.mode.deathmatch")
+        : this.mode === "bots"
+          ? t("pause.mode.bots")
+          : this.mode === "endless"
+            ? t("pause.mode.endless")
+            : "—";
+    this.statusEl.textContent = t("pause.statusLine", { mode: modeLabel, map: mapLabel });
 
     if (this.mode === "endless") {
-      this.changeMapBtn.textContent = "Reload Endless";
+      this.changeMapBtn.textContent = t("pause.reloadEndless");
       this.mapSelectEl.disabled = true;
-      this.mapPanelEl.querySelector(".pause-map-hint")!.textContent =
-        "Endless has no catalog map picker — confirm to leave and start a new endless run.";
+      this.mapPanelEl.querySelector(".pause-map-hint")!.textContent = t("pause.mapHintEndless");
     } else {
-      this.changeMapBtn.textContent = "Change Map / Reload";
+      this.changeMapBtn.textContent = t("pause.changeMap");
       this.mapSelectEl.disabled = false;
-      this.mapPanelEl.querySelector(".pause-map-hint")!.textContent =
-        "Pick a map, then confirm to leave this match and start a new one.";
+      this.mapPanelEl.querySelector(".pause-map-hint")!.textContent = t("pause.mapHint");
     }
   }
 }

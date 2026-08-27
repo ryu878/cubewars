@@ -1,5 +1,6 @@
 // Auction house panel (EPIC 38). Deathmatch pool only — sends intents,
 // renders server `economy_auction_state`. Plain HTML/CSS/TS.
+// EPIC 52: player-facing chrome via t().
 
 import type {
   ClientMessage,
@@ -9,6 +10,7 @@ import type {
   InventoryItemType,
 } from "@cubewars/shared";
 import { shouldIgnoreGameHotkey } from "./uiInput";
+import { subscribe, t } from "./i18n";
 
 type SendFn = (message: ClientMessage) => void;
 
@@ -19,6 +21,7 @@ export class AuctionPanel {
   private open = false;
   private lots: EconomyAuctionLotDto[] = [];
   private profile: EconomyProfileMessage | null = null;
+  private lastLedgerGold = 0;
 
   constructor(private send: SendFn) {
     this.ensureDom();
@@ -39,6 +42,17 @@ export class AuctionPanel {
       this.setOpen(!this.open);
     });
     window.addEventListener("cubewars-open-auction", () => this.setOpen(true));
+    subscribe(() => {
+      this.applyStaticLabels();
+      if (this.open) {
+        this.renderListForm();
+        this.renderLots();
+        this.statusEl.textContent = t("auction.ledger", {
+          gold: this.lastLedgerGold,
+          n: this.lots.length,
+        });
+      }
+    });
   }
 
   setProfile(profile: EconomyProfileMessage): void {
@@ -48,7 +62,11 @@ export class AuctionPanel {
 
   setAuctionState(message: EconomyAuctionStateMessage): void {
     this.lots = message.lots;
-    this.statusEl.textContent = `Dev ledger: ${message.developerGoldLedger} gold · ${message.lots.length} active lot(s)`;
+    this.lastLedgerGold = message.developerGoldLedger;
+    this.statusEl.textContent = t("auction.ledger", {
+      gold: message.developerGoldLedger,
+      n: message.lots.length,
+    });
     if (this.open) this.renderLots();
   }
 
@@ -59,9 +77,35 @@ export class AuctionPanel {
     if (open) {
       if (document.pointerLockElement) document.exitPointerLock();
       this.send({ type: "economy_auction_browse" });
+      this.applyStaticLabels();
       this.renderListForm();
       this.renderLots();
     }
+  }
+
+  private applyStaticLabels(): void {
+    const close = document.getElementById("auctionCloseBtn");
+    if (close) close.textContent = t("auction.close");
+    const title = document.querySelector("#auctionPanel h2");
+    if (title) title.textContent = t("auction.title");
+    const hint = document.querySelector("#auctionPanel .auction-hint");
+    if (hint) hint.textContent = t("auction.hint");
+    const typeLabel = document.getElementById("auctionTypeLabel");
+    if (typeLabel) typeLabel.firstChild && (typeLabel.childNodes[0].textContent = `${t("auction.type")} `);
+    const itemLabel = document.getElementById("auctionItemLabel");
+    if (itemLabel) itemLabel.childNodes[0].textContent = `${t("auction.item")} `;
+    const shardsLabel = document.getElementById("auctionShardsLabel");
+    if (shardsLabel) shardsLabel.childNodes[0].textContent = `${t("auction.shardsQty")} `;
+    const startLabel = document.getElementById("auctionStartLabel");
+    if (startLabel) startLabel.childNodes[0].textContent = `${t("auction.start")} `;
+    const buyoutLabel = document.getElementById("auctionBuyoutLabel");
+    if (buyoutLabel) buyoutLabel.childNodes[0].textContent = `${t("auction.buyout")} `;
+    const buyoutInput = document.getElementById("auctionBuyoutPrice") as HTMLInputElement | null;
+    if (buyoutInput) buyoutInput.placeholder = t("auction.buyoutPlaceholder");
+    const listBtn = document.getElementById("auctionListBtn");
+    if (listBtn) listBtn.textContent = t("auction.list");
+    const refreshBtn = document.getElementById("auctionRefreshBtn");
+    if (refreshBtn) refreshBtn.textContent = t("auction.refresh");
   }
 
   private submitList(): void {
@@ -94,8 +138,7 @@ export class AuctionPanel {
     if (!idEl || !typeEl || !this.profile) return;
     if (this.profile.economyPool !== "deathmatch") {
       idEl.innerHTML = "";
-      this.statusEl.textContent =
-        "Listing uses Deathmatch bag items. Bind Deathmatch from the lobby (Inventory or Auction) or open auction from a Deathmatch match.";
+      this.statusEl.textContent = t("auction.dmOnly");
       return;
     }
     const fill = () => {
@@ -142,7 +185,7 @@ export class AuctionPanel {
     this.listEl.innerHTML = "";
     if (this.lots.length === 0) {
       const empty = document.createElement("p");
-      empty.textContent = "No active lots.";
+      empty.textContent = t("auction.empty");
       this.listEl.appendChild(empty);
       return;
     }
@@ -151,16 +194,25 @@ export class AuctionPanel {
       row.className = "auction-lot";
       const itemLabel = `${lot.item.itemType} ${lot.item.label ?? ""} ${lot.item.detail ?? ""}`.trim();
       const bid = lot.highestBid ?? "—";
-      row.innerHTML = `<strong>#${lot.lotId}</strong> ${itemLabel}<br/>` +
-        `Seller ${lot.sellerNickname} · start ${lot.startPrice}` +
-        (lot.buyoutPrice !== null ? ` · buyout ${lot.buyoutPrice}` : "") +
-        `<br/>High bid: ${bid}` +
-        (lot.highestBidderNickname ? ` (${lot.highestBidderNickname})` : "") +
-        (lot.isMine ? " · yours" : "");
+      const buyoutPart =
+        lot.buyoutPrice !== null ? t("auction.buyoutPart", { price: lot.buyoutPrice }) : "";
+      const bidLine =
+        `<br/>${t("auction.highBid", { bid })}` +
+        (lot.highestBidderNickname ? t("auction.bidder", { name: lot.highestBidderNickname }) : "");
+      const yours = lot.isMine ? t("auction.yours") : "";
+      row.innerHTML =
+        `<strong>#${lot.lotId}</strong> ${itemLabel}<br/>` +
+        t("auction.lotMeta", {
+          seller: lot.sellerNickname,
+          start: lot.startPrice,
+          buyout: buyoutPart,
+          bid: bidLine,
+          yours,
+        });
       if (!lot.isMine) {
         const bidBtn = document.createElement("button");
         bidBtn.type = "button";
-        bidBtn.textContent = "Bid +1";
+        bidBtn.textContent = t("auction.bid");
         bidBtn.addEventListener("click", () => {
           const amount = (lot.highestBid ?? lot.startPrice - 1) + 1;
           this.send({ type: "economy_auction_bid", lotId: lot.lotId, amount });
@@ -169,7 +221,7 @@ export class AuctionPanel {
         if (lot.buyoutPrice !== null) {
           const buyBtn = document.createElement("button");
           buyBtn.type = "button";
-          buyBtn.textContent = `Buyout ${lot.buyoutPrice}`;
+          buyBtn.textContent = t("auction.buyoutBtn", { price: lot.buyoutPrice });
           buyBtn.addEventListener("click", () => {
             this.send({ type: "economy_auction_buyout", lotId: lot.lotId });
           });
@@ -191,7 +243,7 @@ export class AuctionPanel {
         <h2>Auction (Deathmatch)</h2>
         <p class="auction-hint">Press U to toggle. 10% fee on settle (5% burn / 5% developer).</p>
         <div id="auctionListForm">
-          <label>Type <select id="auctionItemType">
+          <label id="auctionTypeLabel">Type <select id="auctionItemType">
             <option value="pet">pet</option>
             <option value="egg">egg</option>
             <option value="gem">gem</option>
@@ -200,10 +252,10 @@ export class AuctionPanel {
             <option value="repair_kit">repair_kit</option>
             <option value="shard_stack">shard_stack</option>
           </select></label>
-          <label>Item <select id="auctionItemId"></select></label>
-          <label>Shards qty <input id="auctionShardQty" type="number" min="1" value="1" /></label>
-          <label>Start <input id="auctionStartPrice" type="number" min="1" value="10" /></label>
-          <label>Buyout <input id="auctionBuyoutPrice" type="number" min="1" placeholder="optional" /></label>
+          <label id="auctionItemLabel">Item <select id="auctionItemId"></select></label>
+          <label id="auctionShardsLabel">Shards qty <input id="auctionShardQty" type="number" min="1" value="1" /></label>
+          <label id="auctionStartLabel">Start <input id="auctionStartPrice" type="number" min="1" value="10" /></label>
+          <label id="auctionBuyoutLabel">Buyout <input id="auctionBuyoutPrice" type="number" min="1" placeholder="optional" /></label>
           <button id="auctionListBtn" type="button">List item</button>
           <button id="auctionRefreshBtn" type="button">Refresh</button>
         </div>
@@ -211,5 +263,6 @@ export class AuctionPanel {
         <div id="auctionList"></div>
       </div>`;
     document.body.appendChild(wrap);
+    this.applyStaticLabels();
   }
 }

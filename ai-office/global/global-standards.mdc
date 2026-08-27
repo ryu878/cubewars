@@ -153,6 +153,7 @@ A task is complete when **acceptance criteria from the Team Lead's spec** are me
 - **Logging / observability** as required by the task.
 - **Build / tests / run** — only what the spec requires.
 - **Tester PASS** and, per the standard chain, a **Critic** verdict of `APPROVED` (or `ALL_CLOSED` from Judge after revision) — see `ai-office/process/review-judge-cycle.md`.
+- **Player-facing mechanics docs (mandatory when applicable):** Shipping **player-facing mechanic changes or new player-facing features** must update `client/public/about.html` (and assets under `client/public/about/` as needed), bump the About page **Last updated** date, and add a **Changelog** entry (`client/public/changelog.json`) **in the same delivery / EPIC / PR** — not as a follow-up. See also `ai-office/policies/player-facing-docs.md`.
 
 ---
 
