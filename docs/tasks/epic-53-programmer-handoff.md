@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-27 |
 | Author (Pusya) | Pusya |
 | Task / Story / EPIC | EPIC 53 — Inventory 6×5 grid + hero loadout preview |
-| Branch / commit / PR | `feature/epic-53-inventory-grid-hero-preview` / (see PR) / (see PR URL) |
+| Branch / commit / PR | `feature/epic-53-inventory-grid-hero-preview` / `9e563d4` / (PR pending) |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
