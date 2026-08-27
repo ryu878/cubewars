@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-27 |
 | Author (Pusya) | Pusya |
 | Task / Story / EPIC | EPIC 55 — Ammo does not unlock weapons; HUD current/max; maxHealth integrity |
-| Branch / commit / PR | `feature/epic-55-ammo-not-unlock-hud-maxhp` (see PR; HEAD filled after push) |
+| Branch / commit / PR | `feature/epic-55-ammo-not-unlock-hud-maxhp` @ `9beaea4d9d6372e82fb6d8e4c4409c533614d165` (PR filled after open) |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
