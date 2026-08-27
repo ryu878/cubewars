@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-27 |
 | Author (Pusya) | Programmer (Pusya) |
 | Task / Story / EPIC | EPIC 52 — Client i18n (RU/EN) + About the Game |
-| Branch / commit / PR | `feature/epic-52-i18n-about-page` — see PR (opened after this handoff) |
+| Branch / commit / PR | `feature/epic-52-i18n-about-page` @ `2799eec` — PR URL filled after open |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
