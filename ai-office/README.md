@@ -25,7 +25,7 @@ Adapted from a sibling project's `ai-office/` layout, with the **quant research 
 - **Process:** [`ai-office/process/`](process/) — main chain, rework loop, review/judge cycle.
 - **Templates:** [`ai-office/templates/`](templates/) — task, handoff, reports, critic review, judge verdict.
 - **Checklists:** [`ai-office/checklists/`](checklists/) — QA, review, release.
-- **Policies:** [`ai-office/policies/`](policies/) — branches/PR, approval, deployment.
+- **Policies:** [`ai-office/policies/`](policies/) — branches/PR, approval, deployment, [player-facing About/Changelog obligation](policies/player-facing-docs.md).
 
 ## Routing principle
 

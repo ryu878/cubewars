@@ -37,6 +37,7 @@ import {
   formatPetPrimaryGrant,
 } from "@cubewars/shared";
 import { shouldIgnoreGameHotkey } from "./uiInput";
+import { subscribe, t } from "./i18n";
 
 type SendFn = (message: ClientMessage) => void;
 
@@ -54,7 +55,7 @@ interface SelectedItem {
 
 function formatRemaining(deadlineMs: number, nowMs: number): string {
   const remaining = Math.max(0, deadlineMs - nowMs);
-  if (remaining <= 0) return "Ready";
+  if (remaining <= 0) return t("inv.ready");
   const totalSec = Math.ceil(remaining / 1000);
   const h = Math.floor(totalSec / 3600);
   const m = Math.floor((totalSec % 3600) / 60);
@@ -64,16 +65,10 @@ function formatRemaining(deadlineMs: number, nowMs: number): string {
   return `${s}s`;
 }
 
-/** Full English display names for inventory UI (EPIC 43). Never use STM/PET/etc. as primary labels. */
-const ITEM_DISPLAY_NAME: Record<InventoryItemType, string> = {
-  pet: "Pet",
-  egg: "Egg",
-  gem: "Gem",
-  amulet: "Amulet",
-  stimulator: "Stimulator",
-  repair_kit: "Repair kit",
-  shard_stack: "Shard stack",
-};
+/** Localized display names for inventory UI (EPIC 43 + EPIC 52). */
+function itemDisplayName(type: InventoryItemType): string {
+  return t(`inv.item.${type}`);
+}
 
 /** Species-specific pet glyph (EPIC 50) — replaces the generic pig-snout square. */
 function createPetIcon(petType: PetType, sizeClass = ""): HTMLElement {
@@ -196,7 +191,7 @@ function appendPetGrantLines(
 
   if (breakdown.gemTexts.length > 0) {
     const gemsTitle = document.createElement("div");
-    gemsTitle.textContent = `Gems: ${breakdown.gemTexts.join(", ")}`;
+    gemsTitle.textContent = t("inv.gems", { list: breakdown.gemTexts.join(", ") });
     block.appendChild(gemsTitle);
   }
 
@@ -204,9 +199,9 @@ function appendPetGrantLines(
     const totals = document.createElement("div");
     const fracNote =
       opts.applySlotFraction && breakdown.fraction !== 1
-        ? ` (slot ×${breakdown.fraction})`
+        ? t("inv.slotFrac", { frac: breakdown.fraction })
         : "";
-    totals.textContent = `Total${fracNote}: ${breakdown.totalTexts.join(" · ")}`;
+    totals.textContent = t("inv.total", { note: fracNote, list: breakdown.totalTexts.join(" · ") });
     block.appendChild(totals);
   }
 
@@ -282,6 +277,9 @@ export class InventoryOverlay {
     craftBtn?.addEventListener("click", () => {
       this.send({ type: "economy_craft_amulet" });
     });
+    subscribe(() => {
+      if (this.open) this.render();
+    });
   }
 
   setOpen(open: boolean): void {
@@ -320,14 +318,14 @@ export class InventoryOverlay {
   setActionResult(message: EconomyActionResultMessage): void {
     this.pending = null;
     if (message.ok) {
-      this.statusEl.textContent = `${message.action}: ok`;
+      this.statusEl.textContent = t("inv.ok", { action: message.action });
       if (message.action === "discard_item") this.discardArm = null;
     } else if (message.action === "lobby_bind" && message.code === "nickname_invalid") {
-      this.statusEl.textContent = "Enter a valid nickname to load inventory";
+      this.statusEl.textContent = t("inv.err.nickname");
     } else if (message.code === "match_required") {
-      this.statusEl.textContent = `${message.action} requires being in a Deathmatch match`;
+      this.statusEl.textContent = t("inv.err.needsMatch", { action: message.action });
     } else {
-      this.statusEl.textContent = `${message.action} failed: ${message.code ?? "error"}`;
+      this.statusEl.textContent = t("inv.err.failed", { action: message.action, code: message.code ?? "error" });
     }
     if (this.open) this.render();
   }
@@ -376,10 +374,9 @@ export class InventoryOverlay {
   private render(): void {
     if (!this.profile) {
       this.goldEl.textContent = "—";
-      this.poolBadgeEl.textContent = "Pool: Deathmatch (waiting for profile)";
+      this.poolBadgeEl.textContent = t("inv.pool.waiting");
       this.poolBadgeEl.dataset.pool = "deathmatch";
-      this.ratingsEl.textContent =
-        "Waiting for inventory… Use Inventory on the lobby with a valid nickname, or join a match.";
+      this.ratingsEl.textContent = t("inv.waiting");
       this.capsEl.textContent = "";
       this.gridEl.replaceChildren();
       this.railEl.replaceChildren();
@@ -391,8 +388,8 @@ export class InventoryOverlay {
     this.poolBadgeEl.dataset.pool = pool;
     this.poolBadgeEl.textContent =
       pool === "sandbox"
-        ? "Pool: Sandbox (bots / endless — separate from Deathmatch)"
-        : "Pool: Deathmatch (competitive)";
+        ? t("inv.pool.sandbox")
+        : t("inv.pool.deathmatch");
     this.goldEl.textContent = String(this.profile.gold);
     const r = this.profile.ratings;
     this.ratingsEl.textContent =
@@ -452,7 +449,7 @@ export class InventoryOverlay {
     if (!this.profile || this.profile.pets.length === 0) {
       const empty = document.createElement("p");
       empty.className = "inv-meta";
-      empty.textContent = "No pets yet.";
+      empty.textContent = t("inv.empty.pets");
       this.petColorRowsEl.appendChild(empty);
       return;
     }
@@ -471,7 +468,7 @@ export class InventoryOverlay {
       const label = document.createElement("span");
       label.className = "inv-appearance-label";
       label.textContent = `${pet.type} #${pet.id}`;
-      label.title = "Click to select this pet";
+      label.title = t("inv.petSelectTitle");
       label.style.cursor = "pointer";
       label.addEventListener("click", () => {
         this.selected = { itemType: "pet", itemId: pet.id };
@@ -500,7 +497,7 @@ export class InventoryOverlay {
     this.avatarColors = { ...this.avatarColors, [part]: paletteIndex };
     this.renderAppearance();
     this.send({ type: "avatar_set_color", part, paletteIndex });
-    this.statusEl.textContent = `Appearance: ${part} → ${paletteIndex + 1}`;
+    this.statusEl.textContent = t("inv.appearanceStatus", { part, n: paletteIndex + 1 });
   }
 
   private onPetColorClick(petId: number, paletteIndex: number): void {
@@ -511,7 +508,7 @@ export class InventoryOverlay {
     pet.colorIndex = paletteIndex;
     this.renderPetColorRows();
     this.send({ type: "economy_set_pet_color", petId, paletteIndex });
-    this.statusEl.textContent = `Pet #${petId} color → ${paletteIndex + 1}`;
+    this.statusEl.textContent = t("inv.petColorStatus", { id: petId, n: paletteIndex + 1 });
   }
 
   private renderEggTimersOnly(): void {
@@ -663,7 +660,7 @@ export class InventoryOverlay {
 
   /** Hover / focus tooltip: full English name + useful detail already on the profile. */
   private tooltipFor(entry: BagEntry, now: number): string {
-    if (!this.profile) return ITEM_DISPLAY_NAME[entry.itemType];
+    if (!this.profile) return itemDisplayName(entry.itemType);
     switch (entry.itemType) {
       case "pet": {
         const pet = this.profile.pets.find((p) => p.id === entry.itemId);
@@ -701,7 +698,7 @@ export class InventoryOverlay {
   }
 
   private detailsTitle(itemType: InventoryItemType, itemId: number): string {
-    if (!this.profile) return `${ITEM_DISPLAY_NAME[itemType]} #${itemId}`;
+    if (!this.profile) return `${itemDisplayName(itemType)} #${itemId}`;
     switch (itemType) {
       case "pet": {
         const pet = this.profile.pets.find((p) => p.id === itemId);
@@ -714,7 +711,7 @@ export class InventoryOverlay {
       case "shard_stack":
         return `Shard stack (${this.profile.shardCount})`;
       default:
-        return `${ITEM_DISPLAY_NAME[itemType]} #${itemId}`;
+        return `${itemDisplayName(itemType)} #${itemId}`;
     }
   }
 
@@ -768,7 +765,7 @@ export class InventoryOverlay {
         ghost.appendChild(createItemIcon(drag.itemType, "inv-icon-sm", ghostPetType));
         const ghostLabel = document.createElement("span");
         ghostLabel.className = "inv-drag-ghost-label";
-        ghostLabel.textContent = ITEM_DISPLAY_NAME[drag.itemType];
+        ghostLabel.textContent = itemDisplayName(drag.itemType);
         ghost.appendChild(ghostLabel);
         document.body.appendChild(ghost);
         drag.ghost = ghost;
@@ -838,14 +835,14 @@ export class InventoryOverlay {
     box.className = "inv-rail-slot";
     const title = document.createElement("div");
     title.className = "inv-rail-title";
-    title.textContent = `Pet slot ${slot}`;
+    title.textContent = t("inv.petSlot", { slot });
     box.appendChild(title);
 
     const pet = this.profile!.pets.find((p) => p.equipSlot === slot);
     if (!pet) {
       const empty = document.createElement("div");
       empty.className = "inv-rail-empty";
-      empty.textContent = "Empty";
+      empty.textContent = t("inv.empty");
       box.appendChild(empty);
       return box;
     }
@@ -875,7 +872,7 @@ export class InventoryOverlay {
 
     const unequip = document.createElement("button");
     unequip.type = "button";
-    unequip.textContent = "Unequip";
+    unequip.textContent = t("inv.unequip");
     unequip.addEventListener("click", () => {
       this.send({ type: "economy_unequip_pet", petId: pet.id });
     });
@@ -888,14 +885,14 @@ export class InventoryOverlay {
     box.className = "inv-rail-slot";
     const title = document.createElement("div");
     title.className = "inv-rail-title";
-    title.textContent = "Amulet";
+    title.textContent = t("inv.amulet");
     box.appendChild(title);
 
     const amulet = this.profile!.amulets.find((a) => a.equipped);
     if (!amulet) {
       const empty = document.createElement("div");
       empty.className = "inv-rail-empty";
-      empty.textContent = "Empty";
+      empty.textContent = t("inv.empty");
       box.appendChild(empty);
       return box;
     }
@@ -904,14 +901,14 @@ export class InventoryOverlay {
     row.appendChild(createItemIcon("amulet", "inv-icon-sm"));
     const label = document.createElement("div");
     label.className = "inv-rail-item";
-    label.textContent = `Amulet #${amulet.id} · dur ${amulet.durability}/${ECONOMY_CAPS.amuletDurabilityMax}`;
+    label.textContent = t("inv.amuletLabel", { id: amulet.id, cur: amulet.durability, max: ECONOMY_CAPS.amuletDurabilityMax });
     label.title = `Amulet #${amulet.id} · durability ${amulet.durability}/${ECONOMY_CAPS.amuletDurabilityMax}`;
     row.appendChild(label);
     box.appendChild(row);
 
     const unequip = document.createElement("button");
     unequip.type = "button";
-    unequip.textContent = "Unequip";
+    unequip.textContent = t("inv.unequip");
     unequip.addEventListener("click", () => {
       this.send({ type: "economy_unequip_amulet", amuletId: amulet.id });
     });
@@ -919,7 +916,7 @@ export class InventoryOverlay {
 
     const repair = document.createElement("button");
     repair.type = "button";
-    repair.textContent = "Repair";
+    repair.textContent = t("inv.repair");
     repair.disabled = this.profile!.repairKitCount <= 0 || amulet.durability >= ECONOMY_CAPS.amuletDurabilityMax;
     repair.addEventListener("click", () => {
       this.send({ type: "economy_repair_amulet", amuletId: amulet.id });
@@ -936,7 +933,7 @@ export class InventoryOverlay {
     if (!this.selected) {
       const hint = document.createElement("div");
       hint.className = "inv-details-hint";
-      hint.textContent = "Select a grid item for actions (Use / Equip / Socket / Discard).";
+      hint.textContent = t("inv.selectHint");
       this.detailsEl.appendChild(hint);
       return;
     }
@@ -967,16 +964,16 @@ export class InventoryOverlay {
         const ready = egg.hatchDeadlineMs <= now;
         const info = document.createElement("div");
         info.className = "inv-details-sub";
-        info.textContent = ready ? "Ready to hatch" : `Ready in ${formatRemaining(egg.hatchDeadlineMs, now)}`;
+        info.textContent = ready ? t("inv.readyHatch") : t("inv.readyIn", { time: formatRemaining(egg.hatchDeadlineMs, now) });
         this.detailsEl.appendChild(info);
 
-        const hatchBtn = this.makeButton("Hatch", !ready, () => {
+        const hatchBtn = this.makeButton(t("inv.hatch"), !ready, () => {
           this.send({ type: "economy_hatch_egg", eggId: egg.id });
         });
         actions.appendChild(hatchBtn);
 
         const stimBtn = this.makeButton(
-          "Apply stimulator",
+          t("inv.applyStim"),
           this.profile.stimulatorCount <= 0 || ready,
           () => {
             this.send({ type: "economy_apply_stimulator", eggId: egg.id });
@@ -993,16 +990,16 @@ export class InventoryOverlay {
         });
         const colorInfo = document.createElement("div");
         colorInfo.className = "inv-details-sub";
-        colorInfo.textContent = `Color palette index ${pet.colorIndex + 1} (see Pet colors below)`;
+        colorInfo.textContent = t("inv.colorIndex", { n: pet.colorIndex + 1 });
         this.detailsEl.appendChild(colorInfo);
         actions.appendChild(
-          this.makeButton("Equip slot 1", false, () => {
+          this.makeButton(t("inv.equipSlot1"), false, () => {
             this.send({ type: "economy_equip_pet", petId: pet.id, slot: 1 });
           }),
         );
         if (this.profile.slot2Enabled) {
           actions.appendChild(
-            this.makeButton("Equip slot 2", false, () => {
+            this.makeButton(t("inv.equipSlot2"), false, () => {
               this.send({ type: "economy_equip_pet", petId: pet.id, slot: 2 });
             }),
           );
@@ -1010,7 +1007,7 @@ export class InventoryOverlay {
         if (this.selectedGemId !== null) {
           const gemId = this.selectedGemId;
           actions.appendChild(
-            this.makeButton("Socket selected gem", false, () => {
+            this.makeButton(t("inv.socketGem"), false, () => {
               this.send({ type: "economy_socket_gem", gemId, petId: pet.id });
               this.selectedGemId = null;
             }),
@@ -1030,10 +1027,10 @@ export class InventoryOverlay {
       if (gem) {
         const info = document.createElement("div");
         info.className = "inv-details-sub";
-        info.textContent = "Select a pet in the grid, then Socket.";
+        info.textContent = t("inv.selectPetSocket");
         this.detailsEl.appendChild(info);
         actions.appendChild(
-          this.makeButton(this.selectedGemId === gem.id ? "Selected for socketing" : "Select to socket", false, () => {
+          this.makeButton(this.selectedGemId === gem.id ? t("inv.selectedSocket") : t("inv.selectSocket"), false, () => {
             this.selectedGemId = this.selectedGemId === gem.id ? null : gem.id;
             this.render();
           }),
@@ -1043,7 +1040,7 @@ export class InventoryOverlay {
       const amulet = this.profile.amulets.find((a) => a.id === itemId) as EconomyAmuletDto | undefined;
       if (amulet) {
         actions.appendChild(
-          this.makeButton("Equip", false, () => {
+          this.makeButton(t("inv.equip"), false, () => {
             this.send({ type: "economy_equip_amulet", amuletId: amulet.id });
           }),
         );
@@ -1060,22 +1057,22 @@ export class InventoryOverlay {
     } else if (itemType === "stimulator") {
       const info = document.createElement("div");
       info.className = "inv-details-sub";
-      info.textContent = "Select an egg to apply this stimulator.";
+      info.textContent = t("inv.selectEggStim");
       this.detailsEl.appendChild(info);
     } else if (itemType === "repair_kit") {
       const info = document.createElement("div");
       info.className = "inv-details-sub";
-      info.textContent = "Select an amulet to consume this kit.";
+      info.textContent = t("inv.selectAmuletKit");
       this.detailsEl.appendChild(info);
     } else if (itemType === "shard_stack") {
       const info = document.createElement("div");
       info.className = "inv-details-sub";
-      info.textContent = `${this.profile.shardCount} shard(s). Craft an amulet from the header button.`;
+      info.textContent = t("inv.shardsInfo", { n: this.profile.shardCount });
       this.detailsEl.appendChild(info);
     }
 
     const armed = this.discardArm?.itemType === itemType && this.discardArm.itemId === itemId;
-    const discardBtn = this.makeButton(armed ? "Confirm discard?" : "Discard", false, () => {
+    const discardBtn = this.makeButton(armed ? t("inv.discardConfirm") : t("inv.discard"), false, () => {
       if (armed) {
         this.send({ type: "economy_discard_item", itemType, itemId });
         this.discardArm = null;
@@ -1090,12 +1087,12 @@ export class InventoryOverlay {
 
     if (this.profile.economyPool === "deathmatch") {
       actions.appendChild(
-        this.makeButton("Drop to ground (60s)", false, () => {
+        this.makeButton(t("inv.dropGround"), false, () => {
           this.send({ type: "economy_drop_item", itemType, itemId });
         }),
       );
       actions.appendChild(
-        this.makeButton("Auction…", false, () => {
+        this.makeButton(t("inv.auctionEllipsis"), false, () => {
           window.dispatchEvent(new CustomEvent("cubewars-open-auction"));
         }),
       );

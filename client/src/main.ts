@@ -5,6 +5,7 @@ import {
   DEFAULT_MAP_ID,
   PICKUP_RADIUS,
   WEAPON_STATS,
+  listMaps,
   type EconomyPool,
   type MapBox,
   type MapId,
@@ -41,6 +42,14 @@ import { KillLootVfx } from "./killLootVfx";
 import { PauseMenu } from "./pauseMenu";
 import { DevConsole } from "./devConsole";
 import { isLobbyVisible, isPauseMenuVisible, shouldIgnoreGameHotkey } from "./uiInput";
+import { applyI18nDom, localizedMapName, subscribe, t, wireLocaleSwitcher } from "./i18n";
+
+// EPIC 52: apply saved/browser locale to static HTML, then keep switcher live.
+wireLocaleSwitcher();
+applyI18nDom();
+subscribe(() => {
+  applyI18nDom();
+});
 
 const statusEl = document.getElementById("status") as HTMLDivElement;
 const hintEl = document.getElementById("hint") as HTMLDivElement;
@@ -467,7 +476,7 @@ animate();
 
 // --- WebSocket connection to the game server ---
 const wsUrl = import.meta.env.VITE_CUBEWARS_WS_URL ?? "ws://localhost:7777";
-statusEl.textContent = `connecting to ${wsUrl}…`;
+statusEl.textContent = t("status.connecting", { url: wsUrl });
 statusEl.dataset.state = "connecting";
 
 let selfId: string | null = null;
@@ -534,7 +543,7 @@ const modeSelect = new ModeSelect(
     lastLobbyBindPool = pool;
     connection.send({ type: "lobby_bind_nickname", nickname, economyPool: pool });
     inventoryOverlay.setStatus(
-      pool === "sandbox" ? "Loading Bots inventory…" : "Loading Deathmatch inventory…",
+      pool === "sandbox" ? t("inv.loading.bots") : t("inv.loading.dm"),
     );
     inventoryOverlay.setOpen(true);
   },
@@ -556,11 +565,11 @@ let devConsole!: DevConsole;
 let lastWorldPlayers: WorldStateMessage["players"] = [];
 const connection = new GameConnection(wsUrl, {
   onOpen: () => {
-    statusEl.textContent = "connected (waiting for welcome)";
+    statusEl.textContent = t("status.connectedWaiting");
   },
   onWelcome: (playerId) => {
     selfId = playerId;
-    statusEl.textContent = `connected — sign in`;
+    statusEl.textContent = t("status.connectedSignIn");
     statusEl.dataset.state = "connected";
     // EPIC 34: attempt session resume (or show email UI). Mode-select is
     // enabled only after onAuthenticated below.
@@ -603,8 +612,10 @@ const connection = new GameConnection(wsUrl, {
   onEndlessState: (message) => {
     endlessHudEl.classList.add("visible");
     endlessDistanceEl.textContent = `${(message.distanceMeters / 1000).toFixed(2)} km`;
-    endlessKillsEl.textContent = `${message.botKills} bots`;
-    endlessFogEl.textContent = `fog ${Math.max(0, Math.round(Math.abs(message.fogZ)))}m`;
+    endlessKillsEl.textContent = t("hud.endless.bots", { n: message.botKills });
+    endlessFogEl.textContent = t("hud.endless.fog", {
+      m: Math.max(0, Math.round(Math.abs(message.fogZ))),
+    });
     fogWall.visible = joinedEndless;
     fogWall.position.z = message.fogZ;
   },
@@ -615,8 +626,15 @@ const connection = new GameConnection(wsUrl, {
     currentMatchMode = message.mode ?? (message.matchId.startsWith("endless:") ? "endless" : message.matchId.startsWith("bots:") ? "bots" : "public");
     currentMapId = message.mapId ?? (currentMatchMode === "endless" ? null : DEFAULT_MAP_ID);
     pauseMenu.setMatchContext(currentMatchMode, currentMapId);
-    const mapLabel = currentMapId ?? (currentMatchMode === "endless" ? "endless" : "—");
-    statusEl.textContent = `joined ${message.matchId} — ${message.nickname} · map ${mapLabel}`;
+    const catalog = currentMapId ? listMaps().find((m) => m.id === currentMapId) : undefined;
+    const mapLabel = catalog
+      ? localizedMapName(catalog)
+      : currentMapId ?? (currentMatchMode === "endless" ? t("pause.mode.endless") : "—");
+    statusEl.textContent = t("status.joined", {
+      matchId: message.matchId,
+      nickname: message.nickname,
+      map: mapLabel,
+    });
     joinedEndless = message.matchId.startsWith("endless:") || currentMatchMode === "endless";
     endlessHudEl.classList.toggle("visible", joinedEndless);
     fogWall.visible = joinedEndless;
@@ -654,7 +672,7 @@ const connection = new GameConnection(wsUrl, {
       return;
     }
     modeSelect.showLobby();
-    statusEl.textContent = "back in lobby — choose a mode";
+    statusEl.textContent = t("status.backInLobby");
   },
   onWorldState: (message: WorldStateMessage) => {
     lastWorldPlayers = message.players;
@@ -781,12 +799,12 @@ const connection = new GameConnection(wsUrl, {
     combatEffects.impactProjectile(message.projectileId, message.point);
   },
   onClose: () => {
-    statusEl.textContent = "disconnected";
+    statusEl.textContent = t("status.disconnected");
     statusEl.dataset.state = "disconnected";
   },
   onError: (err) => {
     console.error("[client] websocket error", err);
-    statusEl.textContent = "connection error";
+    statusEl.textContent = t("status.connectionError");
     statusEl.dataset.state = "error";
   },
 });
@@ -806,7 +824,7 @@ const accountAuth = new AccountAuth(
   },
   {
     onAuthenticated: ({ email }) => {
-      statusEl.textContent = `signed in as ${email} — choose nickname`;
+      statusEl.textContent = t("status.signedInChooseNick", { email });
       modeSelect.enable();
     },
   },
@@ -872,7 +890,7 @@ function requestLeave(next: typeof pendingLeave): void {
     return;
   }
   pendingLeave = next;
-  pauseMenu.setStatus("Leaving match…");
+  pauseMenu.setStatus(t("status.leavingMatch"));
   connection.send({ type: "leave_match" });
 }
 
@@ -905,7 +923,7 @@ pauseMenu = new PauseMenu((action) => {
         connection.send({ type: "lobby_bind_nickname", nickname, economyPool: pool });
       }
       inventoryOverlay.setStatus(
-        pool === "sandbox" ? "Bots / Sandbox inventory" : "Deathmatch inventory",
+        pool === "sandbox" ? t("inv.bound.bots") : t("inv.bound.dm"),
       );
       inventoryOverlay.setOpen(true);
       break;

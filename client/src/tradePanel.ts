@@ -1,10 +1,12 @@
 // Same-match P2P trade window (EPIC 38). No fee; both must confirm.
+// EPIC 52: player-facing chrome via t().
 
 import type {
   ClientMessage,
   EconomyTradeStateMessage,
   InventoryItemType,
 } from "@cubewars/shared";
+import { subscribe, t } from "./i18n";
 
 type SendFn = (message: ClientMessage) => void;
 
@@ -15,6 +17,7 @@ export class TradePanel {
   private partnerEl: HTMLElement;
   private tradeId: string | null = null;
   private open = false;
+  private lastTrade: EconomyTradeStateMessage | null = null;
 
   constructor(private send: SendFn) {
     this.ensureDom();
@@ -32,6 +35,10 @@ export class TradePanel {
       this.send({ type: "economy_trade_confirm", tradeId: this.tradeId });
     });
     document.getElementById("tradeOfferBtn")?.addEventListener("click", () => this.submitOffer());
+    subscribe(() => {
+      this.applyStaticLabels();
+      if (this.lastTrade) this.setTradeState(this.lastTrade);
+    });
   }
 
   /** Open a trade with a partner playerId (from HUD / nearby list). */
@@ -40,21 +47,26 @@ export class TradePanel {
   }
 
   setTradeState(message: EconomyTradeStateMessage): void {
+    this.lastTrade = message;
     this.tradeId = message.tradeId;
     if (message.status === "cancelled" || message.status === "completed") {
-      this.statusEl.textContent = `Trade ${message.status}`;
+      this.statusEl.textContent = t("trade.status", { status: message.status });
       this.setOpen(message.status === "completed" ? false : true);
       if (message.status === "cancelled") this.setOpen(false);
       return;
     }
     this.setOpen(true);
-    this.statusEl.textContent = `Trading with ${message.partnerNickname}`;
-    this.youEl.textContent =
-      `You: ${message.you.gold}g · ${message.you.items.length} item(s)` +
-      (message.you.confirmed ? " · CONFIRMED" : "");
-    this.partnerEl.textContent =
-      `Partner: ${message.partner.gold}g · ${message.partner.items.length} item(s)` +
-      (message.partner.confirmed ? " · CONFIRMED" : "");
+    this.statusEl.textContent = t("trade.with", { name: message.partnerNickname });
+    this.youEl.textContent = t("trade.you", {
+      gold: message.you.gold,
+      n: message.you.items.length,
+      confirmed: message.you.confirmed ? t("trade.confirmed") : "",
+    });
+    this.partnerEl.textContent = t("trade.partner", {
+      gold: message.partner.gold,
+      n: message.partner.items.length,
+      confirmed: message.partner.confirmed ? t("trade.confirmed") : "",
+    });
   }
 
   setOpen(open: boolean): void {
@@ -62,6 +74,24 @@ export class TradePanel {
     this.overlayEl.classList.toggle("visible", open);
     this.overlayEl.setAttribute("aria-hidden", open ? "false" : "true");
     if (open && document.pointerLockElement) document.exitPointerLock();
+    if (open) this.applyStaticLabels();
+  }
+
+  private applyStaticLabels(): void {
+    const close = document.getElementById("tradeCloseBtn");
+    if (close) close.textContent = t("trade.cancel");
+    const title = document.querySelector("#tradePanel h2");
+    if (title) title.textContent = t("trade.title");
+    const goldLabel = document.getElementById("tradeGoldLabel");
+    if (goldLabel) goldLabel.childNodes[0].textContent = `${t("trade.gold")} `;
+    const typeLabel = document.getElementById("tradeTypeLabel");
+    if (typeLabel) typeLabel.childNodes[0].textContent = `${t("trade.itemType")} `;
+    const idLabel = document.getElementById("tradeIdLabel");
+    if (idLabel) idLabel.childNodes[0].textContent = `${t("trade.itemId")} `;
+    const offerBtn = document.getElementById("tradeOfferBtn");
+    if (offerBtn) offerBtn.textContent = t("trade.updateOffer");
+    const confirmBtn = document.getElementById("tradeConfirmBtn");
+    if (confirmBtn) confirmBtn.textContent = t("trade.confirm");
   }
 
   private submitOffer(): void {
@@ -92,8 +122,8 @@ export class TradePanel {
         <div id="tradeStatus"></div>
         <div id="tradeYou"></div>
         <div id="tradePartner"></div>
-        <label>Gold <input id="tradeGold" type="number" min="0" value="0" /></label>
-        <label>Item type
+        <label id="tradeGoldLabel">Gold <input id="tradeGold" type="number" min="0" value="0" /></label>
+        <label id="tradeTypeLabel">Item type
           <select id="tradeItemType">
             <option value="gem">gem</option>
             <option value="pet">pet</option>
@@ -104,10 +134,11 @@ export class TradePanel {
             <option value="shard_stack">shard_stack</option>
           </select>
         </label>
-        <label>Item id <input id="tradeItemId" type="number" min="0" /></label>
+        <label id="tradeIdLabel">Item id <input id="tradeItemId" type="number" min="0" /></label>
         <button id="tradeOfferBtn" type="button">Update offer</button>
         <button id="tradeConfirmBtn" type="button">Confirm</button>
       </div>`;
     document.body.appendChild(wrap);
+    this.applyStaticLabels();
   }
 }

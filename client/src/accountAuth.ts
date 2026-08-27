@@ -3,6 +3,8 @@
 // Plain HTML/CSS + TypeScript — no UI framework. Transport stays in network.ts;
 // this module only owns the auth overlay DOM and localStorage token persistence.
 
+import { t } from "./i18n";
+
 export const SESSION_TOKEN_STORAGE_KEY = "cubewars_session_token";
 
 export type AccountAuthSend = (message: {
@@ -100,7 +102,7 @@ export class AccountAuth {
     if (token) {
       this.pending = true;
       this.setBusy(true);
-      this.errorEl.textContent = "Restoring session…";
+      this.errorEl.textContent = t("auth.restoring");
       this.send({ type: "account_session_resume", token });
       return;
     }
@@ -121,8 +123,7 @@ export class AccountAuth {
     this.accountId = message.accountId;
     this.email = message.email;
     this.revealCodeEl.textContent = message.code;
-    this.revealHintEl.textContent =
-      "Temporary stub: this code will not be shown again. It is not emailed yet — copy it now to log in later.";
+    this.revealHintEl.textContent = t("auth.revealHint");
     this.showPhase("code_reveal");
   }
 
@@ -142,16 +143,16 @@ export class AccountAuth {
     }
     if (message.reason === "code_required") {
       this.showPhase("code");
-      this.errorEl.textContent = "Enter the login code for this email.";
+      this.errorEl.textContent = t("auth.err.enterCode");
       this.codeInput.focus();
       return;
     }
     if (message.reason === "rate_limited") {
-      this.errorEl.textContent = "Too many attempts — try again later.";
+      this.errorEl.textContent = t("auth.err.rateLimited");
       return;
     }
     if (message.reason === "invalid_email") {
-      this.errorEl.textContent = "Enter a valid email address.";
+      this.errorEl.textContent = t("auth.err.invalidEmail");
       this.showPhase("email");
       return;
     }
@@ -163,7 +164,7 @@ export class AccountAuth {
       return;
     }
     // Generic — do not distinguish missing email vs wrong code.
-    this.errorEl.textContent = "Email or code is incorrect.";
+    this.errorEl.textContent = t("auth.err.incorrect");
     if (this.phase !== "code") this.showPhase("code");
   }
 
@@ -197,25 +198,24 @@ export class AccountAuth {
       this.email = message.email;
       this.revealFromReset = true;
       this.revealCodeEl.textContent = message.code;
-      this.revealHintEl.textContent =
-        "New login code — shown on screen only (not emailed). Copy it, then log in with this code.";
+      this.revealHintEl.textContent = t("auth.revealHintReset");
       this.showPhase("code_reveal");
       return;
     }
     if (message.reason === "rate_limited") {
-      this.errorEl.textContent = "Too many attempts — try again later.";
+      this.errorEl.textContent = t("auth.err.rateLimited");
       return;
     }
     if (message.reason === "invalid_email") {
-      this.errorEl.textContent = "Enter a valid email address.";
+      this.errorEl.textContent = t("auth.err.invalidEmail");
       this.showPhase("email");
       return;
     }
     if (message.reason === "already_authenticated") {
-      this.errorEl.textContent = "Already signed in.";
+      this.errorEl.textContent = t("auth.err.alreadySignedIn");
       return;
     }
-    this.errorEl.textContent = "Could not send a new code for this email.";
+    this.errorEl.textContent = t("auth.err.couldNotSend");
     if (this.phase !== "code" && this.phase !== "email") this.showPhase("code");
   }
 
@@ -227,7 +227,7 @@ export class AccountAuth {
     if (!this.welcomeReady || this.pending) return;
     const email = this.emailInput.value.trim();
     if (!email.includes("@")) {
-      this.errorEl.textContent = "Enter a valid email address.";
+      this.errorEl.textContent = t("auth.err.invalidEmail");
       return;
     }
     this.pendingEmail = email;
@@ -244,7 +244,7 @@ export class AccountAuth {
     // Accept NNN-NNN, NNNNNN, or spaced variants — server also normalizes.
     const code = normalizeCodeInput(this.codeInput.value);
     if (!email || !code) {
-      this.errorEl.textContent = "Enter email and code.";
+      this.errorEl.textContent = t("auth.err.enterEmailCode");
       return;
     }
     this.pending = true;
@@ -257,7 +257,7 @@ export class AccountAuth {
     if (!this.welcomeReady || this.pending) return;
     const email = this.pendingEmail || this.emailInput.value.trim();
     if (!email.includes("@")) {
-      this.errorEl.textContent = "Enter a valid email address.";
+      this.errorEl.textContent = t("auth.err.invalidEmail");
       this.showPhase("email");
       return;
     }
@@ -273,7 +273,7 @@ export class AccountAuth {
       // Reset does not issue a session — send the player to code entry to log in.
       this.revealFromReset = false;
       this.codeInput.value = "";
-      this.errorEl.textContent = "Enter the new code shown above to log in.";
+      this.errorEl.textContent = t("auth.err.enterNewCode");
       this.showPhase("code");
       this.codeInput.focus();
       return;

@@ -7,6 +7,7 @@ import type {
   Vector3,
 } from "@cubewars/shared";
 import { shouldIgnoreGameHotkey } from "./uiInput";
+import { t } from "./i18n";
 
 type SendFn = (message: ClientMessage) => void;
 
@@ -71,7 +72,7 @@ export class GroundHud {
       const mark = nearest && nearest.groundId === item.groundId ? " ← F" : "";
       return `${label} (${ttl}s)${mark}`;
     });
-    this.el.textContent = `Ground: ${lines.join(" · ")}`;
+    this.el.textContent = t("hud.ground", { items: lines.join(" · ") });
   }
 
   private ensureDom(): void {

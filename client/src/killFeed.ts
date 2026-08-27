@@ -7,6 +7,8 @@
 // rule, reusing the same transient-DOM-element pattern combatHud.ts already
 // established for its pulses, just with a list instead of a single element.
 
+import { t } from "./i18n";
+
 /** How long an entry stays fully visible before it starts fading, ms. */
 const ENTRY_LIFETIME_MS = 5000;
 /** CSS transition duration for the fade-out, must match index.html's #killFeed .fading rule. */
@@ -50,15 +52,15 @@ export class KillFeed {
     // rendered in the client).
     const attackerEl = document.createElement("span");
     attackerEl.className = "kill-feed-name";
-    attackerEl.textContent = attackerId === self ? "You" : attackerNickname;
+    attackerEl.textContent = attackerId === self ? t("killFeed.you") : attackerNickname;
 
     const verbEl = document.createElement("span");
     verbEl.className = "kill-feed-verb";
-    verbEl.textContent = " eliminated ";
+    verbEl.textContent = t("killFeed.eliminated");
 
     const victimEl = document.createElement("span");
     victimEl.className = "kill-feed-name";
-    victimEl.textContent = victimId === self ? "you" : victimNickname;
+    victimEl.textContent = victimId === self ? t("killFeed.you").toLowerCase() : victimNickname;
 
     entry.append(attackerEl, verbEl, victimEl);
     this.containerEl.appendChild(entry);

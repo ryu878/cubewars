@@ -1,5 +1,10 @@
 [
   {
+    "date": "2026-08-27",
+    "title": "EPIC 52 — Client i18n (RU/EN) + About the Game",
+    "body": "Lobby EN|RU language switcher with localStorage persistence (cubewars.locale; default saved → browser ru* → en). Player-facing UI strings localized via client dictionaries. Map picker shows Russian display names when locale is ru. New About page (/about.html) explains modes, maps, weapons, pets (dog Armor / cat HP / bird speed% / lion damage%), inventory/auction/trade, spawn protection, ESC, hotkeys, and economy pools with examples and images. Footer About link beside Changelog and Telegram. Process: player-facing mechanic changes must update About + Last updated + Changelog in the same delivery."
+  },
+  {
     "date": "2026-08-26",
     "title": "EPIC 47 — Map density, bots map picker, ESC menu, changelog, auth UX",
     "body": "Maps densified (~4× pickups + more cover). Play vs Bots honors the lobby-selected map. ESC opens an in-match pause menu (Resume, Exit to Lobby, Change map, Inventory, Auction). Lobby Changelog link. Send password / Resend code shows a new on-screen login code (not emailed). Login accepts dashed or digit-only codes."
