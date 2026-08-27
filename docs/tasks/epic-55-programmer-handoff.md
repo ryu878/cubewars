@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-27 |
 | Author (Pusya) | Pusya |
 | Task / Story / EPIC | EPIC 55 — Ammo does not unlock weapons; HUD current/max; maxHealth integrity |
-| Branch / commit / PR | `feature/epic-55-ammo-not-unlock-hud-maxhp` @ `9beaea4d9d6372e82fb6d8e4c4409c533614d165` (PR filled after open) |
+| Branch / commit / PR | `feature/epic-55-ammo-not-unlock-hud-maxhp` @ `19df89ecff69fd8aebedf289580416c47d958a40`; `gh pr create` blocked (CLI auth `ltrvtrb2`; SSH push `ryu878`). Compare URL: https://github.com/ryu878/cubewars/compare/master...feature/epic-55-ammo-not-unlock-hud-maxhp?expand=1 |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
@@ -64,6 +64,7 @@ Bots: `BotAI` ignores all pickups — no ownership assumption to fix.
 
 ## Risks / known limitations
 
+- `gh pr create` blocked by CLI auth mismatch — open PR from compare URL above
 - Additive protocol fields: client falls back to `COMBAT.maxHealth` / `COMBAT.maxArmor` only if an older payload omits them
 - Playwright evidence does not automate the ammo-pickup path in-match (covered by whitebox regression); HUD + About are screenshot-proven
 - Regression `freshPlayer()` clears spawn protection so fire() auto-switch cases remain exercisable (EPIC 41)
