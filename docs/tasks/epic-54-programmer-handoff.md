@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-27 |
 | Author (Pusya) | Pusya |
 | Task / Story / EPIC | EPIC 54 — About page accuracy audit + fresh screenshots |
-| Branch / commit / PR | `feature/epic-54-about-accuracy-screenshots` / (see PR) / (see PR URL) |
+| Branch / commit / PR | `feature/epic-54-about-accuracy-screenshots` / `42ca02704bfc8e8e98040b4e19de85f1dbe05280` / (see PR URL after open) |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
