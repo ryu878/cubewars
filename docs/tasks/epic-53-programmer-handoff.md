@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-27 |
 | Author (Pusya) | Pusya |
 | Task / Story / EPIC | EPIC 53 — Inventory 6×5 grid + hero loadout preview |
-| Branch / commit / PR | `feature/epic-53-inventory-grid-hero-preview` @ `16e6e41` (`16e6e41ed7b6b7580a42f184bdc33402b5343b17`); `gh pr create` blocked (CLI auth is `ltrvtrb2`; SSH push is `ryu878`). Compare URL: https://github.com/ryu878/cubewars/compare/master...feature/epic-53-inventory-grid-hero-preview?expand=1 |
+| Branch / commit / PR | `feature/epic-53-inventory-grid-hero-preview` @ `e5f1929` (`e5f192924d5c662d9e06ee1d343ec8f73a3c8ea2`); `gh pr create` blocked (CLI auth is `ltrvtrb2`; SSH push is `ryu878`). Compare URL: https://github.com/ryu878/cubewars/compare/master...feature/epic-53-inventory-grid-hero-preview?expand=1 |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
