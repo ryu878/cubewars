@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-27 |
 | Author (Pusya) | Programmer (Pusya) |
 | Task / Story / EPIC | EPIC 52 — Client i18n (RU/EN) + About the Game |
-| Branch / commit / PR | `feature/epic-52-i18n-about-page` @ `25e2734` (25e27343babe2c16e1d8bc609f39e392b2eda227) — see PR |
+| Branch / commit / PR | `feature/epic-52-i18n-about-page` @ `68dcad7` (68dcad7a685f755c1cb487ca9ab188bfe2af8266); PR via gh blocked (CLI auth is ltrvtrb2; SSH push is ryu878). Compare URL: https://github.com/ryu878/cubewars/compare/master...feature/epic-52-i18n-about-page?expand=1 |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
