@@ -1,7 +1,8 @@
-// Server-authoritative 8×8 inventory packing (EPIC 29).
+// Server-authoritative inventory packing (EPIC 29; EPIC 53 6×5 shrink).
 // Equip rail items (equipped pets/amulets, socketed gems) do not occupy bag cells.
 
 import {
+  INVENTORY_GRID_VERSION,
   cellsForAnchor,
   findFirstFreeAnchor,
   footprintForItemType,
@@ -19,12 +20,224 @@ export interface OccupancyEntry {
   cells: number[];
 }
 
+export interface ShrinkMigrationResult {
+  preserved: number;
+  relocated: number;
+  overflow: number;
+  changed: boolean;
+}
+
 function hasFiniteAnchor(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0;
 }
 
-/** True when any bag item is missing a usable slotAnchor (triggers one-shot auto-pack). */
+interface Packable {
+  itemType: InventoryItemType;
+  itemId: number;
+  footprint: InventoryFootprint;
+  getAnchor: () => number | null | undefined;
+  setAnchor: (anchor: number | null) => void;
+}
+
+function comparePackables(a: Packable, b: Packable): number {
+  if (b.footprint !== a.footprint) return b.footprint - a.footprint;
+  if (a.itemType !== b.itemType) return a.itemType.localeCompare(b.itemType);
+  return a.itemId - b.itemId;
+}
+
+/** Bag items that occupy (or should occupy) grid cells — excludes equip rail / socketed gems. */
+function collectBagPackables(doc: EconomyDocument): Packable[] {
+  const packables: Packable[] = [];
+
+  for (const pet of doc.pets) {
+    if (pet.equipSlot === 1 || pet.equipSlot === 2) {
+      pet.slotAnchor = null;
+      continue;
+    }
+    packables.push({
+      itemType: "pet",
+      itemId: pet.id,
+      footprint: 2,
+      getAnchor: () => pet.slotAnchor,
+      setAnchor: (anchor) => {
+        pet.slotAnchor = anchor;
+      },
+    });
+  }
+  for (const amulet of doc.amulets) {
+    if (amulet.equipped) {
+      amulet.slotAnchor = null;
+      continue;
+    }
+    packables.push({
+      itemType: "amulet",
+      itemId: amulet.id,
+      footprint: 2,
+      getAnchor: () => amulet.slotAnchor,
+      setAnchor: (anchor) => {
+        amulet.slotAnchor = anchor;
+      },
+    });
+  }
+  for (const egg of doc.eggs) {
+    packables.push({
+      itemType: "egg",
+      itemId: egg.id,
+      footprint: 1,
+      getAnchor: () => egg.slotAnchor,
+      setAnchor: (anchor) => {
+        egg.slotAnchor = anchor;
+      },
+    });
+  }
+  for (const gem of doc.gems) {
+    if (gem.petId !== null) {
+      gem.slotAnchor = null;
+      continue;
+    }
+    packables.push({
+      itemType: "gem",
+      itemId: gem.id,
+      footprint: 1,
+      getAnchor: () => gem.slotAnchor,
+      setAnchor: (anchor) => {
+        gem.slotAnchor = anchor;
+      },
+    });
+  }
+  for (const stim of doc.stimulators) {
+    packables.push({
+      itemType: "stimulator",
+      itemId: stim.id,
+      footprint: 1,
+      getAnchor: () => stim.slotAnchor,
+      setAnchor: (anchor) => {
+        stim.slotAnchor = anchor;
+      },
+    });
+  }
+  for (const kit of doc.repairKits) {
+    packables.push({
+      itemType: "repair_kit",
+      itemId: kit.id,
+      footprint: 1,
+      getAnchor: () => kit.slotAnchor,
+      setAnchor: (anchor) => {
+        kit.slotAnchor = anchor;
+      },
+    });
+  }
+  if (doc.shardCount > 0) {
+    packables.push({
+      itemType: "shard_stack",
+      itemId: 0,
+      footprint: 1,
+      getAnchor: () => doc.shardSlotAnchor,
+      setAnchor: (anchor) => {
+        doc.shardSlotAnchor = anchor;
+      },
+    });
+  } else {
+    doc.shardSlotAnchor = null;
+  }
+
+  return packables;
+}
+
+/**
+ * True when any finite bag anchor is OOB / row-wrap illegal under the current
+ * grid, or when two bag items claim the same cell.
+ */
+export function hasInvalidOrOverlappingBagAnchors(doc: EconomyDocument): boolean {
+  const seen = new Set<number>();
+  for (const item of collectBagPackables(doc)) {
+    const anchor = item.getAnchor();
+    if (!hasFiniteAnchor(anchor)) continue;
+    const cells = cellsForAnchor(anchor, item.footprint);
+    if (!cells) return true;
+    for (const cell of cells) {
+      if (seen.has(cell)) return true;
+      seen.add(cell);
+    }
+  }
+  return false;
+}
+
+/**
+ * EPIC 53: migrate / repair bag layout for the current 6×5 grid.
+ * Preserve valid non-overlapping anchors; deterministically re-pack the rest;
+ * never delete — excess items get `slotAnchor: null` (overflow / unplaced).
+ */
+export function migrateInventoryGridShrink(doc: EconomyDocument): ShrinkMigrationResult {
+  const packables = collectBagPackables(doc);
+  packables.sort(comparePackables);
+
+  const occupied = new Set<number>();
+  const toRelayout: Packable[] = [];
+  let preserved = 0;
+  let changed = false;
+
+  for (const item of packables) {
+    const anchor = item.getAnchor();
+    if (!hasFiniteAnchor(anchor)) {
+      toRelayout.push(item);
+      continue;
+    }
+    const cells = cellsForAnchor(anchor, item.footprint);
+    if (!cells || cells.some((c) => occupied.has(c))) {
+      toRelayout.push(item);
+      continue;
+    }
+    for (const c of cells) occupied.add(c);
+    preserved++;
+  }
+
+  toRelayout.sort(comparePackables);
+  let relocated = 0;
+  let overflow = 0;
+  for (const item of toRelayout) {
+    const prev = item.getAnchor();
+    const anchor = findFirstFreeAnchor(occupied, item.footprint);
+    if (anchor === null) {
+      if (prev !== null && prev !== undefined) changed = true;
+      item.setAnchor(null);
+      overflow++;
+      continue;
+    }
+    const cells = cellsForAnchor(anchor, item.footprint)!;
+    for (const c of cells) occupied.add(c);
+    if (prev !== anchor) changed = true;
+    item.setAnchor(anchor);
+    relocated++;
+  }
+
+  if (doc.inventoryGridVersion !== INVENTORY_GRID_VERSION) {
+    changed = true;
+  }
+  doc.inventoryGridVersion = INVENTORY_GRID_VERSION;
+
+  return { preserved, relocated, overflow, changed };
+}
+
+/**
+ * True when load-path must run shrink migration / repair.
+ * After `inventoryGridVersion === INVENTORY_GRID_VERSION`, null bag anchors are
+ * intentional overflow and must NOT re-trigger packing.
+ */
+export function needsInventoryGridMigration(doc: EconomyDocument): boolean {
+  if (doc.inventoryGridVersion !== INVENTORY_GRID_VERSION) return true;
+  return hasInvalidOrOverlappingBagAnchors(doc);
+}
+
+/**
+ * Legacy one-shot auto-pack signal (EPIC 29).
+ * On current grid version, null anchors are overflow — do not loop.
+ * Invalid/overlapping finite anchors still request a repair migration.
+ */
 export function needsAutoPack(doc: EconomyDocument): boolean {
+  if (doc.inventoryGridVersion === INVENTORY_GRID_VERSION) {
+    return hasInvalidOrOverlappingBagAnchors(doc);
+  }
   for (const pet of doc.pets) {
     if (pet.equipSlot === 1 || pet.equipSlot === 2) continue;
     if (!hasFiniteAnchor(pet.slotAnchor)) return true;
@@ -48,7 +261,7 @@ export function needsAutoPack(doc: EconomyDocument): boolean {
   }
   if (doc.shardCount > 0 && !hasFiniteAnchor(doc.shardSlotAnchor)) return true;
   if (doc.shardCount <= 0 && doc.shardSlotAnchor != null) return true;
-  return false;
+  return hasInvalidOrOverlappingBagAnchors(doc);
 }
 
 /** Collect bag occupancy from current anchors (skips invalid / missing). */
@@ -133,124 +346,31 @@ export function canPlaceAt(
   return cells.every((c) => !occupied.has(c));
 }
 
-interface Packable {
-  itemType: InventoryItemType;
-  itemId: number;
-  footprint: InventoryFootprint;
-  apply: (anchor: number) => void;
-}
-
 /**
  * Assign anchors to every bag item in footprint-desc then stable id order.
- * Mutates `doc` in place. Returns true when any anchor changed.
+ * Mutates `doc` in place. Items that cannot fit keep `slotAnchor: null`
+ * (overflow) — never deleted. Returns true when any anchor was written.
  */
 export function autoPackDocument(doc: EconomyDocument): boolean {
-  const packables: Packable[] = [];
-
-  for (const pet of doc.pets) {
-    if (pet.equipSlot === 1 || pet.equipSlot === 2) {
-      pet.slotAnchor = null;
-      continue;
-    }
-    packables.push({
-      itemType: "pet",
-      itemId: pet.id,
-      footprint: 2,
-      apply: (anchor) => {
-        pet.slotAnchor = anchor;
-      },
-    });
-  }
-  for (const amulet of doc.amulets) {
-    if (amulet.equipped) {
-      amulet.slotAnchor = null;
-      continue;
-    }
-    packables.push({
-      itemType: "amulet",
-      itemId: amulet.id,
-      footprint: 2,
-      apply: (anchor) => {
-        amulet.slotAnchor = anchor;
-      },
-    });
-  }
-  for (const egg of doc.eggs) {
-    packables.push({
-      itemType: "egg",
-      itemId: egg.id,
-      footprint: 1,
-      apply: (anchor) => {
-        egg.slotAnchor = anchor;
-      },
-    });
-  }
-  for (const gem of doc.gems) {
-    if (gem.petId !== null) {
-      gem.slotAnchor = null;
-      continue;
-    }
-    packables.push({
-      itemType: "gem",
-      itemId: gem.id,
-      footprint: 1,
-      apply: (anchor) => {
-        gem.slotAnchor = anchor;
-      },
-    });
-  }
-  for (const stim of doc.stimulators) {
-    packables.push({
-      itemType: "stimulator",
-      itemId: stim.id,
-      footprint: 1,
-      apply: (anchor) => {
-        stim.slotAnchor = anchor;
-      },
-    });
-  }
-  for (const kit of doc.repairKits) {
-    packables.push({
-      itemType: "repair_kit",
-      itemId: kit.id,
-      footprint: 1,
-      apply: (anchor) => {
-        kit.slotAnchor = anchor;
-      },
-    });
-  }
-  if (doc.shardCount > 0) {
-    packables.push({
-      itemType: "shard_stack",
-      itemId: 0,
-      footprint: 1,
-      apply: (anchor) => {
-        doc.shardSlotAnchor = anchor;
-      },
-    });
-  } else {
-    doc.shardSlotAnchor = null;
-  }
-
-  packables.sort((a, b) => {
-    if (b.footprint !== a.footprint) return b.footprint - a.footprint;
-    if (a.itemType !== b.itemType) return a.itemType.localeCompare(b.itemType);
-    return a.itemId - b.itemId;
-  });
+  const packables = collectBagPackables(doc);
+  packables.sort(comparePackables);
 
   const occupied = new Set<number>();
   let changed = false;
   for (const item of packables) {
+    const prev = item.getAnchor();
     const anchor = findFirstFreeAnchor(occupied, item.footprint);
     if (anchor === null) {
-      // Should not happen under normal caps; leave unset so needsAutoPack retries.
+      if (prev !== null && prev !== undefined) changed = true;
+      item.setAnchor(null);
       continue;
     }
     const cells = cellsForAnchor(anchor, item.footprint)!;
     for (const c of cells) occupied.add(c);
-    item.apply(anchor);
-    changed = true;
+    if (prev !== anchor) changed = true;
+    item.setAnchor(anchor);
   }
+  doc.inventoryGridVersion = INVENTORY_GRID_VERSION;
   return changed;
 }
 
