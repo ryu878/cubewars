@@ -525,10 +525,19 @@ export interface PlayerState {
   nickname: string;
   position: Vector3;
   yaw: number;
-  /** Current health, [0, COMBAT.maxHealth]. */
+  /**
+   * Current health, [0, maxHealth]. Baseline max is COMBAT.maxHealth; EPIC 24
+   * pet health rating may raise the ceiling for this life.
+   */
   health: number;
   /**
-   * Current armor, [0, COMBAT.maxArmor] (EPIC 7 "Health & Armor Pickups").
+   * Effective max HP for this life (EPIC 24 / EPIC 55). Server-authoritative;
+   * clients must render HUD current/max from this field — never invent max
+   * from local pet ratings.
+   */
+  maxHealth: number;
+  /**
+   * Current armor, [0, maxArmor] (EPIC 7 "Health & Armor Pickups").
    * Absorbs damage before health on a confirmed hit (see server/src/
    * playerRegistry.ts fire()'s spillover math) and resets to 0 on respawn.
    * Broadcast the same way as health (continuous source of truth every
@@ -536,6 +545,11 @@ export interface PlayerState {
    * missed an intermediate update.
    */
   armor: number;
+  /**
+   * Armor ceiling for HUD current/max (EPIC 55). Today equals COMBAT.maxArmor
+   * (dog pet raises current armor baseline, not this max — EPIC 51).
+   */
+  maxArmor: number;
   /**
    * Currently equipped weapon, selected and enforced server-side. Broadcast
    * to everyone from EPIC 17 onward so remote avatars can visibly hold the

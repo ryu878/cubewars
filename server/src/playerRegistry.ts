@@ -883,29 +883,23 @@ export class PlayerRegistry {
 
   /**
    * Apply a pickup's effect to player `id`, dispatched by `category`
-   * (EPIC 6 "weapon"/"ammo", EPIC 7 "health"/"armor" — same entry point for
-   * all four so index.ts's tick loop stays a single call site, per the EPIC
-   * 7 spec's "reuse this EPIC's generic pickup-spawn infrastructure" ask).
-   * Every branch follows the same EPIC 6 §2 "consume only if useful"
-   * pickup-consumption rule: returns `applied: false` (and changes nothing)
-   * if the pickup would have no effect, so the caller (index.ts) must NOT
-   * consume the world pickup in that case — it stays for someone who can
-   * use it.
+   * (EPIC 6/7/13/55 — same entry point for all categories so the match tick
+   * stays a single call site). Every branch follows EPIC 6 §2 "consume only
+   * if useful": returns `applied: false` (and changes nothing) when the
+   * pickup would have no effect.
    *
-   * - "weapon"/"ammo": unlock `weapon` if not already owned, then add its
-   *   ammoPerPickup to current ammo capped at maxAmmo (one mechanic for
-   *   both categories — see shared/src/pickups.ts PickupSpawnPoint doc
-   *   comment). Auto-equips on ANY applied pickup — first-time unlock OR an
-   *   ammo refill of an already-owned weapon (EPIC 13 Story 13.2,
-   *   generalizing the original EPIC 6 "first-time-unlock only" rule) —
-   *   whose tier is higher than the currently-equipped weapon's tier AND
-   *   which now has ammo > 0 (or is infinite) ("always have the best", EPIC
-   *   6 spec; closes the "ran dry, auto-switched to pistol, found ammo
-   *   again" gap EPIC 13 Story 13.1 would otherwise leave open).
-   * - "health" (EPIC 7 §2): heal COMBAT.healthPickupAmount, capped at
-   *   COMBAT.maxHealth; no-op (not applied) if already at max health.
+   * - "weapon" (EPIC 55): unlock into ownedWeapons, add ammoPerPickup
+   *   (keeping any prior ammo stockpile from unowned ammo crates), cap at
+   *   maxAmmo. Auto-equip if higher tier than current and now usable
+   *   (infinite or ammo > 0) — EPIC 13 Story 13.2.
+   * - "ammo" (EPIC 55): never grants ownership. Stockpile ammo even when
+   *   the weapon is unowned (no auto-equip). When already owned, refill
+   *   and keep EPIC 13 auto-equip-on-refill for higher-tier weapons.
+   * - "health" (EPIC 7 §2 / EPIC 24): heal COMBAT.healthPickupAmount,
+   *   capped at player.maxHealth (pet-boosted when applicable); no-op if
+   *   already at that max.
    * - "armor" (EPIC 7 §2): add COMBAT.armorPickupAmount, capped at
-   *   COMBAT.maxArmor; no-op (not applied) if already at max armor.
+   *   COMBAT.maxArmor; no-op if already at max armor.
    */
   applyPickup(id: string, category: PickupCategory, weapon?: WeaponType): ApplyPickupResult {
     const player = this.players.get(id);
@@ -923,29 +917,38 @@ export class PlayerRegistry {
       return { applied: true };
     }
 
-    // "weapon" / "ammo" (EPIC 6, unchanged behavior). Defensive: neither
-    // PICKUP_SPAWN_POINTS nor a well-formed caller ever supplies "pistol"
-    // (spec: pistol is never a pickup) or an undefined weapon for these two
-    // categories, but guard here too rather than trust the caller.
+    // "weapon" / "ammo". Defensive: never "pistol" or missing weapon.
     if (!weapon || weapon === "pistol") return { applied: false };
 
     const stats = WEAPON_STATS[weapon];
     const alreadyOwned = player.ownedWeapons.has(weapon);
     const currentAmmo = player.ammo[weapon] ?? 0;
-    if (alreadyOwned && currentAmmo >= stats.maxAmmo) {
+    // Full stockpile (owned or not) — nothing useful to apply.
+    if (currentAmmo >= stats.maxAmmo) {
       return { applied: false };
     }
 
+    if (category === "ammo") {
+      // EPIC 55: ammo never unlocks ownership and never auto-equips when
+      // the weapon is not owned. Stockpile for a later weapon pickup.
+      const newAmmo = Math.min(stats.maxAmmo, currentAmmo + stats.ammoPerPickup);
+      player.ammo[weapon] = newAmmo;
+      let autoSwitchedTo: WeaponType | undefined;
+      if (
+        alreadyOwned &&
+        stats.tier > WEAPON_STATS[player.equippedWeapon].tier &&
+        (stats.infiniteAmmo || newAmmo > 0)
+      ) {
+        player.equippedWeapon = weapon;
+        autoSwitchedTo = weapon;
+      }
+      return { applied: true, autoSwitchedTo };
+    }
+
+    // category === "weapon": unlock + add ammo (preserve prior stockpile).
     player.ownedWeapons.add(weapon);
     const newAmmo = Math.min(stats.maxAmmo, currentAmmo + stats.ammoPerPickup);
     player.ammo[weapon] = newAmmo;
-    // EPIC 13 Story 13.2: the `!alreadyOwned` gate from EPIC 6 is dropped —
-    // any applied pickup (first unlock or refill) auto-equips `weapon` if
-    // it strictly outranks what's currently equipped and now actually has
-    // ammo. First-time unlock of a higher-tier weapon is still covered
-    // (newAmmo is always > 0 there, since ammoPerPickup > 0 for every
-    // non-pistol weapon) — this is a strict generalization, not a
-    // replacement.
     let autoSwitchedTo: WeaponType | undefined;
     if (stats.tier > WEAPON_STATS[player.equippedWeapon].tier && (stats.infiniteAmmo || newAmmo > 0)) {
       player.equippedWeapon = weapon;
@@ -1244,7 +1247,9 @@ export class PlayerRegistry {
         position: { ...player.position },
         yaw: player.yaw,
         health: player.health,
+        maxHealth: player.maxHealth,
         armor: player.armor,
+        maxArmor: COMBAT.maxArmor,
         equippedWeapon: player.equippedWeapon,
         equippedPetTypes: [...player.equippedPetTypes],
         hasAmulet: player.hasAmulet,

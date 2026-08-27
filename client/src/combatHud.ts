@@ -76,26 +76,27 @@ export class CombatHud {
     this.spawnProtectionValueEl = document.getElementById("spawnProtectionValue") as HTMLElement;
   }
 
-  /** Update the on-screen health readout (Story 4.3 AC: "Current health is visible on screen and updates when damaged"). Always driven by the server's own PlayerState.health — never a locally-guessed value. EPIC 13 Story 13.4: writes only the number into the dedicated #healthValue child span (label span is static markup, index.html), not a combined "Health: N" string on the whole badge. */
-  setHealth(health: number): void {
-    const clamped = Math.max(0, Math.round(health));
-    this.healthValueEl.textContent = String(clamped);
-    this.healthEl.dataset.low = clamped <= 30 ? "true" : "false";
+  /**
+   * Update the on-screen health readout as `current/max` (EPIC 55). Always
+   * driven by server PlayerState.health / PlayerState.maxHealth — never a
+   * locally-guessed max from pet ratings. Low-health styling keys off current.
+   */
+  setHealth(health: number, maxHealth: number): void {
+    const current = Math.max(0, Math.round(health));
+    const max = Math.max(1, Math.round(maxHealth));
+    this.healthValueEl.textContent = `${current}/${max}`;
+    this.healthEl.dataset.low = current <= 30 ? "true" : "false";
   }
 
   /**
-   * Update the on-screen armor readout (EPIC 7 Story 7.2 AC: "HUD shows
-   * armor value alongside health"). Always driven by the server's own
-   * PlayerState.armor (WorldStateMessage), never a locally-guessed value —
-   * same discipline as setHealth() above. Hidden (0 armor is still shown,
-   * not hidden) so the player always has a stable readout of "do I have any
-   * armor right now". EPIC 13 Story 13.4: writes only the number into the
-   * dedicated #armorValue child span, same split as setHealth() above.
+   * Update the on-screen armor readout as `current/max` (EPIC 55). Always
+   * driven by server PlayerState.armor / PlayerState.maxArmor.
    */
-  setArmor(armor: number): void {
-    const clamped = Math.max(0, Math.round(armor));
-    this.armorValueEl.textContent = String(clamped);
-    this.armorEl.dataset.zero = clamped <= 0 ? "true" : "false";
+  setArmor(armor: number, maxArmor: number): void {
+    const current = Math.max(0, Math.round(armor));
+    const max = Math.max(1, Math.round(maxArmor));
+    this.armorValueEl.textContent = `${current}/${max}`;
+    this.armorEl.dataset.zero = current <= 0 ? "true" : "false";
   }
 
   /**

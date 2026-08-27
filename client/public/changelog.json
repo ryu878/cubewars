@@ -1,6 +1,11 @@
 [
   {
     "date": "2026-08-27",
+    "title": "EPIC 55 — Ammo does not unlock weapons; HUD current/max HP & armor",
+    "body": "Ammo crates no longer unlock weapons — they only refill or stockpile ammo; a weapon pickup is required for ownership and E-cycle. HUD HP and ARMOR show server-authoritative current/max (for example 85/245, 22/100). Medkits heal toward your pet-boosted max HP for the current life after damage."
+  },
+  {
+    "date": "2026-08-27",
     "title": "EPIC 54 — About page accuracy + fresh screenshots",
     "body": "About page screenshots refreshed from the live UI: inventory and pets images now show the 6×5 bag and right-side Loadout panel (no legacy 8×8 / 64 / DR chrome). EN|RU About copy audited for pet grants (Armor cap 100, HP 1:1, slot 2 needs amulet, visible companions), Unplaced overflow, 8 half-size themed maps, Deathmatch capacity 8, ~2s spawn ghost, dual lobby inventories, lobby auction, and optional kill-loot VFX."
   },
