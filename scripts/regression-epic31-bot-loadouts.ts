@@ -168,9 +168,15 @@ for (let i = 0; i < 60; i++) {
     COMBAT.maxHealth + maxHealthBonusFromRatings(player.petRatings.healthRating),
     `endless bot ${id} maxHealth inconsistent with its own stored petRatings`,
   );
+  const petArmor = armorBonusFromRatings(player.petRatings.armorRating);
+  assert.equal(
+    player.maxArmor,
+    Math.max(COMBAT.maxArmor, petArmor),
+    `endless bot ${id} maxArmor inconsistent with its own stored petRatings`,
+  );
   assert.equal(
     player.armor,
-    Math.min(COMBAT.maxArmor, armorBonusFromRatings(player.petRatings.armorRating)),
+    Math.min(player.maxArmor, petArmor),
     `endless bot ${id} armor inconsistent with its own stored petRatings`,
   );
   endlessBotAI.removeBot(id);

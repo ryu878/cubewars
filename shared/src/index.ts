@@ -546,8 +546,10 @@ export interface PlayerState {
    */
   armor: number;
   /**
-   * Armor ceiling for HUD current/max (EPIC 55). Today equals COMBAT.maxArmor
-   * (dog pet raises current armor baseline, not this max — EPIC 51).
+   * Armor ceiling for HUD current/max (EPIC 55 / EPIC 56). Equals
+   * max(COMBAT.maxArmor, petArmor): dog grants above 100 raise the ceiling
+   * (e.g. 156/156); weaker dogs keep the 100 pickup cap (e.g. 22/100).
+   * Server-authoritative — clients must not invent max from local pets.
    */
   maxArmor: number;
   /**

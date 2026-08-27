@@ -314,7 +314,11 @@ export function maxHealthBonusFromRatings(healthRating: number): number {
   return Math.floor(Math.max(0, healthRating));
 }
 
-/** Flat absorptive armor points from dog/gem armor rating (EPIC 51). Caller clamps to COMBAT.maxArmor. */
+/**
+ * Flat absorptive armor points from dog/gem armor rating (EPIC 51).
+ * Caller sets maxArmor = max(COMBAT.maxArmor, petArmor) and clamps current
+ * armor to that ceiling (EPIC 56) — do not force-cap the grant at 100.
+ */
 export function armorBonusFromRatings(armorRating: number): number {
   return Math.floor(Math.max(0, armorRating));
 }

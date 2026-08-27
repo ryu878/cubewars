@@ -116,14 +116,21 @@ export interface PlayerRecord {
    */
   maxHealth: number;
   /**
-   * Current armor, [0, COMBAT.maxArmor] (EPIC 7 "Health & Armor Pickups").
+   * Current armor, [0, maxArmor] (EPIC 7 "Health & Armor Pickups").
    * Absorbs damage before health on a confirmed hit (see fire() below).
    * Reset to 0 on every respawn (see applyBaselineLoadout()) and on a
    * brand-new connection (spawn()) — armor does not persist across death
    * (EPIC 7 spec Section 2), matching the pistol-only weapon reset EPIC 6
-   * already established.
+   * already established. Pet dog ratings then re-apply a flat baseline
+   * via applyPetRatings() / processRespawns() (EPIC 51 / EPIC 56).
    */
   armor: number;
+  /**
+   * Effective armor ceiling for this life (EPIC 56). Equals
+   * max(COMBAT.maxArmor, petArmor) so dog grants above 100 raise the HUD
+   * max (e.g. 156/156) without nerfing pickups for weaker dogs (22/100).
+   */
+  maxArmor: number;
   /**
    * Equipped pet profile ratings (EPIC 24). Server-only; recalculated on
    * equip/unequip/hatch via applyPetRatings(). Default empty (no pets).
@@ -440,6 +447,7 @@ export class PlayerRegistry {
       health: COMBAT.maxHealth,
       maxHealth: COMBAT.maxHealth,
       armor: 0,
+      maxArmor: COMBAT.maxArmor,
       petRatings: emptyRatings(),
       equippedPetTypes: [],
       hasAmulet: false,
@@ -480,10 +488,13 @@ export class PlayerRegistry {
     if (!player) return;
     const oldMax = player.maxHealth;
     const newMax = COMBAT.maxHealth + maxHealthBonusFromRatings(ratings.healthRating);
-    const armorBaseline = Math.min(COMBAT.maxArmor, armorBonusFromRatings(ratings.armorRating));
+    // EPIC 56: pet armor raises the ceiling when above COMBAT.maxArmor;
+    // weaker dogs still keep the 100 pickup cap.
+    const petArmor = armorBonusFromRatings(ratings.armorRating);
     player.petRatings = { ...ratings };
     player.maxHealth = newMax;
-    player.armor = Math.min(COMBAT.maxArmor, Math.max(player.armor, armorBaseline));
+    player.maxArmor = Math.max(COMBAT.maxArmor, petArmor);
+    player.armor = Math.min(player.maxArmor, Math.max(player.armor, petArmor));
     if (player.alive) {
       if (player.health >= oldMax) {
         player.health = newMax;
@@ -900,8 +911,9 @@ export class PlayerRegistry {
    * - "health" (EPIC 7 §2 / EPIC 24): heal COMBAT.healthPickupAmount,
    *   capped at player.maxHealth (pet-boosted when applicable); no-op if
    *   already at that max.
-   * - "armor" (EPIC 7 §2): add COMBAT.armorPickupAmount, capped at
-   *   COMBAT.maxArmor; no-op if already at max armor.
+   * - "armor" (EPIC 7 §2 / EPIC 56): add COMBAT.armorPickupAmount, capped at
+   *   player.maxArmor (pet-raised when dog grant > COMBAT.maxArmor); no-op if
+   *   already at that max.
    */
   applyPickup(id: string, category: PickupCategory, weapon?: WeaponType): ApplyPickupResult {
     const player = this.players.get(id);
@@ -914,8 +926,8 @@ export class PlayerRegistry {
     }
 
     if (category === "armor") {
-      if (player.armor >= COMBAT.maxArmor) return { applied: false };
-      player.armor = Math.min(COMBAT.maxArmor, player.armor + COMBAT.armorPickupAmount);
+      if (player.armor >= player.maxArmor) return { applied: false };
+      player.armor = Math.min(player.maxArmor, player.armor + COMBAT.armorPickupAmount);
       return { applied: true };
     }
 
@@ -1043,11 +1055,11 @@ export class PlayerRegistry {
       player.spawnProtectedUntilMs = nowMs + COMBAT.spawnProtectionMs;
       player.intent = { moveForward: 0, moveRight: 0, jump: false };
       applyBaselineLoadout(player);
-      // EPIC 51: re-apply pet flat armor baseline after loadout reset zeros armor.
-      player.armor = Math.min(
-        COMBAT.maxArmor,
-        armorBonusFromRatings(player.petRatings.armorRating),
-      );
+      // EPIC 51 / EPIC 56: re-apply pet flat armor baseline after loadout
+      // reset zeros armor; raise maxArmor when pet grant exceeds baseline.
+      const petArmor = armorBonusFromRatings(player.petRatings.armorRating);
+      player.maxArmor = Math.max(COMBAT.maxArmor, petArmor);
+      player.armor = Math.min(player.maxArmor, petArmor);
 
       outcomes.push({ playerId: player.id, position: { ...player.position }, health: player.health });
     }
@@ -1255,7 +1267,7 @@ export class PlayerRegistry {
         health: player.health,
         maxHealth: player.maxHealth,
         armor: player.armor,
-        maxArmor: COMBAT.maxArmor,
+        maxArmor: player.maxArmor,
         equippedWeapon: player.equippedWeapon,
         equippedPetTypes: [...player.equippedPetTypes],
         hasAmulet: player.hasAmulet,
