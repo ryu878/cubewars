@@ -175,7 +175,7 @@ async function main(): Promise<void> {
       true,
       noChanceRolls,
       now,
-      { nickname: victimNick, alreadyGrantedShard },
+      { nickname: victimNick, alreadyGrantedShard, victimHasAmulet: true },
     );
     if (dropsResult.shard || dropsResult.substitutedKinds.includes("shard")) {
       matchShardGrants.add(victimKey);

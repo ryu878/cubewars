@@ -38,7 +38,7 @@ export const DROP_CHANCE = {
   egg: 0.15,
   gem: 0.2,
   amulet: 0.02,
-  repairKit: 0.1,
+  repairKit: 0.002,
   growthStimulator: 0.08,
 } as const;
 
@@ -359,22 +359,18 @@ export function shouldGrantRepairKitDrop(kits: number, roll: number): boolean {
 }
 
 /**
- * Shard grant (not a random roll): victim has any amulet, killer amulets &lt; 4,
- * shards under cap, and match has not already granted a shard from this victim
- * to this killer.
+ * Pure successful-shard predicate (not a random roll): victim has an amulet
+ * tell, killer shards under cap, and match has not already granted a shard
+ * from this victim to this killer. Killer amulet count does not gate shards
+ * (that gate belongs on amulet item copies only). Store still *attempts*
+ * when tell+!alreadyGranted so shard-cap overflow can substitute gold.
  */
 export function shouldGrantShard(
-  killerAmulets: number,
   killerShards: number,
   victimHasAmulet: boolean,
   alreadyGrantedThisMatch: boolean,
 ): boolean {
-  return (
-    victimHasAmulet &&
-    killerAmulets < ECONOMY_CAPS.amulets &&
-    killerShards < ECONOMY_CAPS.shards &&
-    !alreadyGrantedThisMatch
-  );
+  return victimHasAmulet && killerShards < ECONOMY_CAPS.shards && !alreadyGrantedThisMatch;
 }
 
 /** Clamp stimulator: hatch_deadline = min(hatch_deadline, now + stimulatorMaxRemainingMs). Never extends a ready egg. */

@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import {
   DEATH_EFFECTIVENESS_FACTOR,
+  DROP_CHANCE,
   ECONOMY_CAPS,
   GEM_VALUE_MAX,
   GEM_VALUE_MIN,
@@ -84,9 +85,12 @@ assert.equal(shouldGrantAmuletDrop(0, true, 0), true);
 assert.equal(shouldGrantAmuletDrop(ECONOMY_CAPS.amulets, true, 0), false);
 assert.equal(shouldGrantRepairKitDrop(0, 0), true);
 assert.equal(shouldGrantRepairKitDrop(REPAIR_KIT_SOFT_CAP, 0), false);
-assert.equal(shouldGrantShard(0, 0, true, false), true);
-assert.equal(shouldGrantShard(0, 0, true, true), false);
-assert.equal(shouldGrantShard(ECONOMY_CAPS.amulets, 0, true, false), false);
+assert.equal(DROP_CHANCE.repairKit, 0.002, "EPIC 57: repair kits are rare");
+assert.equal(shouldGrantShard(0, true, false), true);
+assert.equal(shouldGrantShard(0, true, true), false);
+assert.equal(shouldGrantShard(ECONOMY_CAPS.shards, true, false), false);
+// Killer amulet count no longer gates shards (EPIC 57).
+assert.equal(shouldGrantShard(0, true, false), true);
 
 
 async function main(): Promise<void> {
@@ -218,7 +222,7 @@ const drops = await store.tryKillItemDrops(
   true,
   { egg: 1, stimulator: 1, gem: 0, amulet: 0, repairKit: 0 },
   now,
-  { nickname: "LootVictim", alreadyGrantedShard: false },
+  { nickname: "LootVictim", alreadyGrantedShard: false, victimHasAmulet: true },
 );
 assert.ok(drops.gem, "gem loot copy at roll 0");
 assert.equal(drops.gem!.gemType, "health");
@@ -240,9 +244,48 @@ const drops2 = await store.tryKillItemDrops(
   true,
   { egg: 1, stimulator: 1, gem: 1, amulet: 1, repairKit: 1 },
   now,
-  { nickname: "LootVictim", alreadyGrantedShard: true },
+  { nickname: "LootVictim", alreadyGrantedShard: true, victimHasAmulet: true },
 );
 assert.equal(drops2.shard, false);
+
+// EPIC 57: bot-style victim context (no nickname) grants shard without inventing amulet/gem copies.
+await store.getOrCreateProfile("BotShardKiller");
+const botStyleDrops = await store.tryKillItemDrops(
+  "BotShardKiller",
+  true,
+  { egg: 1, stimulator: 1, gem: 0, amulet: 0, repairKit: 1 },
+  now,
+  { alreadyGrantedShard: false, victimHasAmulet: true },
+  "sandbox",
+);
+assert.equal(botStyleDrops.shard, true, "sandbox bot-style victimHasAmulet grants shard");
+assert.equal(botStyleDrops.gem, null, "bots must not invent gem copies");
+assert.equal(botStyleDrops.amulet, null, "bots must not invent amulet copies");
+
+const botNoAmulet = await store.tryKillItemDrops(
+  "BotShardKiller",
+  true,
+  { egg: 1, stimulator: 1, gem: 0, amulet: 0, repairKit: 1 },
+  now,
+  { alreadyGrantedShard: false, victimHasAmulet: false },
+  "sandbox",
+);
+assert.equal(botNoAmulet.shard, false, "non-amulet bot path must not grant shard");
+
+// EPIC 57: killer at amulet cap can still receive shards.
+await store.getOrCreateProfile("AmuletCapKiller");
+for (let i = 0; i < ECONOMY_CAPS.amulets; i++) {
+  await store.grantAmulet("AmuletCapKiller", 10, now);
+}
+assert.equal((await store.getFullProfile("AmuletCapKiller")).amulets.length, ECONOMY_CAPS.amulets);
+const capShard = await store.tryKillItemDrops(
+  "AmuletCapKiller",
+  true,
+  { egg: 1, stimulator: 1, gem: 1, amulet: 1, repairKit: 1 },
+  now,
+  { nickname: "LootVictim", alreadyGrantedShard: false, victimHasAmulet: true },
+);
+assert.equal(capShard.shard, true, "amulet-cap killer still receives shards");
 
 // Loot gem is a bag copy (not socketed); socket then unsocket.
 assert.equal(drops.gem!.petId, null);
@@ -266,7 +309,7 @@ const decayedDrops = await store.tryKillItemDrops(
   true,
   { egg: 1, stimulator: 1, gem: 0, amulet: 1, repairKit: 1 },
   now,
-  { nickname: "DecayedVictim", alreadyGrantedShard: false },
+  { nickname: "DecayedVictim", alreadyGrantedShard: false, victimHasAmulet: false },
 );
 assert.ok(decayedDrops.gem, "F-001: loot copy of value 4 must succeed");
 assert.equal(decayedDrops.gem!.value, 4);

@@ -78,6 +78,7 @@ import {
   type EconomyStore,
   type InventoryBagAction,
   type InventoryEconomyPayload,
+  type VictimDropContext,
 } from "./economy/index.js";
 import type { AvatarProfileStore } from "./avatarProfile.js";
 import {
@@ -754,40 +755,53 @@ export class Match {
 
     const victimPlayer = this.registry.getPlayer(victimId);
     let alreadyGrantedShard = false;
+    let victimHasAmulet = false;
+    let victimDropContext: VictimDropContext | undefined;
     const killerProfile = await economy.getOrCreateProfile(killer.nickname, scope);
-    // Never create economy profiles for bot nicknames (EPIC 31). Victim drop
-    // context (gem/amulet/shard copy) only applies to human victims.
+    const killerKey = killerProfile.nicknameKey;
+
     if (victimIsHuman && victimPlayer) {
-      const killerKey = killerProfile.nicknameKey;
-      const victimKey = (await economy.getOrCreateProfile(victimPlayer.nickname, scope))
-        .nicknameKey;
+      // Human Redis path for gem/amulet copy + shard tell.
+      const victimProfile = await economy.getOrCreateProfile(victimPlayer.nickname, scope);
+      const victimKey = victimProfile.nicknameKey;
       alreadyGrantedShard = this.matchShardGrants.get(killerKey)?.has(victimKey) ?? false;
+      const victimFull = await economy.getFullProfile(victimPlayer.nickname, scope);
+      victimHasAmulet = victimFull.amulets.length > 0;
+      victimDropContext = {
+        nickname: victimPlayer.nickname,
+        alreadyGrantedShard,
+        victimHasAmulet,
+      };
+    } else if (scope === "sandbox" && victimPlayer) {
+      // Sandbox bots: combat hasAmulet → shard only; never create Redis profiles.
+      const victimKey = `bot:${victimId}`;
+      alreadyGrantedShard = this.matchShardGrants.get(killerKey)?.has(victimKey) ?? false;
+      victimHasAmulet = victimPlayer.hasAmulet;
+      victimDropContext = {
+        alreadyGrantedShard,
+        victimHasAmulet,
+      };
     }
     // Sandbox: full drop rolls even vs bots (EPIC 35). Deathmatch: human only
     // (EPIC 32). resolveKillDrops still needs victimIsHuman-or-sandbox for the
-    // early gate; victim inventory copy only runs when victim context is set.
+    // early gate; victim inventory copy only runs when victim.nickname is set.
     const dropsEligible = scope === "sandbox" || victimIsHuman;
     const drops = await economy.resolveKillDrops(
       killer.nickname,
       dropsEligible,
       {},
       Date.now(),
-      victimIsHuman && victimPlayer
-        ? {
-            nickname: victimPlayer.nickname,
-            alreadyGrantedShard,
-          }
-        : undefined,
+      victimDropContext,
       scope,
     );
     // Consume once-per-victim shard opportunity on successful grant OR overflow→gold
     // substitute (EPIC 26 F-001: do not farm substitute gold from the same victim).
     const shardOpportunityConsumed =
       drops.shard || drops.substitutedKinds.includes("shard");
-    if (shardOpportunityConsumed && victimIsHuman && victimPlayer) {
-      const killerKey = killerProfile.nicknameKey;
-      const victimKey = (await economy.getOrCreateProfile(victimPlayer.nickname, scope))
-        .nicknameKey;
+    if (shardOpportunityConsumed && victimPlayer) {
+      const victimKey = victimIsHuman
+        ? (await economy.getOrCreateProfile(victimPlayer.nickname, scope)).nicknameKey
+        : `bot:${victimId}`;
       let set = this.matchShardGrants.get(killerKey);
       if (!set) {
         set = new Set();

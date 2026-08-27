@@ -183,7 +183,7 @@
       <section data-section="weapons">
         <h2 data-i18n="about.weapons.title">Weapons &amp; pickups</h2>
         <p data-i18n="about.weapons.body">
-          Click to fire while pointer-locked. Pick up health, armor, ammo, and weapons from the arena. Ammo crates refill or stockpile ammo but do not unlock a weapon — only a weapon pickup grants ownership (and E-cycle). Press E to switch among owned weapons. Empty weapons pulse on the HUD until you find ammo. The HUD shows HP and ARMOR as current/max from the server (for example 85/245). Medkits heal toward your pet-boosted max HP for this life. Player kills can show brief loot flyout effects for listed drop kinds.
+          Hold left-click to keep firing your current weapon at its own cooldown (pistol, rifle, and grenade launcher). A ring around the crosshair fills as cooldown recovers — full and transparent means ready. No muzzle flash, recoil, or gunshot plays when you are dry, on cooldown, spawn-protected, or dead. Pick up health, armor, ammo, and weapons from the arena. Ammo crates refill or stockpile ammo but do not unlock a weapon — only a weapon pickup grants ownership (and E-cycle). Press E to switch among owned weapons. Empty weapons pulse on the HUD until you find ammo. The HUD shows HP and ARMOR as current/max from the server (for example 85/245). Medkits heal toward your pet-boosted max HP for this life. Player kills can show brief loot flyout effects for listed drop kinds.
         </p>
         <figure>
           <img src="/about/combat.png" alt="In-match combat" />
@@ -248,7 +248,7 @@
         <h2 data-i18n="about.hotkeys.title">Hotkeys</h2>
         <ul>
           <li data-i18n="about.hotkeys.move">WASD — move · Mouse — look · Space — jump</li>
-          <li data-i18n="about.hotkeys.fire">Click — fire · E — switch weapon</li>
+          <li data-i18n="about.hotkeys.fire">Hold click — fire · E — switch weapon</li>
           <li data-i18n="about.hotkeys.inv">I / P — inventory · U — auction · T — trade · F — ground pickup</li>
           <li data-i18n="about.hotkeys.pause">Esc — pause / release pointer · Tab (hold) — scoreboard</li>
         </ul>
@@ -261,7 +261,7 @@
       <section data-section="pools">
         <h2 data-i18n="about.pools.title">Economy pools</h2>
         <p data-i18n="about.pools.body">
-          Deathmatch and Sandbox (Bots / Endless) keep separate gold and inventory. Farming in Sandbox cannot feed Deathmatch rankings or auction listings. Lobby Deathmatch Inventory, Bots Inventory, and Auction buttons open the matching pool before you join.
+          Deathmatch and Sandbox (Bots / Endless) keep separate gold and inventory. Farming in Sandbox cannot feed Deathmatch rankings or auction listings. Lobby Deathmatch Inventory, Bots Inventory, and Auction buttons open the matching pool before you join. Repair kits on kills are rare (~0.2%). In Sandbox, bots that wear an amulet can grant a shard once per bot; Deathmatch bot kills still grant no economy reward. Gem and amulet item copies still come only from human victims.
         </p>
       </section>
     </main>
@@ -291,7 +291,7 @@
           "about.maps.cap": "Example: lobby map picker with the 8 catalog maps.",
           "about.weapons.title": "Weapons & pickups",
           "about.weapons.body":
-            "Click to fire while pointer-locked. Pick up health, armor, ammo, and weapons from the arena. Ammo crates refill or stockpile ammo but do not unlock a weapon — only a weapon pickup grants ownership (and E-cycle). Press E to switch among owned weapons. Empty weapons pulse on the HUD until you find ammo. The HUD shows HP and ARMOR as current/max from the server (for example 85/245). Medkits heal toward your pet-boosted max HP for this life. Player kills can show brief loot flyout effects for listed drop kinds.",
+            "Hold left-click to keep firing your current weapon at its own cooldown (pistol, rifle, and grenade launcher). A ring around the crosshair fills as cooldown recovers — full and transparent means ready. No muzzle flash, recoil, or gunshot plays when you are dry, on cooldown, spawn-protected, or dead. Pick up health, armor, ammo, and weapons from the arena. Ammo crates refill or stockpile ammo but do not unlock a weapon — only a weapon pickup grants ownership (and E-cycle). Press E to switch among owned weapons. Empty weapons pulse on the HUD until you find ammo. The HUD shows HP and ARMOR as current/max from the server (for example 85/245). Medkits heal toward your pet-boosted max HP for this life. Player kills can show brief loot flyout effects for listed drop kinds.",
           "about.weapons.cap": "Example: in-match view with HUD health and weapon.",
           "about.pets.title": "Pets",
           "about.pets.body":
@@ -317,13 +317,13 @@
           "about.pause.cap": "Example: ESC pause menu with change-map panel.",
           "about.hotkeys.title": "Hotkeys",
           "about.hotkeys.move": "WASD — move · Mouse — look · Space — jump",
-          "about.hotkeys.fire": "Click — fire · E — switch weapon",
+          "about.hotkeys.fire": "Hold click — fire · E — switch weapon",
           "about.hotkeys.inv": "I / P — inventory · U — auction · T — trade · F — ground pickup",
           "about.hotkeys.pause": "Esc — pause / release pointer · Tab (hold) — scoreboard",
           "about.hotkeys.cap": "Example: gameplay with HUD chrome.",
           "about.pools.title": "Economy pools",
           "about.pools.body":
-            "Deathmatch and Sandbox (Bots / Endless) keep separate gold and inventory. Farming in Sandbox cannot feed Deathmatch rankings or auction listings. Lobby Deathmatch Inventory, Bots Inventory, and Auction buttons open the matching pool before you join.",
+            "Deathmatch and Sandbox (Bots / Endless) keep separate gold and inventory. Farming in Sandbox cannot feed Deathmatch rankings or auction listings. Lobby Deathmatch Inventory, Bots Inventory, and Auction buttons open the matching pool before you join. Repair kits on kills are rare (~0.2%). In Sandbox, bots that wear an amulet can grant a shard once per bot; Deathmatch bot kills still grant no economy reward. Gem and amulet item copies still come only from human victims.",
         },
         ru: {
           "about.back": "← Назад в CubeWars",
@@ -346,7 +346,7 @@
           "about.maps.cap": "Пример: выбор карты в лобби — 8 карт каталога.",
           "about.weapons.title": "Оружие и подборы",
           "about.weapons.body":
-            "Стреляйте кликом при захвате указателя. Подбирайте здоровье, броню, патроны и оружие на арене. Ящики патронов пополняют или копят патроны, но не открывают оружие — владение даёт только подбор оружия (и цикл E). E — смена среди своего оружия. Пустое оружие мигает на HUD, пока нет патронов. HUD показывает HP и ARMOR как текущее/макс с сервера (например 85/245). Аптечки лечат до усиленного питомцем максимума HP в этой жизни. При убийствах игроков могут кратко показываться эффекты выпадающего лута.",
+            "Удерживайте ЛКМ, чтобы стрелять из текущего оружия с его кулдауном (пистолет, винтовка и гранатомёт). Кольцо вокруг прицела заполняется по мере восстановления кулдауна — полное и прозрачное значит готово. Без вспышки, отдачи и выстрела, если нет патронов, идёт кулдаун, защита спавна или вы мертвы. Подбирайте здоровье, броню, патроны и оружие на арене. Ящики патронов пополняют или копят патроны, но не открывают оружие — владение даёт только подбор оружия (и цикл E). E — смена среди своего оружия. Пустое оружие мигает на HUD, пока нет патронов. HUD показывает HP и ARMOR как текущее/макс с сервера (например 85/245). Аптечки лечат до усиленного питомцем максимума HP в этой жизни. При убийствах игроков могут кратко показываться эффекты выпадающего лута.",
           "about.weapons.cap": "Пример: матч с HUD здоровья и оружия.",
           "about.pets.title": "Пэты",
           "about.pets.body":
@@ -372,13 +372,13 @@
           "about.pause.cap": "Пример: меню паузы со сменой карты.",
           "about.hotkeys.title": "Горячие клавиши",
           "about.hotkeys.move": "WASD — ходьба · Мышь — обзор · Пробел — прыжок",
-          "about.hotkeys.fire": "Клик — стрельба · E — смена оружия",
+          "about.hotkeys.fire": "Удерж. клик — стрельба · E — смена оружия",
           "about.hotkeys.inv": "I / P — инвентарь · U — аукцион · T — обмен · F — поднять",
           "about.hotkeys.pause": "Esc — пауза / отпустить мышь · Tab (удерж.) — табло",
           "about.hotkeys.cap": "Пример: геймплей с HUD.",
           "about.pools.title": "Экономические пулы",
           "about.pools.body":
-            "Deathmatch и Sandbox (боты / Endless) хранят золото и инвентарь отдельно. Фарм в Sandbox не кормит Deathmatch и аукцион. Кнопки лобби Deathmatch Inventory, Bots Inventory и Auction открывают нужный пул до входа в матч.",
+            "Deathmatch и Sandbox (боты / Endless) хранят золото и инвентарь отдельно. Фарм в Sandbox не кормит Deathmatch и аукцион. Кнопки лобби Deathmatch Inventory, Bots Inventory и Auction открывают нужный пул до входа в матч. Ремнаборы с убийств редкие (~0.2%). В Sandbox боты с амулетом могут дать осколок один раз на бота; убийства ботов в Deathmatch по-прежнему без награды. Копии самоцветов и амулетов — только с человеческих жертв.",
         },
       };
 

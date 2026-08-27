@@ -344,15 +344,32 @@ const viewmodel = new WeaponViewmodel(camera);
 // play on the local onFire trigger below — always kept in sync with the
 // server's own LoadoutMessage (onLoadout), never guessed independently.
 let currentWeapon: WeaponType = "pistol";
+// EPIC 57: local ammo mirror of last LoadoutMessage (null = infinite).
+let currentAmmo: number | null = null;
+// EPIC 57: last successful local fire (performance.now) for cooldown ring + juice gate.
+let lastLocalFireMs = 0;
+let selfAlive = true;
 // EPIC 41: local spawn-protection gate mirrors HUD (world_state only —
 // no free-running timer). While protected, suppress juice + outbound fire.
 let selfSpawnProtectedUntilMs = 0;
 let lastWorldServerTimeMs = 0;
+
+/** EPIC 57: predictive fire-ready — cosmetic only; server remains authoritative. */
+function isLocalFireReady(nowMs: number = performance.now()): boolean {
+  if (!selfAlive) return false;
+  if (lastWorldServerTimeMs < selfSpawnProtectedUntilMs) return false;
+  const stats = WEAPON_STATS[currentWeapon];
+  if (!stats.infiniteAmmo && (currentAmmo === null || currentAmmo <= 0)) return false;
+  if (nowMs - lastLocalFireMs < stats.cooldownMs) return false;
+  return true;
+}
+
 const fps = new FpsController(camera, renderer.domElement, {
   onFire: () => {
-    // EPIC 41: same predicate as HUD SPAWN PROTECTED — broadcast deadline
-    // vs latest serverTimeMs. Server still authoritatively no-ops fire.
-    if (lastWorldServerTimeMs < selfSpawnProtectedUntilMs) return;
+    const nowMs = performance.now();
+    // EPIC 57: no fake juice / no outbound fire when client knows shot cannot happen.
+    if (!isLocalFireReady(nowMs)) return;
+    lastLocalFireMs = nowMs;
     // Immediate local "juice" — cosmetic only, fired before any server
     // round trip. The actual hit outcome (if any) only ever comes from the
     // server's HitEvent broadcast below (security-baseline.mdc: the client
@@ -365,9 +382,9 @@ const fps = new FpsController(camera, renderer.domElement, {
     soundManager.playGunshot(currentWeapon);
     connection.send({ type: "fire" });
   },
-  shouldAutoFire: () =>
-    currentWeapon === "pistol" && lastWorldServerTimeMs >= selfSpawnProtectedUntilMs,
-  getAutoFireIntervalMs: () => WEAPON_STATS.pistol.cooldownMs,
+  // EPIC 57: hold-to-fire for every weapon at that weapon's cooldown.
+  shouldAutoFire: () => lastWorldServerTimeMs >= selfSpawnProtectedUntilMs,
+  getAutoFireIntervalMs: () => WEAPON_STATS[currentWeapon].cooldownMs,
   // EPIC 14 Story 14.2: fires exactly once per genuine ground-jump trigger
   // (see fpsController.ts's onJump doc comment) — never for the bunny-hop
   // mid-air boost, which has no sound of its own in this EPIC.
@@ -452,6 +469,7 @@ type QaHoldPose = {
   look: { x: number; y: number; z: number };
 };
 (window as unknown as { __cwQaHoldPose?: QaHoldPose | null }).__cwQaHoldPose = null;
+(window as unknown as { __cwQaCooldownProgress?: number | null }).__cwQaCooldownProgress = null;
 
 function animate() {
   requestAnimationFrame(animate);
@@ -463,6 +481,20 @@ function animate() {
     camera.lookAt(qaPose.look.x, qaPose.look.y, qaPose.look.z);
   }
   viewmodel.update(dt);
+  // EPIC 57: crosshair cooldown ring — fills as local cooldown recovers.
+  {
+    const qaCooldown = (window as unknown as { __cwQaCooldownProgress?: number | null })
+      .__cwQaCooldownProgress;
+    if (typeof qaCooldown === "number") {
+      hud.setCooldownProgress(qaCooldown);
+    } else {
+      const cooldownMs = WEAPON_STATS[currentWeapon].cooldownMs;
+      const elapsed = performance.now() - lastLocalFireMs;
+      const progress =
+        lastLocalFireMs <= 0 || cooldownMs <= 0 ? 1 : Math.min(1, Math.max(0, elapsed / cooldownMs));
+      hud.setCooldownProgress(progress);
+    }
+  }
   // EPIC 14 Story 14.3: drives the footstep cadence timer — fps.isRunning()
   // already folds in "locked AND alive AND grounded AND actually moving
   // horizontally" (see fpsController.ts), so this single call correctly
@@ -689,6 +721,7 @@ const connection = new GameConnection(wsUrl, {
         // respawn events below, so a missed event still self-corrects on
         // the next tick.
         fps.setAlive(self.alive);
+        selfAlive = self.alive;
         // EPIC 55: HUD current/max from server fields only — never invent
         // max from local pet ratings. Fallback to COMBAT constants only if
         // an older payload omits the additive fields.
@@ -742,6 +775,7 @@ const connection = new GameConnection(wsUrl, {
     // server message, per the spec. currentWeapon is also the source used by
     // the onFire callback above to pick the right fire feedback.
     currentWeapon = message.equippedWeapon;
+    currentAmmo = message.ammo;
     viewmodel.setWeapon(message.equippedWeapon);
     viewmodel.setEmpty(message.ammo === 0);
   },

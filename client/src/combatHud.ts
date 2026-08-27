@@ -54,6 +54,7 @@ export class CombatHud {
   private goldValueEl: HTMLElement;
   private spawnProtectionEl: HTMLElement;
   private spawnProtectionValueEl: HTMLElement;
+  private cooldownRingEl: SVGCircleElement | null;
 
   private hitMarkerTimer: { handle: number | undefined } = { handle: undefined };
   private damageFlashTimer: { handle: number | undefined } = { handle: undefined };
@@ -75,6 +76,7 @@ export class CombatHud {
     this.goldValueEl = document.getElementById("goldValue") as HTMLElement;
     this.spawnProtectionEl = document.getElementById("spawnProtectionHud") as HTMLElement;
     this.spawnProtectionValueEl = document.getElementById("spawnProtectionValue") as HTMLElement;
+    this.cooldownRingEl = document.getElementById("cooldownRingArc") as SVGCircleElement | null;
   }
 
   /**
@@ -114,6 +116,19 @@ export class CombatHud {
     const seconds = Math.max(0.1, remainingMs / 1000);
     this.spawnProtectionValueEl.textContent = seconds.toFixed(1);
     this.spawnProtectionEl.hidden = false;
+  }
+
+  /**
+   * EPIC 57: crosshair cooldown ring. `progress` 0 = just fired (empty arc),
+   * 1 = ready (full ring made transparent so it does not clutter the crosshair).
+   */
+  setCooldownProgress(progress: number): void {
+    if (!this.cooldownRingEl) return;
+    const p = Math.min(1, Math.max(0, progress));
+    const circumference = 2 * Math.PI * 14; // r=14 in SVG
+    this.cooldownRingEl.style.strokeDasharray = `${circumference}`;
+    this.cooldownRingEl.style.strokeDashoffset = `${circumference * (1 - p)}`;
+    this.cooldownRingEl.style.opacity = p >= 0.999 ? "0" : "0.85";
   }
 
   /**
