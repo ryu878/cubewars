@@ -25,11 +25,13 @@ export interface PickupSpawnPoint {
   id: string;
   category: PickupCategory;
   /**
-   * Which weapon this point's item is for — same field for both "weapon"
-   * and "ammo" categories, since a weapon pickup and an ammo pickup for
-   * that weapon apply the identical effect server-side (EPIC 6 spec Section
-   * 2). Never "pistol": the pistol is owned from spawn and never spawns as
-   * a pickup. Omitted (undefined) for "health"/"armor" categories (EPIC 7):
+   * Which weapon this point's item is for — shared field for "weapon" and
+   * "ammo" categories, but the effects differ (EPIC 55):
+   * - "weapon": unlocks ownership + adds ammo (keeps any prior stockpile).
+   * - "ammo": refills/stockpiles ammo only — never unlocks ownership; does
+   *   not auto-equip unless the weapon is already owned (EPIC 13 refill).
+   * Never "pistol": the pistol is owned from spawn and never spawns as a
+   * pickup. Omitted (undefined) for "health"/"armor" categories (EPIC 7):
    * those apply a fixed, weapon-independent effect (heal / add armor).
    */
   weapon?: WeaponType;

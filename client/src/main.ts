@@ -2,6 +2,7 @@ import * as THREE from "three";
 import {
   ARENA_BOUNDS,
   ARENA_GEOMETRY,
+  COMBAT,
   DEFAULT_MAP_ID,
   PICKUP_RADIUS,
   WEAPON_STATS,
@@ -688,11 +689,11 @@ const connection = new GameConnection(wsUrl, {
         // respawn events below, so a missed event still self-corrects on
         // the next tick.
         fps.setAlive(self.alive);
-        hud.setHealth(self.health);
-        // EPIC 7: armor is the same "continuous source of truth every tick"
-        // pattern as health above — see PlayerState.armor doc comment
-        // (shared/src/index.ts).
-        hud.setArmor(self.armor);
+        // EPIC 55: HUD current/max from server fields only — never invent
+        // max from local pet ratings. Fallback to COMBAT constants only if
+        // an older payload omits the additive fields.
+        hud.setHealth(self.health, self.maxHealth ?? COMBAT.maxHealth);
+        hud.setArmor(self.armor, self.maxArmor ?? COMBAT.maxArmor);
         // EPIC 36: spawn-protection cue from broadcast deadline vs this
         // tick's serverTimeMs only (no local free-running countdown).
         // EPIC 41: same values gate local fire prediction / outbound "fire".
