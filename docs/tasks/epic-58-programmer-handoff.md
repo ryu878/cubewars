@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-28 |
 | Author (Pusya) | Pusya |
 | Task / Story / EPIC | EPIC 58 — Player collision, themed floors, respawn beam, 3× walls + fog |
-| Branch / commit / PR | `feature/epic-58-collision-floors-respawn-walls` — see PR URL after push |
+| Branch / commit / PR | `feature/epic-58-collision-floors-respawn-walls` @ `521b004` — push OK; open PR: https://github.com/ryu878/cubewars/pull/new/feature/epic-58-collision-floors-respawn-walls (`gh pr create` failed: repo auth) |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
