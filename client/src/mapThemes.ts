@@ -2,8 +2,8 @@
 // Collision/authority stay server-side; this module is client-only cosmetics.
 
 import * as THREE from "three";
-import { DEFAULT_MAP_ID, MAP_IDS, type MapId } from "@cubewars/shared";
-import { buildSkyDome } from "./textures";
+import { DEFAULT_MAP_ID, MAP_IDS, ARENA_BOUNDS, type MapId } from "@cubewars/shared";
+import { buildGroundTexture, buildSkyDome, type GroundThemeId } from "./textures";
 
 /** Theme key: catalog maps, endless default, or lobby reset. */
 export type MapThemeId = MapId | "endless" | "lobby";
@@ -42,6 +42,8 @@ export interface MapThemeScene {
   sunLight: THREE.DirectionalLight;
   /** Current sky dome mesh; replaced and disposed on theme change. */
   skyDome: THREE.Mesh | null;
+  /** EPIC 58: ground procedural texture; disposed on theme swap. */
+  groundTexture: THREE.Texture | null;
 }
 
 export const MAP_PALETTES: Record<MapId, MapPalette> = {
@@ -54,8 +56,8 @@ export const MAP_PALETTES: Record<MapId, MapPalette> = {
     skyTop: 0x6fb2e8,
     skyHorizon: 0xf3d9a8,
     fogColor: 0xf3d9a8,
-    fogNear: 120,
-    fogFar: 700,
+    fogNear: 360,
+    fogFar: 2100,
     hemiSky: 0xfff3d6,
     hemiGround: 0x8a7355,
     hemiIntensity: 0.95,
@@ -73,8 +75,8 @@ export const MAP_PALETTES: Record<MapId, MapPalette> = {
     skyTop: 0xd4a070,
     skyHorizon: 0xe8b888,
     fogColor: 0xd9a878,
-    fogNear: 90,
-    fogFar: 520,
+    fogNear: 270,
+    fogFar: 1560,
     hemiSky: 0xffe0c0,
     hemiGround: 0x6a4030,
     hemiIntensity: 0.9,
@@ -92,8 +94,8 @@ export const MAP_PALETTES: Record<MapId, MapPalette> = {
     skyTop: 0x7ec8b8,
     skyHorizon: 0xc8e0d0,
     fogColor: 0xb8d0c4,
-    fogNear: 40,
-    fogFar: 280,
+    fogNear: 120,
+    fogFar: 840,
     hemiSky: 0xd8f0e8,
     hemiGround: 0x5a6a50,
     hemiIntensity: 0.85,
@@ -111,8 +113,8 @@ export const MAP_PALETTES: Record<MapId, MapPalette> = {
     skyTop: 0x2a3548,
     skyHorizon: 0x6a7080,
     fogColor: 0x5a6070,
-    fogNear: 80,
-    fogFar: 480,
+    fogNear: 240,
+    fogFar: 1440,
     hemiSky: 0xa0b0c8,
     hemiGround: 0x404850,
     hemiIntensity: 0.75,
@@ -130,8 +132,8 @@ export const MAP_PALETTES: Record<MapId, MapPalette> = {
     skyTop: 0x8aa0b0,
     skyHorizon: 0xc8b090,
     fogColor: 0xb0a080,
-    fogNear: 70,
-    fogFar: 450,
+    fogNear: 210,
+    fogFar: 1350,
     hemiSky: 0xe8d8b0,
     hemiGround: 0x5a5040,
     hemiIntensity: 0.88,
@@ -149,8 +151,8 @@ export const MAP_PALETTES: Record<MapId, MapPalette> = {
     skyTop: 0x1a1838,
     skyHorizon: 0x3a3860,
     fogColor: 0x2a2848,
-    fogNear: 50,
-    fogFar: 320,
+    fogNear: 150,
+    fogFar: 960,
     hemiSky: 0x6870a0,
     hemiGround: 0x282438,
     hemiIntensity: 0.7,
@@ -168,8 +170,8 @@ export const MAP_PALETTES: Record<MapId, MapPalette> = {
     skyTop: 0x4a5870,
     skyHorizon: 0x8890a0,
     fogColor: 0x687080,
-    fogNear: 35,
-    fogFar: 260,
+    fogNear: 105,
+    fogFar: 780,
     hemiSky: 0xb0c0d8,
     hemiGround: 0x383c48,
     hemiIntensity: 0.7,
@@ -187,8 +189,8 @@ export const MAP_PALETTES: Record<MapId, MapPalette> = {
     skyTop: 0x88a8c8,
     skyHorizon: 0xd8c8b0,
     fogColor: 0xc8b8a0,
-    fogNear: 100,
-    fogFar: 560,
+    fogNear: 300,
+    fogFar: 1680,
     hemiSky: 0xf0e8d8,
     hemiGround: 0x6a6058,
     hemiIntensity: 0.92,
@@ -257,7 +259,19 @@ export function applyMapTheme(themeId: MapThemeId, targets: MapThemeScene): MapP
   activeThemeId = themeId;
   const palette = getPalette(themeId);
 
+  if (targets.groundTexture) {
+    targets.groundTexture.dispose();
+    targets.groundTexture = null;
+  }
+  const groundTex = buildGroundTexture(themeId as GroundThemeId);
+  const GROUND_TILE = 4;
+  const groundWidth = ARENA_BOUNDS.maxX - ARENA_BOUNDS.minX + 8;
+  const groundDepth = ARENA_BOUNDS.maxZ - ARENA_BOUNDS.minZ + 8;
+  groundTex.repeat.set(groundWidth / GROUND_TILE, groundDepth / GROUND_TILE);
+  targets.groundMat.map = groundTex;
   targets.groundMat.color.setHex(palette.ground);
+  targets.groundMat.needsUpdate = true;
+  targets.groundTexture = groundTex;
 
   if (targets.scene.fog instanceof THREE.Fog) {
     targets.scene.fog.color.setHex(palette.fogColor);

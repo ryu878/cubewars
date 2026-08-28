@@ -398,3 +398,71 @@ export function crateTopHeightAt(
   }
   return highest;
 }
+
+const PLAYER_SEPARATION_PASSES = 4;
+
+/**
+ * EPIC 58: push overlapping alive players apart symmetrically on the XZ plane.
+ * Mutates `players` in place. Run once per tick after wall movement resolution.
+ */
+export function resolveAllPlayerSeparations(
+  players: Array<{ x: number; z: number; alive?: boolean }>,
+  radius: number = PLAYER_COLLISION_RADIUS,
+): void {
+  const minDist = radius * 2;
+  const alive = players.filter((p) => p.alive !== false);
+  for (let pass = 0; pass < PLAYER_SEPARATION_PASSES; pass++) {
+    for (let i = 0; i < alive.length; i++) {
+      for (let j = i + 1; j < alive.length; j++) {
+        const a = alive[i]!;
+        const b = alive[j]!;
+        let dx = b.x - a.x;
+        let dz = b.z - a.z;
+        let dist = Math.hypot(dx, dz);
+        if (dist >= minDist) continue;
+        if (dist < 1e-9) {
+          dx = 1;
+          dz = 0;
+          dist = 1;
+        }
+        const overlap = (minDist - dist) / 2;
+        const nx = dx / dist;
+        const nz = dz / dist;
+        a.x -= nx * overlap;
+        a.z -= nz * overlap;
+        b.x += nx * overlap;
+        b.z += nz * overlap;
+      }
+    }
+  }
+}
+
+/**
+ * EPIC 58: resolve one player against other player centers (client prediction).
+ * Same circle radius as server separation.
+ */
+export function resolvePlayerOverlap(
+  x: number,
+  z: number,
+  others: readonly { x: number; z: number }[],
+  radius: number = PLAYER_COLLISION_RADIUS,
+): { x: number; z: number } {
+  let px = x;
+  let pz = z;
+  const minDist = radius * 2;
+  for (const other of others) {
+    let dx = px - other.x;
+    let dz = pz - other.z;
+    let dist = Math.hypot(dx, dz);
+    if (dist >= minDist) continue;
+    if (dist < 1e-9) {
+      dx = 1;
+      dz = 0;
+      dist = 1;
+    }
+    const push = (minDist - dist) / dist;
+    px += dx * push;
+    pz += dz * push;
+  }
+  return { x: px, z: pz };
+}

@@ -36,8 +36,13 @@ async function main(): Promise<void> {
 
   assertPalettesDistinct();
 
-  // Story 49.3: shared wall AABB raised moderately (was 4).
-  assert.equal(WALL_HEIGHT, 6, "WALL_HEIGHT should be 6 (taller fog walls)");
+  const { groundThemeIdsForRegression } = await import(join(REPO_ROOT, "client/src/textures.ts"));
+  for (const id of groundThemeIdsForRegression()) {
+    assert.ok(typeof id === "string", `ground theme id ${id}`);
+  }
+
+  // Story 49.3 / EPIC 58: shared wall AABB height (6 → 18 in EPIC 58).
+  assert.equal(WALL_HEIGHT, 18, "WALL_HEIGHT should be 18 (taller fog walls)");
   for (const map of listMaps()) {
     const fullWalls = map.geometry.filter((b) => b.kind === "wall" && b.size.y >= WALL_HEIGHT - 0.01);
     assert.ok(

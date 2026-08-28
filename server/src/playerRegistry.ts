@@ -22,6 +22,7 @@ import {
   speedMultiplierFromRatings,
   boxesBlockingAt,
   crateTopHeightAt,
+  resolveAllPlayerSeparations,
   resolveHorizontalCollisions,
   resolveSteppedMovement,
   type AvatarColors,
@@ -1075,6 +1076,26 @@ export class PlayerRegistry {
   step(dtSeconds: number): void {
     for (const player of this.players.values()) {
       this.stepPlayer(player, dtSeconds);
+    }
+    this.resolvePlayerCollisions();
+  }
+
+  /** EPIC 58: server-authoritative player-player separation after wall moves. */
+  private resolvePlayerCollisions(): void {
+    const positions: { x: number; z: number; alive: boolean; player: PlayerRecord }[] = [];
+    for (const player of this.players.values()) {
+      if (!player.alive) continue;
+      positions.push({
+        x: player.position.x,
+        z: player.position.z,
+        alive: true,
+        player,
+      });
+    }
+    resolveAllPlayerSeparations(positions);
+    for (const entry of positions) {
+      entry.player.position.x = entry.x;
+      entry.player.position.z = entry.z;
     }
   }
 

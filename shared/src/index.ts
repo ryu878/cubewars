@@ -65,7 +65,7 @@ export const MOVEMENT = {
    * strictly below CRATE_HEIGHT (1.2m, shared/src/mapData.ts), making
    * crates physically unreachable. New apex = 7.5^2 / (2*18) = 56.25/36 =
    * 1.5625m, clearing CRATE_HEIGHT by ~0.36m (~30%) — a comfortable, not
-   * frame-perfect, margin. Still well under WALL_HEIGHT (6), so walls
+   * frame-perfect, margin. Still well under WALL_HEIGHT (18), so walls
    * remain unreachable to stand on; only crates (kind: "crate") become
    * climbable (see shared/src/collision.ts boxesBlockingAt/crateTopHeightAt).
    */

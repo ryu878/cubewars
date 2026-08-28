@@ -11,6 +11,7 @@ import {
   MOVEMENT,
   boxesBlockingAt,
   crateTopHeightAt,
+  resolvePlayerOverlap,
   resolveSteppedMovement,
   type MapBox,
 } from "@cubewars/shared";
@@ -87,6 +88,8 @@ export class FpsController {
   private fireHeld = false;
   private autoFireTimer: number | undefined;
   private collisionGeometry: readonly MapBox[] | undefined;
+  /** EPIC 58: last-known remote alive positions for local player-player prediction. */
+  private otherPlayerCollisionPositions: readonly { x: number; z: number }[] = [];
 
   private stopAutoFire(): void {
     this.fireHeld = false;
@@ -183,6 +186,11 @@ export class FpsController {
 
   setCollisionGeometry(geometry: readonly MapBox[]): void {
     this.collisionGeometry = geometry;
+  }
+
+  /** EPIC 58: remote alive player XZ positions from world_state (exclude self). */
+  setOtherPlayerCollisionPositions(positions: readonly { x: number; z: number }[]): void {
+    this.otherPlayerCollisionPositions = positions;
   }
 
   /** Update the locally-known alive state from the server's world_state broadcast (EPIC 4 Story 4.2) — gates local movement/fire prediction only; the server independently enforces this regardless of client state. */
@@ -314,8 +322,9 @@ export class FpsController {
     const previousX = this.position.x;
     const previousZ = this.position.z;
     const resolved = resolveSteppedMovement(this.position.x, this.position.z, dx, dz, undefined, blockingBoxes);
-    this.position.x = resolved.x;
-    this.position.z = resolved.z;
+    const separated = resolvePlayerOverlap(resolved.x, resolved.z, this.otherPlayerCollisionPositions);
+    this.position.x = separated.x;
+    this.position.z = separated.z;
     // EPIC 14 Story 14.3: measured from the POST-collision-resolution
     // displacement (see horizontalSpeedMps doc comment above), not the raw
     // dx/dz intent.

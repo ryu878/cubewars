@@ -1,5 +1,10 @@
 [
   {
+    "date": "2026-08-28",
+    "title": "EPIC 58 — Player collision, map floors, respawn beam, taller fog walls",
+    "body": "Alive players and bots block each other (server-authoritative). Each of the 8 catalog maps has a distinct procedural floor texture. A green light column marks respawns for ~2–3 seconds for everyone in the match. Walls are three times taller with fog tuned so tops dissolve into the horizon."
+  },
+  {
     "date": "2026-08-27",
     "title": "EPIC 57 — Hold-fire all weapons, cooldown ring, rarer repair kits, sandbox bot shards",
     "body": "Hold left-click to fire every weapon at its own cooldown. Crosshair cooldown ring fills as you recover (full/transparent = ready); no fake muzzle/recoil/sound when dry, on cooldown, spawn-protected, or dead. Repair kits on kills are much rarer (~0.2%). In Sandbox, bots wearing an amulet can grant a shard once per bot; Deathmatch bot kills still give no economy reward."

@@ -121,12 +121,12 @@ export const STANDARD_MAP_BOUNDS: MapBounds2D = {
 export const DEFAULT_MAP_ID: MapId = "base";
 
 /**
- * Shared wall AABB height (EPIC 49 Story 49.3). Raised from 4 → 6 so
- * collision matches taller client walls; tops dissolve visually into fog
- * (client-only fade — no invisible blockers above this AABB).
- * EPIC 50: kept at 6 (not scaled) for fog-fade proportion.
+ * Shared wall AABB height (EPIC 49 Story 49.3, EPIC 58 Story 58.5).
+ * Raised 4 → 6 (EPIC 49), then 6 → 18 (EPIC 58) so collision matches
+ * taller client walls; tops dissolve visually into fog (client-only fade —
+ * no invisible blockers above this AABB). Y is not scaled by MAP_LINEAR_SCALE.
  */
-export const WALL_HEIGHT = 6;
+export const WALL_HEIGHT = 18;
 export const WALL_Y = WALL_HEIGHT / 2;
 export const CRATE_HEIGHT = 1.2;
 export const CRATE_Y = CRATE_HEIGHT / 2;

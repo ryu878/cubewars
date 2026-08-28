@@ -172,7 +172,7 @@
       <section data-section="maps">
         <h2 data-i18n="about.maps.title">Maps</h2>
         <p data-i18n="about.maps.body">
-          The catalog has 8 themed maps at half the older arena size. Use the lobby map picker before Quick Join or vs Bots. Joining an existing lobby game uses that match’s map (server-owned). Maps are shared across modes where the catalog applies.
+          The catalog has 8 themed maps at half the older arena size, each with its own floor look and fog palette. Use the lobby map picker before Quick Join or vs Bots. Joining an existing lobby game uses that match’s map (server-owned). Maps are shared across modes where the catalog applies.
         </p>
         <figure>
           <img src="/about/maps.png" alt="Map picker" />
@@ -226,10 +226,17 @@
         </figure>
       </section>
 
+      <section data-section="movement">
+        <h2 data-i18n="about.movement.title">Movement &amp; arena</h2>
+        <p data-i18n="about.movement.body">
+          Alive players and bots block each other — you cannot walk through bodies. Each catalog map has a distinct procedural floor texture (sand grid, rust, mossy tiles, concrete, asphalt, crystal veins, metal grate, pavement). Walls are tall and fade into per-map fog so arena edges feel open. After a respawn, a green light column marks the spawn point for about 2–3 seconds (visible to everyone in the match).
+        </p>
+      </section>
+
       <section data-section="spawn">
         <h2 data-i18n="about.spawn.title">Spawn protection</h2>
         <p data-i18n="about.spawn.body">
-          After spawn or respawn you are briefly a ghost for about 2 seconds: you cannot be damaged and cannot fire. A HUD cue shows remaining protection time (server-driven).
+          After spawn or respawn you are briefly a ghost for about 2 seconds: you cannot be damaged and cannot fire. A HUD cue shows remaining protection time (server-driven). A green vertical beam at the spawn point fades over ~2–3 seconds so teammates and enemies can spot respawn activity.
         </p>
       </section>
 
@@ -267,7 +274,7 @@
     </main>
     <script>
       const STORAGE_KEY = "cubewars.locale";
-      const LAST_UPDATED = "2026-08-27";
+      const LAST_UPDATED = "2026-08-28";
 
       const dict = {
         en: {
@@ -289,6 +296,9 @@
           "about.maps.body":
             "The catalog has 8 themed maps at half the older arena size. Use the lobby map picker before Quick Join or vs Bots. Joining an existing lobby game uses that match’s map (server-owned). Maps are shared across modes where the catalog applies.",
           "about.maps.cap": "Example: lobby map picker with the 8 catalog maps.",
+          "about.movement.title": "Movement & arena",
+          "about.movement.body":
+            "Alive players and bots block each other — you cannot walk through bodies. Each catalog map has a distinct procedural floor texture (sand grid, rust, mossy tiles, concrete, asphalt, crystal veins, metal grate, pavement). Walls are tall and fade into per-map fog so arena edges feel open. After a respawn, a green light column marks the spawn point for about 2–3 seconds (visible to everyone in the match).",
           "about.weapons.title": "Weapons & pickups",
           "about.weapons.body":
             "Hold left-click to keep firing your current weapon at its own cooldown (pistol, rifle, and grenade launcher). A ring around the crosshair fills as cooldown recovers — full and transparent means ready. No muzzle flash, recoil, or gunshot plays when you are dry, on cooldown, spawn-protected, or dead. Pick up health, armor, ammo, and weapons from the arena. Ammo crates refill or stockpile ammo but do not unlock a weapon — only a weapon pickup grants ownership (and E-cycle). Press E to switch among owned weapons. Empty weapons pulse on the HUD until you find ammo. The HUD shows HP and ARMOR as current/max from the server (for example 85/245). Medkits heal toward your pet-boosted max HP for this life. Player kills can show brief loot flyout effects for listed drop kinds.",
@@ -310,7 +320,7 @@
           "about.economy.capAuction": "Example: Deathmatch auction from the lobby.",
           "about.spawn.title": "Spawn protection",
           "about.spawn.body":
-            "After spawn or respawn you are briefly a ghost for about 2 seconds: you cannot be damaged and cannot fire. A HUD cue shows remaining protection time (server-driven).",
+            "After spawn or respawn you are briefly a ghost for about 2 seconds: you cannot be damaged and cannot fire. A HUD cue shows remaining protection time (server-driven). A green vertical beam at the spawn point fades over ~2–3 seconds so teammates and enemies can spot respawn activity.",
           "about.pause.title": "ESC / pause menu",
           "about.pause.body":
             "Press Esc in a match to pause: Resume, Change Map / Reload, Inventory, Auction (Deathmatch), Exit to Lobby. Changing map leaves the current match and starts a new one on the chosen catalog map.",
@@ -342,8 +352,11 @@
           "about.modes.cap": "Пример: кнопки режимов, EN|RU и экономии в лобби.",
           "about.maps.title": "Карты",
           "about.maps.body":
-            "В каталоге 8 тематических карт половинного размера относительно старой арены. Выберите карту в лобби перед быстрым входом или ботами. Вход в существующую игру использует карту того матча (сервер). Карты из каталога доступны в подходящих режимах.",
+            "В каталоге 8 тематических карт половинного размера, у каждой свой пол и туман. Выберите карту в лобби перед быстрым входом или ботами. Вход в существующую игру использует карту того матча (сервер). Карты из каталога доступны в подходящих режимах.",
           "about.maps.cap": "Пример: выбор карты в лобби — 8 карт каталога.",
+          "about.movement.title": "Движение и арена",
+          "about.movement.body":
+            "Живые игроки и боты блокируют друг друга — сквозь тела пройти нельзя. У каждой карты каталога свой процедурный пол (песчаная сетка, ржавчина, мшистая плитка, бетон, асфальт, кристаллические прожилки, металлическая решётка, брусчатка). Стены высокие и растворяются в тумане карты. После респавна зелёный световой столб ~2–3 с отмечает точку спавна (виден всем в матче).",
           "about.weapons.title": "Оружие и подборы",
           "about.weapons.body":
             "Удерживайте ЛКМ, чтобы стрелять из текущего оружия с его кулдауном (пистолет, винтовка и гранатомёт). Кольцо вокруг прицела заполняется по мере восстановления кулдауна — полное и прозрачное значит готово. Без вспышки, отдачи и выстрела, если нет патронов, идёт кулдаун, защита спавна или вы мертвы. Подбирайте здоровье, броню, патроны и оружие на арене. Ящики патронов пополняют или копят патроны, но не открывают оружие — владение даёт только подбор оружия (и цикл E). E — смена среди своего оружия. Пустое оружие мигает на HUD, пока нет патронов. HUD показывает HP и ARMOR как текущее/макс с сервера (например 85/245). Аптечки лечат до усиленного питомцем максимума HP в этой жизни. При убийствах игроков могут кратко показываться эффекты выпадающего лута.",
@@ -365,7 +378,7 @@
           "about.economy.capAuction": "Пример: аукцион Deathmatch из лобби.",
           "about.spawn.title": "Защита спавна",
           "about.spawn.body":
-            "После появления вы примерно на 2 секунды становитесь «призраком»: вас нельзя ранить и вы не можете стрелять. HUD показывает оставшееся время (с сервера).",
+            "После появления вы примерно на 2 секунды становитесь «призраком»: вас нельзя ранить и вы не можете стрелять. HUD показывает оставшееся время (с сервера). Зелёный вертикальный луч в точке спавна гаснет ~2–3 с — по нему видно, где кто-то возродился.",
           "about.pause.title": "ESC / меню паузы",
           "about.pause.body":
             "Esc в матче: Продолжить, Сменить карту / Перезапуск, Инвентарь, Аукцион (Deathmatch), В лобби. Смена карты завершает матч и начинает новый на выбранной карте.",

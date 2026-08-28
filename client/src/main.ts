@@ -40,6 +40,7 @@ import { propMaterialKind } from "./propMaterialKind";
 import { SoundManager } from "./audio/soundManager";
 import { CombatEffects } from "./combatEffects";
 import { KillLootVfx } from "./killLootVfx";
+import { SpawnBeamVfx } from "./spawnBeamVfx";
 import { PauseMenu } from "./pauseMenu";
 import { DevConsole } from "./devConsole";
 import { isLobbyVisible, isPauseMenuVisible, shouldIgnoreGameHotkey } from "./uiInput";
@@ -106,6 +107,7 @@ const themeScene: MapThemeScene = {
   hemiLight,
   sunLight,
   skyDome: null,
+  groundTexture: null,
 };
 applyMapTheme("lobby", themeScene);
 
@@ -334,6 +336,7 @@ const hud = new CombatHud();
 const soundManager = new SoundManager();
 const combatEffects = new CombatEffects(scene);
 const killLootVfx = new KillLootVfx(scene);
+const spawnBeamVfx = new SpawnBeamVfx(scene);
 // EPIC 10 Story 10.1: the viewmodel is attached to the camera (see
 // scene.add(camera) above) and reacts to the SAME data already driving the
 // HUD — LoadoutMessage.equippedWeapon/ammo (onLoadout below) and the
@@ -459,6 +462,9 @@ window.addEventListener("resize", () => {
 
 const clock = new THREE.Clock();
 
+let selfId: string | null = null;
+let lastWorldPlayers: WorldStateMessage["players"] = [];
+
 /**
  * EPIC 46 F-002 QA hook: Playwright can hold a temporary eye/look-at pose so
  * landmark screenshots (building door / car) actually frame the AABB props.
@@ -470,10 +476,22 @@ type QaHoldPose = {
 };
 (window as unknown as { __cwQaHoldPose?: QaHoldPose | null }).__cwQaHoldPose = null;
 (window as unknown as { __cwQaCooldownProgress?: number | null }).__cwQaCooldownProgress = null;
+(window as unknown as { __cwSpawnBeam?: (x?: number, z?: number) => void }).__cwSpawnBeam = (
+  x = 0,
+  z = 0,
+) => {
+  spawnBeamVfx.spawn({ x, y: 0, z });
+};
 
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.1); // clamp so a tab-switch pause doesn't cause a huge jump
+  if (selfId) {
+    const others = lastWorldPlayers
+      .filter((p) => p.id !== selfId && p.alive)
+      .map((p) => ({ x: p.position.x, z: p.position.z }));
+    fps.setOtherPlayerCollisionPositions(others);
+  }
   fps.update(dt);
   const qaPose = (window as unknown as { __cwQaHoldPose?: QaHoldPose | null }).__cwQaHoldPose;
   if (qaPose) {
@@ -503,6 +521,7 @@ function animate() {
   remotePlayers.update(dt);
   combatEffects.update(dt);
   killLootVfx.update(dt);
+  spawnBeamVfx.update(dt);
   renderer.render(scene, camera);
 }
 animate();
@@ -512,7 +531,6 @@ const wsUrl = import.meta.env.VITE_CUBEWARS_WS_URL ?? "ws://localhost:7777";
 statusEl.textContent = t("status.connecting", { url: wsUrl });
 statusEl.dataset.state = "connecting";
 
-let selfId: string | null = null;
 let joinedEndless = false;
 
 // EPIC 5: kill feed and scoreboard are both driven entirely by server
@@ -595,7 +613,6 @@ let tradePanel!: TradePanel;
 let groundHud!: GroundHud;
 let pauseMenu!: PauseMenu;
 let devConsole!: DevConsole;
-let lastWorldPlayers: WorldStateMessage["players"] = [];
 const connection = new GameConnection(wsUrl, {
   onOpen: () => {
     statusEl.textContent = t("status.connectedWaiting");
@@ -757,6 +774,7 @@ const connection = new GameConnection(wsUrl, {
     if (message.playerId === selfId) hud.setDead(true);
   },
   onRespawn: (message) => {
+    spawnBeamVfx.spawn(message.position);
     if (message.playerId === selfId) hud.setDead(false);
   },
   onKill: (message) => {

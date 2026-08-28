@@ -103,12 +103,256 @@ export function buildWallTextures(): WallTextures {
   return { wood: woodTexture, brick: brickTexture };
 }
 
+/** EPIC 58: procedural floor themes — one canvas texture per map id. */
+export type GroundThemeId =
+  | "base"
+  | "rust_canyon"
+  | "glass_dome"
+  | "dead_station"
+  | "fuel_depot"
+  | "crystal_cave"
+  | "abyss_bridge"
+  | "elite_quarter"
+  | "endless"
+  | "lobby";
+
+function canvasTextureFromDraw(
+  draw: (ctx: CanvasRenderingContext2D, size: number) => void,
+): THREE.CanvasTexture {
+  const { ctx } = makeCanvas();
+  draw(ctx, CANVAS_SIZE);
+  const tex = new THREE.CanvasTexture(ctx.canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function drawSandGrid(ctx: CanvasRenderingContext2D, size: number): void {
+  ctx.fillStyle = "#d4b87a";
+  ctx.fillRect(0, 0, size, size);
+  const tile = size / 8;
+  for (let row = 0; row < 8; row++) {
+    for (let col = 0; col < 8; col++) {
+      const shade = (row + col) % 2 === 0 ? "#c9a96a" : "#dcc890";
+      ctx.fillStyle = shade;
+      ctx.fillRect(col * tile + 1, row * tile + 1, tile - 2, tile - 2);
+    }
+  }
+  ctx.strokeStyle = "rgba(90, 70, 40, 0.35)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 8; i++) {
+    ctx.beginPath();
+    ctx.moveTo(i * tile, 0);
+    ctx.lineTo(i * tile, size);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, i * tile);
+    ctx.lineTo(size, i * tile);
+    ctx.stroke();
+  }
+}
+
+function drawCrackedRust(ctx: CanvasRenderingContext2D, size: number): void {
+  ctx.fillStyle = "#8a5030";
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 120; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    ctx.fillStyle = `rgba(${80 + Math.random() * 40}, ${40 + Math.random() * 30}, ${20 + Math.random() * 20}, 0.25)`;
+    ctx.fillRect(x, y, 2 + Math.random() * 6, 1 + Math.random() * 3);
+  }
+  ctx.strokeStyle = "rgba(40, 20, 10, 0.5)";
+  ctx.lineWidth = 1;
+  for (let c = 0; c < 18; c++) {
+    let x = Math.random() * size;
+    let y = Math.random() * size;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    for (let s = 0; s < 5; s++) {
+      x += (Math.random() - 0.5) * 28;
+      y += (Math.random() - 0.5) * 28;
+      ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+}
+
+function drawMossyTiles(ctx: CanvasRenderingContext2D, size: number): void {
+  ctx.fillStyle = "#8a9a88";
+  ctx.fillRect(0, 0, size, size);
+  const tile = size / 6;
+  for (let row = 0; row < 6; row++) {
+    for (let col = 0; col < 6; col++) {
+      ctx.fillStyle = row % 2 === col % 2 ? "#95a890" : "#7a8a78";
+      ctx.fillRect(col * tile + 2, row * tile + 2, tile - 4, tile - 4);
+      if ((row + col) % 3 === 0) {
+        ctx.fillStyle = "rgba(40, 90, 50, 0.35)";
+        ctx.beginPath();
+        ctx.arc(col * tile + tile / 2, row * tile + tile / 2, tile * 0.28, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+}
+
+function drawConcreteHangar(ctx: CanvasRenderingContext2D, size: number): void {
+  ctx.fillStyle = "#6a6e72";
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 400; i++) {
+    const g = 90 + Math.floor(Math.random() * 30);
+    ctx.fillStyle = `rgba(${g}, ${g}, ${g + 4}, 0.15)`;
+    ctx.fillRect(Math.random() * size, Math.random() * size, 1 + Math.random() * 3, 1);
+  }
+  ctx.strokeStyle = "rgba(30, 32, 36, 0.4)";
+  ctx.lineWidth = 2;
+  const slab = size / 4;
+  for (let i = 1; i < 4; i++) {
+    ctx.beginPath();
+    ctx.moveTo(i * slab, 0);
+    ctx.lineTo(i * slab, size);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, i * slab);
+    ctx.lineTo(size, i * slab);
+    ctx.stroke();
+  }
+}
+
+function drawStainedAsphalt(ctx: CanvasRenderingContext2D, size: number): void {
+  ctx.fillStyle = "#4a4844";
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 8; i++) {
+    ctx.fillStyle = `rgba(${20 + Math.random() * 20}, ${15 + Math.random() * 15}, ${10 + Math.random() * 10}, 0.45)`;
+    ctx.beginPath();
+    ctx.ellipse(Math.random() * size, Math.random() * size, 20 + Math.random() * 30, 12 + Math.random() * 20, Math.random() * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.strokeStyle = "rgba(255, 220, 120, 0.12)";
+  ctx.lineWidth = 1;
+  for (let l = 0; l < 6; l++) {
+    ctx.beginPath();
+    ctx.moveTo(Math.random() * size, 0);
+    ctx.lineTo(Math.random() * size, size);
+    ctx.stroke();
+  }
+}
+
+function drawDarkRockGlow(ctx: CanvasRenderingContext2D, size: number): void {
+  ctx.fillStyle = "#2a2838";
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 200; i++) {
+    const g = 35 + Math.floor(Math.random() * 25);
+    ctx.fillStyle = `rgba(${g}, ${g}, ${g + 15}, 0.2)`;
+    ctx.fillRect(Math.random() * size, Math.random() * size, 2 + Math.random() * 5, 2);
+  }
+  ctx.strokeStyle = "rgba(80, 160, 255, 0.35)";
+  ctx.lineWidth = 1.5;
+  for (let v = 0; v < 10; v++) {
+    let x = Math.random() * size;
+    let y = Math.random() * size;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    for (let s = 0; s < 4; s++) {
+      x += (Math.random() - 0.3) * 40;
+      y += (Math.random() - 0.5) * 30;
+      ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+}
+
+function drawMetalGrate(ctx: CanvasRenderingContext2D, size: number): void {
+  ctx.fillStyle = "#505860";
+  ctx.fillRect(0, 0, size, size);
+  const gap = size / 16;
+  ctx.strokeStyle = "#707880";
+  ctx.lineWidth = 3;
+  for (let i = 0; i <= 16; i++) {
+    ctx.beginPath();
+    ctx.moveTo(i * gap, 0);
+    ctx.lineTo(i * gap, size);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, i * gap);
+    ctx.lineTo(size, i * gap);
+    ctx.stroke();
+  }
+  ctx.fillStyle = "rgba(10, 14, 20, 0.55)";
+  for (let row = 0; row < 16; row++) {
+    for (let col = 0; col < 16; col++) {
+      if ((row + col) % 2 === 0) {
+        ctx.fillRect(col * gap + 2, row * gap + 2, gap - 4, gap - 4);
+      }
+    }
+  }
+}
+
+function drawUrbanPavement(ctx: CanvasRenderingContext2D, size: number): void {
+  ctx.fillStyle = "#a89888";
+  ctx.fillRect(0, 0, size, size);
+  const tile = size / 5;
+  for (let row = 0; row < 5; row++) {
+    for (let col = 0; col < 5; col++) {
+      ctx.fillStyle = (row + col) % 2 === 0 ? "#b8a898" : "#988878";
+      ctx.fillRect(col * tile + 1, row * tile + 1, tile - 2, tile - 2);
+    }
+  }
+  ctx.strokeStyle = "rgba(50, 45, 40, 0.45)";
+  ctx.lineWidth = 1;
+  for (let c = 0; c < 12; c++) {
+    let x = Math.random() * size;
+    let y = Math.random() * size;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    for (let s = 0; s < 3; s++) {
+      x += (Math.random() - 0.5) * 35;
+      y += (Math.random() - 0.5) * 35;
+      ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+}
+
+const GROUND_DRAWERS: Record<GroundThemeId, (ctx: CanvasRenderingContext2D, size: number) => void> = {
+  base: drawSandGrid,
+  lobby: drawSandGrid,
+  endless: drawSandGrid,
+  rust_canyon: drawCrackedRust,
+  glass_dome: drawMossyTiles,
+  dead_station: drawConcreteHangar,
+  fuel_depot: drawStainedAsphalt,
+  crystal_cave: drawDarkRockGlow,
+  abyss_bridge: drawMetalGrate,
+  elite_quarter: drawUrbanPavement,
+};
+
+/** Build one procedural ground texture for the given map theme. Caller disposes on swap. */
+export function buildGroundTexture(themeId: GroundThemeId): THREE.CanvasTexture {
+  const draw = GROUND_DRAWERS[themeId] ?? drawSandGrid;
+  return canvasTextureFromDraw(draw);
+}
+
+/** All catalog map ids have a ground texture builder (regression helper). */
+export function groundThemeIdsForRegression(): GroundThemeId[] {
+  return [
+    "base",
+    "rust_canyon",
+    "glass_dome",
+    "dead_station",
+    "fuel_depot",
+    "crystal_cave",
+    "abyss_bridge",
+    "elite_quarter",
+  ];
+}
+
 /**
  * EPIC 49 Story 49.3: wall materials whose tops dissolve into the active map
  * fog color. Uses local-Y fade (reliable for BoxGeometry) — albedo → fog +
  * soft alpha at the tip. Collision stays the shared AABB; no mesh above it.
  */
-export const WALL_FOG_FADE_START = 0.35;
+export const WALL_FOG_FADE_START = 0.55;
 
 export function createFogFadeWallMaterial(
   map: THREE.Texture,
