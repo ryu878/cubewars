@@ -9,7 +9,7 @@
 | Date / time (UTC optional) | 2026-08-28 |
 | Author (Pusya) | Pusya |
 | Task / Story / EPIC | EPIC 59 — Mid-map rift hazard rivers (T59.1–T59.5) |
-| Branch / commit / PR | `feature/epic-59-map-rift-hazards` @ `bd08106` — push OK; open PR: https://github.com/ryu878/cubewars/pull/new/feature/epic-59-map-rift-hazards (`gh pr create` failed: repo auth) |
+| Branch / commit / PR | `feature/epic-59-map-rift-hazards` @ `d732a7f` (impl `bd08106`) — push OK; open PR: https://github.com/ryu878/cubewars/pull/new/feature/epic-59-map-rift-hazards (`gh pr create` failed: repo auth) |
 | Revision round (if this is a Critic/Judge fix, not first pass) | no |
 
 ## What was done (brief)
