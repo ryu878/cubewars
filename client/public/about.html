@@ -177,12 +177,32 @@
       <section data-section="maps">
         <h2 data-i18n="about.maps.title">Maps</h2>
         <p data-i18n="about.maps.body">
-          The catalog has 8 themed maps at half the older arena size, each with its own floor look and fog palette. Every catalog map has a mid-map rift hazard (lava, acid, sludge, and other themes) — standing in it drains armor then health; jumping across without landing is safe. Use the lobby map picker before Quick Join or vs Bots. Joining an existing lobby game uses that match’s map (server-owned). Maps are shared across modes where the catalog applies. Endless has no catalog rift.
+          The catalog has 8 themed maps at half the older arena size, each with its own floor look and fog palette. Use the lobby map picker before Quick Join or vs Bots. Joining an existing lobby game uses that match’s map (server-owned). Maps are shared across modes where the catalog applies. See Hazard rifts below for mid-map damage zones.
         </p>
         <figure>
           <img src="/about/maps.png" alt="Map picker" />
           <figcaption data-i18n="about.maps.cap">Example: lobby map picker with the 8 catalog maps.</figcaption>
         </figure>
+      </section>
+
+      <section data-section="hazards">
+        <h2 data-i18n="about.hazards.title">Hazard rifts</h2>
+        <p data-i18n="about.hazards.body">
+          Each catalog map has a zig-zag hazard strip crossing the middle (not a straight canal). If you stand in it, the server drains armor first, then health — the same rule as Endless fog, but on static maps. Jump across without landing in the rift and you take no damage. Bots are affected too. Themes differ per map:
+        </p>
+        <ul>
+          <li data-i18n="about.hazards.base">Base — piranha water</li>
+          <li data-i18n="about.hazards.rust">Rust Canyon — lava</li>
+          <li data-i18n="about.hazards.glass">Glass Dome — acid</li>
+          <li data-i18n="about.hazards.station">Dead Station — toxic sludge (bubbles)</li>
+          <li data-i18n="about.hazards.fuel">Fuel Depot — burning oil</li>
+          <li data-i18n="about.hazards.crystal">Crystal Cave — plasma</li>
+          <li data-i18n="about.hazards.bridge">Abyss Bridge — void ink</li>
+          <li data-i18n="about.hazards.elite">Elite Quarter — molten gold</li>
+        </ul>
+        <p data-i18n="about.hazards.endless">
+          Endless mode has no catalog rift — instead, chasing fog behind you damages armor then HP if you stay in it.
+        </p>
       </section>
 
       <section data-section="weapons">
@@ -299,8 +319,21 @@
           "about.modes.cap": "Example: lobby mode buttons, EN|RU, and economy actions.",
           "about.maps.title": "Maps",
           "about.maps.body":
-            "The catalog has 8 themed maps at half the older arena size, each with its own floor look and fog palette. Every catalog map has a mid-map rift hazard (lava, acid, sludge, and other themes) — standing in it drains armor then health; jumping across without landing is safe. Use the lobby map picker before Quick Join or vs Bots. Joining an existing lobby game uses that match’s map (server-owned). Maps are shared across modes where the catalog applies. Endless has no catalog rift.",
+            "The catalog has 8 themed maps at half the older arena size, each with its own floor look and fog palette. Use the lobby map picker before Quick Join or vs Bots. Joining an existing lobby game uses that match’s map (server-owned). Maps are shared across modes where the catalog applies. See Hazard rifts below for mid-map damage zones.",
           "about.maps.cap": "Example: lobby map picker with the 8 catalog maps.",
+          "about.hazards.title": "Hazard rifts",
+          "about.hazards.body":
+            "Each catalog map has a zig-zag hazard strip crossing the middle (not a straight canal). If you stand in it, the server drains armor first, then health — the same rule as Endless fog, but on static maps. Jump across without landing in the rift and you take no damage. Bots are affected too. Themes differ per map:",
+          "about.hazards.base": "Base — piranha water",
+          "about.hazards.rust": "Rust Canyon — lava",
+          "about.hazards.glass": "Glass Dome — acid",
+          "about.hazards.station": "Dead Station — toxic sludge (bubbles)",
+          "about.hazards.fuel": "Fuel Depot — burning oil",
+          "about.hazards.crystal": "Crystal Cave — plasma",
+          "about.hazards.bridge": "Abyss Bridge — void ink",
+          "about.hazards.elite": "Elite Quarter — molten gold",
+          "about.hazards.endless":
+            "Endless mode has no catalog rift — instead, chasing fog behind you damages armor then HP if you stay in it.",
           "about.movement.title": "Movement & arena",
           "about.movement.body":
             "Alive players and bots block each other — you cannot walk through bodies. Each catalog map has a distinct procedural floor texture (sand grid, rust, mossy tiles, concrete, asphalt, crystal veins, metal grate, pavement). Walls are tall and fade into per-map fog so arena edges feel open. After a respawn, a green light column marks the spawn point for about 2–3 seconds (visible to everyone in the match).",
@@ -357,8 +390,21 @@
           "about.modes.cap": "Пример: кнопки режимов, EN|RU и экономии в лобби.",
           "about.maps.title": "Карты",
           "about.maps.body":
-            "В каталоге 8 тематических карт половинного размера, у каждой свой пол и туман. На каждой карте каталога есть срединный разлом-опасность (лава, кислота, жижа и другие темы) — стояние внутри снимает броню, затем здоровье; перепрыгнуть без приземления в разлом безопасно. Выберите карту в лобби перед быстрым входом или ботами. Вход в существующую игру использует карту того матча (сервер). Карты из каталога доступны в подходящих режимах. В Endless каталожного разлома нет.",
+            "В каталоге 8 тематических карт половинного размера, у каждой свой пол и туман. Выберите карту в лобби перед быстрым входом или ботами. Вход в существующую игру использует карту того матча (сервер). Карты из каталога доступны в подходящих режимах. Про опасные разломы по центру — в разделе ниже.",
           "about.maps.cap": "Пример: выбор карты в лобби — 8 карт каталога.",
+          "about.hazards.title": "Опасные разломы",
+          "about.hazards.body":
+            "На каждой карте каталога через середину проходит зигзагообразная полоса опасности (не прямой канал). Если стоять внутри, сервер сначала снимает броню, затем здоровье — как туман в Endless, но на обычных картах. Перепрыгните, не приземляясь в разлом — урона не будет. Боты тоже получают урон. Тема зависит от карты:",
+          "about.hazards.base": "Base (База) — вода с пираньями",
+          "about.hazards.rust": "Rust Canyon — лава",
+          "about.hazards.glass": "Glass Dome — кислота",
+          "about.hazards.station": "Dead Station — токсичная жижа с пузырями",
+          "about.hazards.fuel": "Fuel Depot — горящая нефть",
+          "about.hazards.crystal": "Crystal Cave — плазма",
+          "about.hazards.bridge": "Abyss Bridge — чёрная пустота",
+          "about.hazards.elite": "Elite Quarter — расплавленное золото",
+          "about.hazards.endless":
+            "В Endless каталожного разлома нет — вместо этого догоняющий туман сзади снимает броню, затем HP, если стоять в нём.",
           "about.movement.title": "Движение и арена",
           "about.movement.body":
             "Живые игроки и боты блокируют друг друга — сквозь тела пройти нельзя. У каждой карты каталога свой процедурный пол (песчаная сетка, ржавчина, мшистая плитка, бетон, асфальт, кристаллические прожилки, металлическая решётка, брусчатка). Стены высокие и растворяются в тумане карты. После респавна зелёный световой столб ~2–3 с отмечает точку спавна (виден всем в матче).",
