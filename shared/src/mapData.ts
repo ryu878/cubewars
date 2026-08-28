@@ -32,6 +32,7 @@ export {
 export { finalizeCatalogMap } from "./maps/finalize.js";
 export type { AuthoredCatalogMap } from "./maps/finalize.js";
 export { isPointInRift, scaleMapRift } from "./maps/rift.js";
+export { isSpawnReachable } from "./maps/spawnReachability.js";
 
 export {
   listMaps,

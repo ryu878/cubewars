@@ -46,6 +46,7 @@
     "regression:epic49-palettes": "tsx scripts/regression-epic49-palettes.ts",
     "regression:epic58-player-collision": "tsx scripts/regression-epic58-player-collision.ts",
     "regression:epic59-rifts": "tsx scripts/regression-epic59-rifts.ts",
+    "regression:spawn-reachability": "tsx scripts/regression-spawn-reachability.ts",
     "regression:epic57-bot-shards": "tsx scripts/regression-epic57-bot-shards.ts",
     "regression:fire-input-drop-rate": "node scripts/regression-fire-input-drop-rate.mjs",
     "qa:epic17-avatar-selfcheck": "node scripts/qa-epic17-avatar-selfcheck.mjs",

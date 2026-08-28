@@ -110,7 +110,7 @@ export const BASE_MAP: MapDefinition = finalizeCatalogMap({
   displayNameRu: "База",
   geometry: BASE_GEOMETRY,
   spawnPoints: [
-    spawn(-68, -32),
+    spawn(-68, -36),
     spawn(-68, 0),
     spawn(-68, 32),
     spawn(-50, 46),

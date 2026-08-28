@@ -22,15 +22,19 @@ import {
   speedMultiplierFromRatings,
   boxesBlockingAt,
   crateTopHeightAt,
+  PLAYER_COLLISION_RADIUS,
   resolveAllPlayerSeparations,
   resolveHorizontalCollisions,
   resolveSteppedMovement,
+  isSpawnReachable,
+  STANDARD_MAP_BOUNDS,
   type AvatarColors,
   type PickupCategory,
   type DamageKind,
   type DamageZone,
   type EquippedPetVisual,
   type MapBox,
+  type MapBounds2D,
   type PetSide,
   type PetType,
   type PlayerScore,
@@ -326,6 +330,7 @@ const MIN_SPAWN_SEPARATION = 12;
 export interface PlayerRegistryOptions {
   getGeometry?: () => readonly MapBox[];
   getSpawnPoints?: () => readonly Vector3[];
+  getBounds?: () => MapBounds2D;
   worldBound?: number;
 }
 
@@ -357,6 +362,10 @@ export class PlayerRegistry {
   private spawnPoints(): readonly Vector3[] {
     const points = this.options.getSpawnPoints?.() ?? SPAWN_POINTS;
     return points.length > 0 ? points : SPAWN_POINTS;
+  }
+
+  private spawnBounds(): MapBounds2D {
+    return this.options.getBounds?.() ?? STANDARD_MAP_BOUNDS;
   }
 
   /**
@@ -414,13 +423,35 @@ export class PlayerRegistry {
    * (processRespawns()) so there is exactly one spawn-picking implementation.
    */
   private pickSpawnPosition(): Vector3 {
-    const base = this.chooseSpawnPoint();
+    const geometry = this.geometry();
+    const bounds = this.spawnBounds();
     const jitterRadius = 2;
-    const angle = Math.random() * Math.PI * 2;
-    const jitterX = Math.cos(angle) * jitterRadius * Math.random();
-    const jitterZ = Math.sin(angle) * jitterRadius * Math.random();
-    const resolved = resolveHorizontalCollisions(base.x + jitterX, base.z + jitterZ, undefined, this.geometry());
-    return { x: resolved.x, y: MOVEMENT.groundY, z: resolved.z };
+    const maxAttempts = 24;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const base = this.chooseSpawnPoint();
+      const angle = Math.random() * Math.PI * 2;
+      const jitterX = Math.cos(angle) * jitterRadius * Math.random();
+      const jitterZ = Math.sin(angle) * jitterRadius * Math.random();
+      const resolved = resolveHorizontalCollisions(
+        base.x + jitterX,
+        base.z + jitterZ,
+        PLAYER_COLLISION_RADIUS,
+        geometry,
+      );
+      const position = { x: resolved.x, y: MOVEMENT.groundY, z: resolved.z };
+      if (isSpawnReachable(position.x, position.z, geometry, bounds)) {
+        return position;
+      }
+    }
+
+    for (const point of this.spawnPoints()) {
+      if (isSpawnReachable(point.x, point.z, geometry, bounds)) {
+        return { x: point.x, y: MOVEMENT.groundY, z: point.z };
+      }
+    }
+
+    return { x: 0, y: MOVEMENT.groundY, z: 0 };
   }
 
   spawn(id: string, nickname: string = id, nicknameKey: string = nickname.toLocaleLowerCase()): PlayerRecord {

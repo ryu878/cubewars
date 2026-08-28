@@ -176,6 +176,7 @@ export class Match {
     this.registry = new PlayerRegistry({
       getGeometry: () => this.currentGeometry(),
       getSpawnPoints: () => this.endlessWorld?.getSpawnPoints() ?? this.mapDefinition.spawnPoints,
+      getBounds: () => this.endlessWorld?.getBounds() ?? this.mapDefinition.bounds,
       worldBound: this.mode === "endless" ? 10000 : undefined,
     });
     // EPIC 6 Story 6.1 "Design note for EPIC 9 compatibility": player-count
