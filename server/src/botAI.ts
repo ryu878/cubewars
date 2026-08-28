@@ -6,11 +6,9 @@
 // registry.step()). This file only ever DECIDES intent; it never bypasses
 // PlayerRegistry's own validation/physics/collision.
 //
-// Deliberately minimal per the EPIC 9 spec (Section 3 / Risks): pistol only,
-// no weapon/health/armor pickups, no bunny hop, no real pathfinding (patrol
-// via the existing SPAWN_POINTS waypoint list — shared/src/mapData.ts —
-// rather than a second waypoint system). This is a documented scope cut, not
-// a bug: if the user later wants smarter bots, that's a follow-up EPIC.
+// Deliberately minimal per the EPIC 9 spec (Section 3 / Risks): no bunny hop,
+// no real pathfinding beyond waypoint patrol and pickup seeking. Bots use the
+// same server pickup-on-proximity path as humans (match.ts tick loop).
 
 import {
   ARENA_GEOMETRY,
@@ -30,6 +28,9 @@ import {
 } from "@cubewars/shared";
 import type { PlayerRegistry } from "./playerRegistry.js";
 import { isSpawnProtected } from "./combat.js";
+
+/** Horizontal range to detour toward a useful pickup while patrolling (SEEKING). */
+const PICKUP_SEEK_RANGE = 50;
 
 /** SEEKING <-> ENGAGING switch distance, world units (EPIC 9 spec Section 3: "e.g. 45 units"). Horizontal (x/z) distance, matching the rest of this codebase's ground-plane proximity checks. */
 const DETECTION_RANGE = 45;
@@ -256,10 +257,12 @@ export class BotAI {
       getGeometry?: () => readonly MapBox[];
       getWaypoints?: () => readonly Vector3[];
       canTarget?: (candidateId: string) => boolean;
+      /** Nearest active pickup position the bot would benefit from, if any. */
+      findUsefulPickup?: (botId: string, position: Vector3, maxRange: number) => Vector3 | null;
     } = {},
   ) {}
 
-  /** True if `id` belongs to a bot managed by this instance — used by match.ts's tick loop to exclude bots from pickup consumption (EPIC 9 spec: bots ignore all pickups entirely). */
+  /** True if `id` belongs to a bot managed by this instance. */
   isBot(id: string): boolean {
     return this.bots.has(id);
   }
@@ -408,17 +411,27 @@ export class BotAI {
     }
 
     bot.state = "SEEKING";
-    const wx = bot.waypoint.x - self.position.x;
-    const wz = bot.waypoint.z - self.position.z;
-    const distanceToWaypoint = Math.hypot(wx, wz);
-    if (distanceToWaypoint <= WAYPOINT_ARRIVE_DISTANCE || nowMs >= bot.waypointDeadlineMs) {
-      bot.waypoint = pickWaypoint(this.waypoints(), bot.waypoint);
-      bot.waypointDeadlineMs = nowMs + WAYPOINT_TIMEOUT_MS;
+    const pickupTarget = this.options.findUsefulPickup?.(bot.id, self.position, PICKUP_SEEK_RANGE);
+
+    let targetX: number;
+    let targetZ: number;
+    if (pickupTarget) {
+      targetX = pickupTarget.x;
+      targetZ = pickupTarget.z;
+    } else {
+      const toWaypointX = bot.waypoint.x - self.position.x;
+      const toWaypointZ = bot.waypoint.z - self.position.z;
+      const distanceToWaypoint = Math.hypot(toWaypointX, toWaypointZ);
+      if (distanceToWaypoint <= WAYPOINT_ARRIVE_DISTANCE || nowMs >= bot.waypointDeadlineMs) {
+        bot.waypoint = pickWaypoint(this.waypoints(), bot.waypoint);
+        bot.waypointDeadlineMs = nowMs + WAYPOINT_TIMEOUT_MS;
+      }
+      targetX = bot.waypoint.x;
+      targetZ = bot.waypoint.z;
     }
 
-    // Patrol: face the waypoint directly and walk straight at it (no
-    // pathfinding — SPAWN_POINTS is already spread across both sites/mid/
-    // tunnel, see EPIC 9 spec Section 3) — ground-based only, no jump.
+    const wx = targetX - self.position.x;
+    const wz = targetZ - self.position.z;
     const patrolYaw = Math.atan2(-wx, -wz);
     this.registry.applyInput(bot.id, {
       moveForward: 1,

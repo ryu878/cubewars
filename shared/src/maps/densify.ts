@@ -14,16 +14,15 @@ import type { PickupSpawnPoint } from "../pickups.js";
 const PICKUP_CLEARANCE = 0.6;
 
 /**
- * EPIC 48 target counts — mid guidance band for ~8 players on the playable
- * half-size arena (~92×52 after EPIC 50). Spread + clearance re-validated
- * on scaled geometry.
+ * EPIC 48 pickup counts (quarter of original EPIC 48 band): 2 weapon / 2 ammo /
+ * 1 health / 1 armor per catalog map.
  */
 export const EPIC48_PICKUP_COUNTS = {
-  weapon: 8,
-  ammo: 8,
-  health: 6,
-  armor: 6,
-  total: 28,
+  weapon: 2,
+  ammo: 2,
+  health: 1,
+  armor: 1,
+  total: 6,
 } as const;
 
 function circleHitsBox(cx: number, cz: number, radius: number, box: MapBox): boolean {
@@ -174,7 +173,7 @@ function takeFromPool(pool: Candidate[], point: Candidate): void {
 }
 
 /**
- * Build EPIC-48 pickup density (8 weapon / 8 ammo / 6 health / 6 armor)
+ * Build EPIC-48 pickup density (2 weapon / 2 ammo / 1 health / 1 armor)
  * from clear points, spread across preferred landmarks then the map.
  */
 export function densePickups(

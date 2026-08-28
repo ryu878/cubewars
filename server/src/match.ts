@@ -190,6 +190,8 @@ export class Match {
       this.botAI = new BotAI(this.registry, {
         getGeometry: () => this.currentGeometry(),
         getWaypoints: () => this.mapDefinition.spawnPoints,
+        findUsefulPickup: (botId, position, maxRange) =>
+          this.findUsefulPickupForBot(botId, position, maxRange),
       });
       this.botAI.setTickDtSeconds(TICK_DT_SECONDS);
       this.botAI.spawnBots(BOT_COUNT);
@@ -198,6 +200,8 @@ export class Match {
         getGeometry: () => this.currentGeometry(),
         getWaypoints: () => this.endlessWorld?.getWaypoints() ?? [],
         canTarget: (candidateId) => candidateId === this.endlessHumanId,
+        findUsefulPickup: (botId, position, maxRange) =>
+          this.findUsefulPickupForBot(botId, position, maxRange),
       });
       this.botAI.setTickDtSeconds(TICK_DT_SECONDS);
     }
@@ -1157,16 +1161,10 @@ export class Match {
     this.restartEndlessRunIfDead(nowMs);
     this.processDueRespawns(nowMs);
 
-    // Server-authoritative pickup-on-proximity, checked every tick against
-    // every currently ALIVE player's own server-tracked position. EPIC 9:
-    // bots are deliberately EXCLUDED here — "bots stay pistol-only and
-    // ignore all pickups entirely" (EPIC 9 spec Risks) — a bot patrolling
-    // past a pickup must never pick it up, so this loop skips any id
-    // botAI.isBot() recognizes before ever calling applyPickup() for it.
+    // Server-authoritative pickup-on-proximity for every alive player (humans
+    // and bots) against this match's server-tracked positions.
     let pickupStateChanged = false;
     for (const { id, position } of this.registry.alivePlayerPositions()) {
-      if (this.botAI?.isBot(id)) continue;
-
       const nearby = this.pickupSpawner.findNearby(position, PICKUP_RADIUS);
       if (!nearby) continue;
 
@@ -1214,6 +1212,22 @@ export class Match {
 
   private currentGeometry(): readonly MapBox[] {
     return this.endlessWorld?.getGeometry() ?? this.mapDefinition.geometry;
+  }
+
+  /** Nearest active pickup a bot would actually consume (weapon/ammo/health/armor). */
+  private findUsefulPickupForBot(botId: string, position: Vector3, maxRange: number): Vector3 | null {
+    let nearest: Vector3 | null = null;
+    let nearestDistance = maxRange;
+    for (const item of this.pickupSpawner.list()) {
+      if (!item.active) continue;
+      if (!this.registry.wouldBenefitFromPickup(botId, item.category, item.weapon)) continue;
+      const distance = Math.hypot(position.x - item.position.x, position.z - item.position.z);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearest = item.position;
+      }
+    }
+    return nearest;
   }
 
   private updateEndlessWorld(nowMs: number): void {

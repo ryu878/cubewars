@@ -273,12 +273,14 @@ export function applyMapTheme(themeId: MapThemeId, targets: MapThemeScene): MapP
   targets.groundMat.needsUpdate = true;
   targets.groundTexture = groundTex;
 
+  const fogNear = palette.fogNear * 0.62;
+  const fogFar = palette.fogFar * 0.72;
   if (targets.scene.fog instanceof THREE.Fog) {
     targets.scene.fog.color.setHex(palette.fogColor);
-    targets.scene.fog.near = palette.fogNear;
-    targets.scene.fog.far = palette.fogFar;
+    targets.scene.fog.near = fogNear;
+    targets.scene.fog.far = fogFar;
   } else {
-    targets.scene.fog = new THREE.Fog(palette.fogColor, palette.fogNear, palette.fogFar);
+    targets.scene.fog = new THREE.Fog(palette.fogColor, fogNear, fogFar);
   }
 
   targets.hemiLight.color.setHex(palette.hemiSky);

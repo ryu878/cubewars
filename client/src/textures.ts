@@ -348,11 +348,14 @@ export function groundThemeIdsForRegression(): GroundThemeId[] {
 }
 
 /**
- * EPIC 49 Story 49.3: wall materials whose tops dissolve into the active map
- * fog color. Uses local-Y fade (reliable for BoxGeometry) — albedo → fog +
- * soft alpha at the tip. Collision stays the shared AABB; no mesh above it.
+ * EPIC 49 / EPIC 58+: wall tops dissolve into map fog; fade band tuned so
+ * the geometric cap is never readable (continues into fog veil extensions).
  */
-export const WALL_FOG_FADE_START = 0.55;
+export const WALL_FOG_FADE_START = 0.15;
+export const WALL_FOG_FADE_END = 0.68;
+
+/** Client-only fog column above wall AABB (no collision). */
+export const FOG_VEIL_EXTENSION_HEIGHT = 32;
 
 export function createFogFadeWallMaterial(
   map: THREE.Texture,
@@ -360,6 +363,79 @@ export function createFogFadeWallMaterial(
   fogHex: number,
   wallHeight: number,
 ): THREE.MeshStandardMaterial {
+  return createFogFadeMaterialInternal({ map, tintHex, fogHex, wallHeight });
+}
+
+/** Solid-color props/walls without a texture map. */
+export function createFogFadeSolidMaterial(
+  tintHex: number,
+  fogHex: number,
+  height: number,
+): THREE.MeshStandardMaterial {
+  return createFogFadeMaterialInternal({ tintHex, fogHex, wallHeight: height });
+}
+
+/**
+ * Pure fog column above a wall/prop top — cosmetic only, depthWrite off,
+ * blends with scene fog for an "infinite height" read.
+ */
+export function createFogVeilMaterial(fogHex: number, height: number): THREE.MeshBasicMaterial {
+  const fogColor = new THREE.Color(fogHex);
+  const halfH = Math.max(height / 2, 1e-4);
+  const mat = new THREE.MeshBasicMaterial({
+    color: fogHex,
+    transparent: true,
+    opacity: 0.92,
+    depthWrite: false,
+    fog: true,
+  });
+
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uWallFogColor = { value: fogColor };
+    shader.uniforms.uWallHalfH = { value: halfH };
+
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+varying float vWallLocalY;`,
+      )
+      .replace(
+        "#include <begin_vertex>",
+        `#include <begin_vertex>
+vWallLocalY = position.y;`,
+      );
+
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+uniform vec3 uWallFogColor;
+uniform float uWallHalfH;
+varying float vWallLocalY;`,
+      )
+      .replace(
+        "#include <color_fragment>",
+        `#include <color_fragment>
+{
+  float t = clamp(vWallLocalY / uWallHalfH * 0.5 + 0.5, 0.0, 1.0);
+  float alpha = pow(1.0 - t, 2.2) * 0.92;
+  diffuseColor = vec4(uWallFogColor, alpha);
+}`,
+      );
+  };
+
+  mat.customProgramCacheKey = () => "epic59-fog-veil-v1";
+  return mat;
+}
+
+function createFogFadeMaterialInternal(opts: {
+  map?: THREE.Texture;
+  tintHex: number;
+  fogHex: number;
+  wallHeight: number;
+}): THREE.MeshStandardMaterial {
+  const { map, tintHex, fogHex, wallHeight } = opts;
   const fogColor = new THREE.Color(fogHex);
   const halfH = Math.max(wallHeight / 2, 1e-4);
   const mat = new THREE.MeshStandardMaterial({
@@ -373,6 +449,7 @@ export function createFogFadeWallMaterial(
     shader.uniforms.uWallFogColor = { value: fogColor };
     shader.uniforms.uWallHalfH = { value: halfH };
     shader.uniforms.uFadeStart = { value: WALL_FOG_FADE_START };
+    shader.uniforms.uFadeEnd = { value: WALL_FOG_FADE_END };
 
     shader.vertexShader = shader.vertexShader
       .replace(
@@ -393,6 +470,7 @@ vWallLocalY = position.y;`,
 uniform vec3 uWallFogColor;
 uniform float uWallHalfH;
 uniform float uFadeStart;
+uniform float uFadeEnd;
 varying float vWallLocalY;`,
       )
       .replace(
@@ -400,15 +478,15 @@ varying float vWallLocalY;`,
         `#include <color_fragment>
 {
   float t = clamp(vWallLocalY / uWallHalfH * 0.5 + 0.5, 0.0, 1.0);
-  float fade = t <= uFadeStart ? 1.0 : (1.0 - smoothstep(uFadeStart, 1.0, t));
-  float soft = fade * fade;
-  diffuseColor.rgb = mix(uWallFogColor, diffuseColor.rgb, soft);
-  diffuseColor.a *= mix(0.06, 1.0, soft);
+  float fade = 1.0 - smoothstep(uFadeStart, uFadeEnd, t);
+  fade = pow(fade, 2.4);
+  diffuseColor.rgb = mix(uWallFogColor, diffuseColor.rgb, fade);
+  diffuseColor.a *= fade;
 }`,
       );
   };
 
-  mat.customProgramCacheKey = () => "epic49-wall-fog-fade-local-v2";
+  mat.customProgramCacheKey = () => "epic59-wall-fog-fade-v3";
   return mat;
 }
 

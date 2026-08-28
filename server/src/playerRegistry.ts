@@ -919,15 +919,14 @@ export class PlayerRegistry {
   applyPickup(id: string, category: PickupCategory, weapon?: WeaponType): ApplyPickupResult {
     const player = this.players.get(id);
     if (!player) return { applied: false };
+    if (!this.wouldBenefitFromPickup(id, category, weapon)) return { applied: false };
 
     if (category === "health") {
-      if (player.health >= player.maxHealth) return { applied: false };
       player.health = Math.min(player.maxHealth, player.health + COMBAT.healthPickupAmount);
       return { applied: true };
     }
 
     if (category === "armor") {
-      if (player.armor >= player.maxArmor) return { applied: false };
       player.armor = Math.min(player.maxArmor, player.armor + COMBAT.armorPickupAmount);
       return { applied: true };
     }
@@ -941,10 +940,6 @@ export class PlayerRegistry {
     const atMaxAmmo = currentAmmo >= stats.maxAmmo;
 
     if (category === "ammo") {
-      // Full stockpile — nothing useful (owned or unowned).
-      if (atMaxAmmo) return { applied: false };
-      // EPIC 55: ammo never unlocks ownership and never auto-equips when
-      // the weapon is not owned. Stockpile for a later weapon pickup.
       const newAmmo = Math.min(stats.maxAmmo, currentAmmo + stats.ammoPerPickup);
       player.ammo[weapon] = newAmmo;
       let autoSwitchedTo: WeaponType | undefined;
@@ -959,10 +954,7 @@ export class PlayerRegistry {
       return { applied: true, autoSwitchedTo };
     }
 
-    // category === "weapon": unlock (even at full stockpile — F-001) + add
-    // ammo when below cap. Owned + already at maxAmmo is a pure no-op.
-    if (alreadyOwned && atMaxAmmo) return { applied: false };
-
+    // category === "weapon": unlock + add ammo when below cap.
     player.ownedWeapons.add(weapon);
     const newAmmo = atMaxAmmo
       ? currentAmmo
@@ -974,6 +966,26 @@ export class PlayerRegistry {
       autoSwitchedTo = weapon;
     }
     return { applied: true, autoSwitchedTo };
+  }
+
+  /** True when applyPickup() would change state (bots use this to seek useful pickups). */
+  wouldBenefitFromPickup(id: string, category: PickupCategory, weapon?: WeaponType): boolean {
+    const player = this.players.get(id);
+    if (!player) return false;
+
+    if (category === "health") return player.health < player.maxHealth;
+    if (category === "armor") return player.armor < player.maxArmor;
+
+    if (!weapon || weapon === "pistol") return false;
+
+    const stats = WEAPON_STATS[weapon];
+    const alreadyOwned = player.ownedWeapons.has(weapon);
+    const currentAmmo = player.ammo[weapon] ?? 0;
+    const atMaxAmmo = currentAmmo >= stats.maxAmmo;
+
+    if (category === "ammo") return !atMaxAmmo;
+    if (alreadyOwned && atMaxAmmo) return false;
+    return true;
   }
 
   /**

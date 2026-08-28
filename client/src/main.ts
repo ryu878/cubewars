@@ -29,7 +29,12 @@ import { AuctionPanel } from "./auctionPanel";
 import { TradePanel } from "./tradePanel";
 import { GroundHud } from "./groundHud";
 import { WeaponViewmodel } from "./viewmodel";
-import { buildWallTextures, createFogFadeWallMaterial } from "./textures";
+import {
+  buildWallTextures,
+  createFogFadeWallMaterial,
+  createFogVeilMaterial,
+  FOG_VEIL_EXTENSION_HEIGHT,
+} from "./textures";
 import {
   applyMapTheme,
   getPalette,
@@ -257,6 +262,27 @@ function materialForProp(box: MapBox): THREE.MeshStandardMaterial {
   });
 }
 
+function addFogVeilExtension(
+  box: MapBox,
+  fogColor: number,
+  footprintScale = 1,
+): void {
+  const veilH = FOG_VEIL_EXTENSION_HEIGHT;
+  const sx = box.size.x * footprintScale;
+  const sz = box.size.z * footprintScale;
+  const geometry = new THREE.BoxGeometry(sx, veilH, sz);
+  const material = createFogVeilMaterial(fogColor, veilH);
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.set(
+    box.center.x,
+    box.center.y + box.size.y / 2 + veilH / 2,
+    box.center.z,
+  );
+  mesh.name = `${box.id}:fog_veil`;
+  mesh.renderOrder = 1;
+  mapGeometryGroup.add(mesh);
+}
+
 function renderMapGeometry(boxes: readonly MapBox[]): void {
   for (const child of mapGeometryGroup.children) {
     if (child instanceof THREE.Mesh) {
@@ -314,6 +340,10 @@ function renderMapGeometry(boxes: readonly MapBox[]): void {
     mesh.position.set(box.center.x, box.center.y, box.center.z);
     mesh.name = box.id;
     mapGeometryGroup.add(mesh);
+
+    if (box.kind === "wall" || (box.kind === "prop" && box.size.y >= 5)) {
+      addFogVeilExtension(box, palette.fogColor, box.kind === "prop" ? 0.85 : 1);
+    }
   });
 }
 
