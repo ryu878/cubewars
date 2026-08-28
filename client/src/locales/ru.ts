@@ -10,6 +10,9 @@ export const ru: Record<string, string> = {
   "status.connectionError": "ошибка соединения",
   "status.leavingMatch": "Выход из матча…",
 
+  "deploy.bannerCountdown": "Обновление движка игры через {seconds} секунд. Идет обновление...",
+  "deploy.bannerUpdating": "Идет обновление...",
+
   "hint.clickToPlay": "Кликните, чтобы играть",
   "hint.controls":
     "WASD ходьба · Мышь обзор · Клик стрельба · Пробел прыжок · E смена оружия · I инвентарь (P) · U аукцион · T обмен · F поднять · Esc отпустить · Tab табло",

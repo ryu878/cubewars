@@ -11,6 +11,9 @@ export const en: Record<string, string> = {
   "status.connectionError": "connection error",
   "status.leavingMatch": "Leaving match…",
 
+  "deploy.bannerCountdown": "Game engine update in {seconds}s. Update in progress...",
+  "deploy.bannerUpdating": "Update in progress...",
+
   // --- Hint / click to play ---
   "hint.clickToPlay": "Click to play",
   "hint.controls":

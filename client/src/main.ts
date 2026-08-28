@@ -50,12 +50,18 @@ import { PauseMenu } from "./pauseMenu";
 import { DevConsole } from "./devConsole";
 import { isLobbyVisible, isPauseMenuVisible, shouldIgnoreGameHotkey } from "./uiInput";
 import { applyI18nDom, localizedMapName, subscribe, t, wireLocaleSwitcher } from "./i18n";
+import { startDeployMaintenanceWatch } from "./deployMaintenance";
 
 // EPIC 52: apply saved/browser locale to static HTML, then keep switcher live.
 wireLocaleSwitcher();
 applyI18nDom();
 subscribe(() => {
   applyI18nDom();
+});
+
+startDeployMaintenanceWatch(() => {
+  // Fresh client bundle + WS after deploy restart.
+  window.location.reload();
 });
 
 const statusEl = document.getElementById("status") as HTMLDivElement;

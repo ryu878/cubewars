@@ -84,6 +84,21 @@ SHORT="$(git rev-parse --short "$RESOLVED")"
 SUBJECT="$(git log -1 --format='%s' "$RESOLVED")"
 echo "==> Commit:        ${SHORT} ${SUBJECT}"
 
+write_maintenance_json() {
+  local phase="$1"
+  local countdown_end="${2:-0}"
+  ssh "$DEPLOY_SSH" "node -e \"
+const fs=require('fs');
+const payload={active:true,phase:'${phase}'};
+if ('${phase}'==='countdown'&&${countdown_end}>0) payload.countdownEndsAt=${countdown_end};
+fs.writeFileSync('${REMOTE_WWW}/maintenance.json',JSON.stringify(payload));
+\" && chown www-data:www-data '${REMOTE_WWW}/maintenance.json'"
+}
+
+clear_maintenance_json() {
+  ssh "$DEPLOY_SSH" "rm -f '${REMOTE_WWW}/maintenance.json'"
+}
+
 echo "==> Streaming ${REF} → ${DEPLOY_SSH}:${REMOTE_APP}"
 # Keep server-local docker-compose Redis bind override if present; archive overwrites tree.
 ssh "$DEPLOY_SSH" "mkdir -p '${REMOTE_APP}' '${REMOTE_WWW}'"
@@ -96,6 +111,12 @@ ssh "$DEPLOY_SSH" "cd '${REMOTE_APP}' && \
   fi && \
   docker compose up -d redis"
 
+COUNTDOWN_END=$(( ($(date +%s) * 1000) + 5000 ))
+echo "==> Maintenance banner: 5s countdown for connected players"
+write_maintenance_json countdown "$COUNTDOWN_END"
+sleep 5
+write_maintenance_json updating
+
 echo "==> npm ci + production build on server"
 ssh "$DEPLOY_SSH" "set -euo pipefail
   cd '${REMOTE_APP}'
@@ -106,6 +127,8 @@ ssh "$DEPLOY_SSH" "set -euo pipefail
   cp -a client/dist/. '${REMOTE_WWW}/'
   chown -R cubewars:cubewars '${REMOTE_APP}'
   chown -R www-data:www-data '${REMOTE_WWW}'
+  printf '%s' '{\"active\":true,\"phase\":\"updating\"}' > '${REMOTE_WWW}/maintenance.json'
+  chown www-data:www-data '${REMOTE_WWW}/maintenance.json'
   systemctl restart cubewars.service
   systemctl reload nginx
   sleep 2
@@ -129,6 +152,9 @@ await new Promise((resolve, reject) => {
   ws.on('error', (e) => { clearTimeout(t); reject(e); });
 });
 \""
+
+clear_maintenance_json
+echo "==> Maintenance banner cleared — players can connect"
 
 echo
 echo "Deploy OK: ${PUBLIC_URL}  (${SHORT})"
