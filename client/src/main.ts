@@ -6,6 +6,7 @@ import {
   DEFAULT_MAP_ID,
   PICKUP_RADIUS,
   WEAPON_STATS,
+  getMap,
   listMaps,
   type EconomyPool,
   type MapBox,
@@ -46,6 +47,7 @@ import { SoundManager } from "./audio/soundManager";
 import { CombatEffects } from "./combatEffects";
 import { KillLootVfx } from "./killLootVfx";
 import { SpawnBeamVfx } from "./spawnBeamVfx";
+import { MapRiftRenderer } from "./mapRiftRenderer";
 import { PauseMenu } from "./pauseMenu";
 import { DevConsole } from "./devConsole";
 import { isLobbyVisible, isPauseMenuVisible, shouldIgnoreGameHotkey } from "./uiInput";
@@ -373,6 +375,7 @@ const soundManager = new SoundManager();
 const combatEffects = new CombatEffects(scene);
 const killLootVfx = new KillLootVfx(scene);
 const spawnBeamVfx = new SpawnBeamVfx(scene);
+const mapRiftRenderer = new MapRiftRenderer(scene);
 // EPIC 10 Story 10.1: the viewmodel is attached to the camera (see
 // scene.add(camera) above) and reacts to the SAME data already driving the
 // HUD — LoadoutMessage.equippedWeapon/ammo (onLoadout below) and the
@@ -579,6 +582,7 @@ function animate() {
   combatEffects.update(dt);
   killLootVfx.update(dt);
   spawnBeamVfx.update(dt);
+  mapRiftRenderer.update(dt);
   renderer.render(scene, camera);
 }
 animate();
@@ -715,6 +719,12 @@ const connection = new GameConnection(wsUrl, {
     renderMapGeometry(message.geometry);
     resizeGround(message.bounds);
     fps.setCollisionGeometry(message.geometry);
+    // EPIC 59: cosmetic rift from shared catalog (server owns DoT).
+    if (endless || !message.mapId) {
+      mapRiftRenderer.setRift(null);
+    } else {
+      mapRiftRenderer.setRift(getMap(message.mapId).rift);
+    }
   },
   onEndlessState: (message) => {
     endlessHudEl.classList.add("visible");
@@ -984,6 +994,7 @@ function clearMatchClientState(opts: { resetGeometryToBase?: boolean } = {}): vo
     renderMapGeometry(ARENA_GEOMETRY);
     resizeGround(ARENA_BOUNDS);
     fps.setCollisionGeometry(ARENA_GEOMETRY);
+    mapRiftRenderer.setRift(null);
   }
 }
 

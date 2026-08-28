@@ -14,6 +14,7 @@ import {
   wall,
   wallWithDoorAlongX,
 } from "./primitives.js";
+import { BASE_RIFT } from "./riftDefs.js";
 
 /**
  * Known free xz inside the Base building footprint (away from the interior
@@ -135,4 +136,5 @@ export const BASE_MAP: MapDefinition = finalizeCatalogMap({
     { x: 0, z: -40 },
     { x: 0, z: 20 },
   ],
+  rift: BASE_RIFT,
 });

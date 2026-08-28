@@ -3,6 +3,7 @@
 
 import type { Vector3 } from "../types.js";
 import { densePickups } from "./densify.js";
+import { scaleMapRift } from "./rift.js";
 import {
   MAP_LINEAR_SCALE,
   STANDARD_MAP_BOUNDS,
@@ -10,6 +11,7 @@ import {
   type MapBox,
   type MapDefinition,
   type MapId,
+  type MapRiftHazard,
 } from "./types.js";
 
 export interface AuthoredCatalogMap {
@@ -24,6 +26,8 @@ export interface AuthoredCatalogMap {
   pickupPrefix: string;
   /** Preferred landmarks in authoring coordinates (scaled before densify). */
   preferredPickups?: readonly { x: number; z: number }[];
+  /** EPIC 59: authored rift (XZ + halfWidth scaled like geometry). */
+  rift?: MapRiftHazard;
 }
 
 /**
@@ -52,5 +56,6 @@ export function finalizeCatalogMap(
     geometry,
     spawnPoints,
     pickupPoints: densePickups(authored.pickupPrefix, geometry, preferred),
+    rift: authored.rift ? scaleMapRift(authored.rift, scale) : undefined,
   };
 }
