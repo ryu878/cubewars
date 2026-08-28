@@ -13,6 +13,9 @@ export {
   type MapBounds2D,
   type MapDefinition,
   type MapId,
+  type MapRiftHazard,
+  type MapRiftHazardKind,
+  type MapRiftPoint,
   MAP_IDS,
   MAP_LINEAR_SCALE,
   MAP_AUTHORING_BOUNDS,
@@ -28,6 +31,7 @@ export {
 
 export { finalizeCatalogMap } from "./maps/finalize.js";
 export type { AuthoredCatalogMap } from "./maps/finalize.js";
+export { isPointInRift, scaleMapRift } from "./maps/rift.js";
 
 export {
   listMaps,

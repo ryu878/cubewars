@@ -23,6 +23,15 @@ import {
   wallWithDoorAlongX,
   wallWithDoorAlongZ,
 } from "./primitives.js";
+import {
+  ABYSS_BRIDGE_RIFT,
+  CRYSTAL_CAVE_RIFT,
+  DEAD_STATION_RIFT,
+  ELITE_QUARTER_RIFT,
+  FUEL_DEPOT_RIFT,
+  GLASS_DOME_RIFT,
+  RUST_CANYON_RIFT,
+} from "./riftDefs.js";
 
 const RUST_CANYON_GEOMETRY = [
   ...outerWalls("rc"),
@@ -88,6 +97,7 @@ export const RUST_CANYON: MapDefinition = finalizeCatalogMap({
     { x: 0, z: 0 },
     { x: 0, z: 44 },
   ],
+  rift: RUST_CANYON_RIFT,
 });
 
 const GLASS_DOME_GEOMETRY = [
@@ -145,6 +155,7 @@ export const GLASS_DOME: MapDefinition = finalizeCatalogMap({
   ],
   pickupPrefix: "gd",
   preferredPickups: [],
+  rift: GLASS_DOME_RIFT,
 });
 
 const DEAD_STATION_GEOMETRY = [
@@ -203,6 +214,7 @@ export const DEAD_STATION: MapDefinition = finalizeCatalogMap({
   ],
   pickupPrefix: "ds",
   preferredPickups: [],
+  rift: DEAD_STATION_RIFT,
 });
 
 const FUEL_DEPOT_GEOMETRY = [
@@ -263,6 +275,7 @@ export const FUEL_DEPOT: MapDefinition = finalizeCatalogMap({
   ],
   pickupPrefix: "fd",
   preferredPickups: [],
+  rift: FUEL_DEPOT_RIFT,
 });
 
 const CRYSTAL_CAVE_GEOMETRY = [
@@ -315,6 +328,7 @@ export const CRYSTAL_CAVE: MapDefinition = finalizeCatalogMap({
   ],
   pickupPrefix: "cc",
   preferredPickups: [],
+  rift: CRYSTAL_CAVE_RIFT,
 });
 
 const ABYSS_BRIDGE_GEOMETRY = [
@@ -370,6 +384,7 @@ export const ABYSS_BRIDGE: MapDefinition = finalizeCatalogMap({
   ],
   pickupPrefix: "ab",
   preferredPickups: [],
+  rift: ABYSS_BRIDGE_RIFT,
 });
 
 const ELITE_QUARTER_GEOMETRY = [
@@ -435,6 +450,7 @@ export const ELITE_QUARTER: MapDefinition = finalizeCatalogMap({
   ],
   pickupPrefix: "eq",
   preferredPickups: [],
+  rift: ELITE_QUARTER_RIFT,
 });
 
 export const THEMED_MAPS: MapDefinition[] = [

@@ -1,6 +1,11 @@
 [
   {
     "date": "2026-08-28",
+    "title": "EPIC 59 — Mid-map rift hazard rivers",
+    "body": "Every catalog map has a jumpable mid-map rift with a distinct hazard theme (piranha water, lava, acid, toxic sludge, oil fire, plasma, void ink, molten gold). Standing in the rift drains armor then health (server-authoritative); jumping across without landing is safe. Bots take the same damage. Endless mode has no catalog rift."
+  },
+  {
+    "date": "2026-08-28",
     "title": "EPIC 58 — Player collision, map floors, respawn beam, taller fog walls",
     "body": "Alive players and bots block each other (server-authoritative). Each of the 8 catalog maps has a distinct procedural floor texture. A green light column marks respawns for ~2–3 seconds for everyone in the match. Walls are three times taller with fog tuned so tops dissolve into the horizon."
   },

@@ -77,6 +77,37 @@ export interface MapBounds2D {
   maxZ: number;
 }
 
+/** EPIC 59: per-map hazardous mid-map rift medium (visual + DoT theme). */
+export type MapRiftHazardKind =
+  | "water_piranha"
+  | "lava"
+  | "acid"
+  | "toxic_sludge"
+  | "oil_fire"
+  | "plasma"
+  | "void_ink"
+  | "molten_gold";
+
+/** One control point of an authored / finalized rift polyline (XZ only). */
+export interface MapRiftPoint {
+  x: number;
+  z: number;
+}
+
+/**
+ * EPIC 59: irregular thick-polyline hazard on a catalog map.
+ * Not a blocking MapBox — cosmetic on client; DoT is server-authoritative.
+ */
+export interface MapRiftHazard {
+  kind: MapRiftHazardKind;
+  /** Zig-zag control points (≥6). World XZ after finalize. */
+  polyline: MapRiftPoint[];
+  /** Half-width of the thick polyline (world units after finalize). */
+  halfWidth: number;
+  /** Continuous armor→health drain while grounded inside the footprint. */
+  damagePerSecond: number;
+}
+
 export interface MapDefinition {
   id: MapId;
   /** English UI name. */
@@ -87,6 +118,8 @@ export interface MapDefinition {
   geometry: MapBox[];
   spawnPoints: Vector3[];
   pickupPoints: PickupSpawnPoint[];
+  /** EPIC 59: mid-map rift hazard (absent for endless / maps without one). */
+  rift?: MapRiftHazard;
 }
 
 /**

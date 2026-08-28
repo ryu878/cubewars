@@ -29,6 +29,7 @@ import {
   MAX_PUBLIC_PLAYERS_PER_MATCH,
   PICKUP_RADIUS,
   getMap,
+  isPointInRift,
   type EndlessStateMessage,
   boxBounds,
   playerHitboxBounds,
@@ -730,7 +731,9 @@ export class Match {
   private async grantKillGold(shooterId: string, victimId: string): Promise<void> {
     const economy = this.options.economy;
     if (!economy) return;
-    if (shooterId === "fog" || shooterId === victimId) return;
+    if (shooterId === "fog" || shooterId === "rift" || shooterId === "hazard" || shooterId === victimId) {
+      return;
+    }
     if (!this.sockets.has(shooterId)) return;
     if (this.botAI?.isBot(shooterId)) return;
 
@@ -1023,7 +1026,10 @@ export class Match {
           // EPIC 37: competitive career leaderboard is public-mode (real PvP)
           // only — bots-mode practice kills must not inflate K/D or create
           // bogus "Bot N" leaderboard rows. Endless already handled above.
-          this.options.onKillRecorded?.(killMessage.attackerNickname, killMessage.victimNickname);
+          // Environmental deaths (fog / rift) do not award kills.
+          if (shooterId !== "fog" && shooterId !== "rift" && shooterId !== "hazard") {
+            this.options.onKillRecorded?.(killMessage.attackerNickname, killMessage.victimNickname);
+          }
         }
         scoreboardChanged = true;
         if (shouldRestartEndlessRun) {
@@ -1152,6 +1158,7 @@ export class Match {
 
     this.registry.step(TICK_DT_SECONDS);
     this.applyEndlessFogDamage();
+    this.applyRiftHazardDamage();
     if (this.skipRestOfTickAfterEndlessRestart) return this.finishEndlessRestartTick(nowMs);
 
     // Respawn is time-driven, not event-driven — checked every tick so it
@@ -1278,6 +1285,34 @@ export class Match {
       z: this.endlessWorld.state().fogZ,
     });
     if (event) this.broadcastDamageEvents("fog", [event]);
+  }
+
+  /**
+   * EPIC 59: catalog mid-map rift DoT. Grounded living players (humans + bots)
+   * whose feet XZ are inside the thick polyline take armor→health damage.
+   * Airborne (jumping over) skips. Endless has no catalog rift.
+   */
+  private applyRiftHazardDamage(): void {
+    if (this.mode === "endless") return;
+    const rift = this.mapDefinition.rift;
+    if (!rift) return;
+
+    const damage = rift.damagePerSecond * TICK_DT_SECONDS;
+    if (!(damage > 0)) return;
+
+    const events: DamageEvent[] = [];
+    for (const { id, position } of this.registry.alivePlayerPositions()) {
+      const player = this.registry.getPlayer(id);
+      if (!player || !player.alive || !player.grounded) continue;
+      if (!isPointInRift(position.x, position.z, rift)) continue;
+      const event = this.registry.applyEnvironmentalDamage(id, damage, {
+        x: position.x,
+        y: position.y + 1,
+        z: position.z,
+      });
+      if (event) events.push(event);
+    }
+    if (events.length > 0) this.broadcastDamageEvents("rift", events);
   }
 
   private publishEndlessProgress(): void {
