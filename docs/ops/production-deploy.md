@@ -113,6 +113,7 @@ Do **not** install aaPanel on this VPS — it replaces nginx and breaks the game
 
 ## Policy links
 
+- Mail (Postfix/DKIM on same VPS): [`mail.md`](mail.md)
 - Deploy order: [`ai-office/policies/deployment-policy.md`](../../ai-office/policies/deployment-policy.md)
 - Approvals: [`ai-office/policies/approval-policy.md`](../../ai-office/policies/approval-policy.md)
 - Team Lead role: [`ai-office/agents/team-lead/role.mdc`](../../ai-office/agents/team-lead/role.mdc)

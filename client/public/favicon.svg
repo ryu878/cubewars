@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="cubewars">
+  <!-- Navy tile so the mark stays readable on light browser chrome -->
+  <rect width="64" height="64" rx="14" fill="#0f1b2d"/>
+  <!-- Isometric cube -->
+  <path fill="#ffdd33" d="M32 12 50 22 32 32 14 22Z"/>
+  <path fill="#e85d04" d="M14 22 32 32 32 50 14 40Z"/>
+  <path fill="#4da3ff" d="M32 32 50 22 50 40 32 50Z"/>
+  <!-- Crosshair on top face -->
+  <path
+    fill="#0f1b2d"
+    d="M31 17h2v4h4v2h-4v4h-2v-4h-4v-2h4z"
+    transform="translate(0 1)"
+  />
+</svg>

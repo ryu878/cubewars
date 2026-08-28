@@ -5,3 +5,6 @@ server/data/
 .env
 *.log
 .DS_Store
+
+# Local Claude agent worktrees (not part of the shipped game)
+.claude/worktrees/
