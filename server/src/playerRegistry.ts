@@ -996,7 +996,7 @@ export class PlayerRegistry {
    * cycle to — "pressing E with only the pistol owned does nothing" AC), so
    * the caller can skip broadcasting/logging a no-op.
    */
-  cycleWeapon(id: string): boolean {
+  cycleWeapon(id: string, step: 1 | -1 = 1): boolean {
     const player = this.players.get(id);
     if (!player) return false;
 
@@ -1004,7 +1004,8 @@ export class PlayerRegistry {
     if (owned.length <= 1) return false;
 
     const currentIndex = owned.indexOf(player.equippedWeapon);
-    const next = owned[(currentIndex + 1) % owned.length];
+    const nextIndex = (currentIndex + step + owned.length) % owned.length;
+    const next = owned[nextIndex]!;
     if (next === player.equippedWeapon) return false;
     player.equippedWeapon = next;
     return true;

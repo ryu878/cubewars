@@ -178,6 +178,8 @@ export interface FireEvent {
  */
 export interface SwitchWeaponEvent {
   type: "switch_weapon";
+  /** Omit or `"next"` for forward (E key); `"prev"` for reverse (mouse wheel down). */
+  direction?: "next" | "prev";
 }
 
 /**

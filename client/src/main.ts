@@ -478,6 +478,27 @@ window.addEventListener("keydown", (event) => {
   connection.send({ type: "switch_weapon" });
 });
 
+/** Mouse wheel cycles owned weapons (up = next, down = prev) while pointer-locked. */
+let lastWheelWeaponSwitchMs = 0;
+const WHEEL_WEAPON_SWITCH_COOLDOWN_MS = 120;
+window.addEventListener(
+  "wheel",
+  (event) => {
+    if (isLobbyVisible() || isPauseMenuVisible()) return;
+    if (!fps.isLocked()) return;
+    if (event.deltaY === 0) return;
+    const now = performance.now();
+    if (now - lastWheelWeaponSwitchMs < WHEEL_WEAPON_SWITCH_COOLDOWN_MS) return;
+    lastWheelWeaponSwitchMs = now;
+    event.preventDefault();
+    connection.send({
+      type: "switch_weapon",
+      direction: event.deltaY < 0 ? "next" : "prev",
+    });
+  },
+  { passive: false },
+);
+
 function updateHint(): void {
   hintEl.style.display = fps.isLocked() ? "none" : "flex";
 }

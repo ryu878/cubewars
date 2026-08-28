@@ -1221,11 +1221,9 @@ wss.on("connection", (socket: WebSocket) => {
     }
 
     if (parsed.type === "switch_weapon") {
-      // EPIC 6 Story 6.2 "E" key: server-decided "cycle to the next OWNED
-      // weapon in tier order" — see registry.cycleWeapon() doc comment for
-      // why this carries no client-supplied target weapon. Returns false
-      // (no-op, nothing broadcast/logged) if there's nothing to cycle to.
-      const changed = match.registry.cycleWeapon(playerId);
+      const step =
+        parsed.direction === "prev" ? (-1 as const) : (1 as const);
+      const changed = match.registry.cycleWeapon(playerId, step);
       if (changed) {
         match.sendLoadout(playerId);
         const loadout = match.registry.getLoadout(playerId);
