@@ -22,9 +22,7 @@ import {
   speedMultiplierFromRatings,
   boxesBlockingAt,
   crateTopHeightAt,
-  PLAYER_COLLISION_RADIUS,
   resolveAllPlayerSeparations,
-  resolveHorizontalCollisions,
   resolveSteppedMovement,
   isSpawnReachable,
   STANDARD_MAP_BOUNDS,
@@ -317,16 +315,6 @@ function applyBaselineLoadout(
   player.armor = 0;
 }
 
-/**
- * Anti-clustering threshold (EPIC 5 Story 5.3), in world units: a spawn
- * point with an alive player closer than this is treated as "occupied" and
- * excluded when a safer alternative exists. SPAWN_POINTS (shared/src/mapData.ts)
- * are laid out with ~16 units between the nearest points within one site and
- * ~68 units between the two sites, so this only ever excludes the
- * literal nearest neighbor(s) of an occupied point, not an entire site.
- */
-const MIN_SPAWN_SEPARATION = 12;
-
 export interface PlayerRegistryOptions {
   getGeometry?: () => readonly MapBox[];
   getSpawnPoints?: () => readonly Vector3[];
@@ -352,6 +340,8 @@ function scaleWeaponDamage(baseDamage: number, shooter: PlayerRecord): number {
 
 export class PlayerRegistry {
   private players = new Map<string, PlayerRecord>();
+  /** Round-robin tie-break / solo spawn cycling across predefined map points. */
+  private spawnPickSeq = 0;
 
   constructor(private options: PlayerRegistryOptions = {}) {}
 
@@ -368,90 +358,64 @@ export class PlayerRegistry {
     return this.options.getBounds?.() ?? STANDARD_MAP_BOUNDS;
   }
 
+  /** Catalog spawn points that are not inside sealed map pockets. */
+  private reachableSpawnPoints(): readonly Vector3[] {
+    const geometry = this.geometry();
+    const bounds = this.spawnBounds();
+    const reachable = this.spawnPoints().filter((p) =>
+      isSpawnReachable(p.x, p.z, geometry, bounds),
+    );
+    return reachable.length > 0 ? reachable : this.spawnPoints();
+  }
+
+  private nearestPlayerDistance(point: Vector3, others: readonly Vector3[]): number {
+    let nearest = Infinity;
+    for (const other of others) {
+      nearest = Math.min(nearest, Math.hypot(point.x - other.x, point.z - other.z));
+    }
+    return nearest;
+  }
+
   /**
-   * Anti-clustering heuristic (EPIC 5 Story 5.3): rank every candidate in
-   * SPAWN_POINTS by its distance to the NEAREST currently-alive player, then
-   * pick randomly among whichever candidates clear MIN_SPAWN_SEPARATION
-   * (adds variety instead of always the single farthest point). If the
-   * arena is crowded enough that no candidate clears the margin, fall back
-   * to the single point with the largest such distance ("farthest from
-   * other players") rather than picking blindly at random — this is the
-   * "prefer the spawn point farthest from other players" fallback the Story
-   * 5.3 AC explicitly allows. With zero alive players (first connection),
-   * every point is equally fine and this reduces to a plain random pick,
-   * same as before this EPIC.
+   * Pick one of the map's predefined spawn points — no jitter, no collision
+   * nudge. Solo / empty arena: cycle points in order. With other alive players:
+   * pick the point farthest from the nearest enemy (tie → round-robin).
    */
   private chooseSpawnPoint(): Vector3 {
+    const points = this.reachableSpawnPoints();
     const others: Vector3[] = [];
     for (const player of this.players.values()) {
       if (player.alive) others.push(player.position);
     }
 
     if (others.length === 0) {
-      const points = this.spawnPoints();
-      return points[Math.floor(Math.random() * points.length)];
+      const point = points[this.spawnPickSeq % points.length]!;
+      this.spawnPickSeq++;
+      return point;
     }
 
-    const ranked = this.spawnPoints().map((point) => {
-      let nearestDistance = Infinity;
-      for (const other of others) {
-        const distance = Math.hypot(point.x - other.x, point.z - other.z);
-        if (distance < nearestDistance) nearestDistance = distance;
+    let bestDist = -1;
+    const best: Vector3[] = [];
+    for (const point of points) {
+      const dist = this.nearestPlayerDistance(point, others);
+      if (dist > bestDist) {
+        bestDist = dist;
+        best.length = 0;
+        best.push(point);
+      } else if (dist === bestDist) {
+        best.push(point);
       }
-      return { point, nearestDistance };
-    });
-
-    const clear = ranked.filter((candidate) => candidate.nearestDistance >= MIN_SPAWN_SEPARATION);
-    if (clear.length > 0) {
-      return clear[Math.floor(Math.random() * clear.length)].point;
     }
 
-    let farthest = ranked[0];
-    for (const candidate of ranked) {
-      if (candidate.nearestDistance > farthest.nearestDistance) farthest = candidate;
-    }
-    return farthest.point;
+    const idx = this.spawnPickSeq % best.length;
+    this.spawnPickSeq++;
+    return best[idx]!;
   }
 
-  /**
-   * Pick a spawn point via the anti-clustering heuristic above, then jitter
-   * a little (so repeat spawns at the same point don't land pixel-identical)
-   * and re-resolve against the same collision geometry used every
-   * simulation tick — a defensive guarantee that a spawn can never land
-   * inside a wall/crate even if a future edit moves SPAWN_POINTS closer to
-   * geometry than intended. Shared by both initial spawn() and respawn
-   * (processRespawns()) so there is exactly one spawn-picking implementation.
-   */
+  /** Exact predefined spawn coordinate (shared by initial join and respawn). */
   private pickSpawnPosition(): Vector3 {
-    const geometry = this.geometry();
-    const bounds = this.spawnBounds();
-    const jitterRadius = 2;
-    const maxAttempts = 24;
-
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const base = this.chooseSpawnPoint();
-      const angle = Math.random() * Math.PI * 2;
-      const jitterX = Math.cos(angle) * jitterRadius * Math.random();
-      const jitterZ = Math.sin(angle) * jitterRadius * Math.random();
-      const resolved = resolveHorizontalCollisions(
-        base.x + jitterX,
-        base.z + jitterZ,
-        PLAYER_COLLISION_RADIUS,
-        geometry,
-      );
-      const position = { x: resolved.x, y: MOVEMENT.groundY, z: resolved.z };
-      if (isSpawnReachable(position.x, position.z, geometry, bounds)) {
-        return position;
-      }
-    }
-
-    for (const point of this.spawnPoints()) {
-      if (isSpawnReachable(point.x, point.z, geometry, bounds)) {
-        return { x: point.x, y: MOVEMENT.groundY, z: point.z };
-      }
-    }
-
-    return { x: 0, y: MOVEMENT.groundY, z: 0 };
+    const point = this.chooseSpawnPoint();
+    return { x: point.x, y: MOVEMENT.groundY, z: point.z };
   }
 
   spawn(id: string, nickname: string = id, nicknameKey: string = nickname.toLocaleLowerCase()): PlayerRecord {
