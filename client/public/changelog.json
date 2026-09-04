@@ -1,5 +1,10 @@
 [
   {
+    "date": "2026-09-04",
+    "title": "EPIC 60 — Modern weapon hold, pickups & avatar polish",
+    "body": "Weapons are clearly held: first-person hands (pistol one-hand; rifle and grenade launcher two-hand) with shared silhouettes for remote players and ground weapon pickups. Armor pickups read as a vest/breastplate. Remote avatars get a slight modern polish while keeping color customization and pet/amulet attachment points. Cosmetics only — no combat or protocol changes."
+  },
+  {
     "date": "2026-08-28",
     "title": "EPIC 59 — Mid-map rift hazard rivers",
     "body": "Every catalog map has a jumpable mid-map rift with a distinct hazard theme (piranha water, lava, acid, toxic sludge, oil fire, plasma, void ink, molten gold). Standing in the rift drains armor then health (server-authoritative); jumping across without landing is safe. Bots take the same damage. Endless mode has no catalog rift."
