@@ -267,15 +267,15 @@ function buildCompanionSlot(baseY: number): THREE.Group {
 
 function buildWeaponProp(weapon: WeaponType): THREE.Group {
   const built = buildWeaponMesh(weapon, "tp");
-  // Orient so the barrel points roughly forward while held at the right hand.
-  built.group.rotation.set(-0.05, 0, 0);
+  // Grip sits near the palm; barrel (−Z in mesh space) is aimed by weaponAnchor.
   if (weapon === "pistol") {
-    built.group.position.set(0.02, 0.02, -0.08);
+    built.group.position.set(0.0, 0.02, 0.02);
   } else if (weapon === "rifle") {
-    built.group.position.set(0.0, 0.04, -0.06);
+    built.group.position.set(0.0, 0.02, 0.04);
   } else {
-    built.group.position.set(0.0, 0.03, -0.04);
+    built.group.position.set(0.0, 0.02, 0.03);
   }
+  built.group.rotation.set(0, 0, 0);
   return built.group;
 }
 
@@ -567,30 +567,42 @@ function resolvePetsVisual(player: PlayerState): EquippedPetVisual[] {
   }));
 }
 
-/** Fixed hold poses — pistol one-hand; rifle / GL two-hand (no IK). */
+/**
+ * Fixed hold poses — pistol one-hand; rifle / GL two-hand (no IK).
+ *
+ * Avatar face / aim is −Z (see buildFace). A hanging arm (mesh along −Y) needs
+ * POSITIVE rotation.x to swing the hand forward toward −Z; negative x was
+ * sending the weapon behind the backpack (+Z).
+ */
 function applyHoldPose(parts: AvatarPartSet, weapon: WeaponType, stride: number): void {
+  const leftShoulderX = -BODY_WIDTH / 2 - ARM_WIDTH * 0.15;
+  const rightShoulderX = BODY_WIDTH / 2 + ARM_WIDTH * 0.15;
+
   if (weapon === "pistol") {
-    parts.rightArm.rotation.set(-0.62 + stride * 0.12, 0.05, -0.12);
-    parts.leftArm.rotation.set(0.1 - stride * 0.4, 0, 0.08);
-    parts.leftArm.position.z = -0.02 - stride * 0.05;
-    parts.rightArm.position.z = -0.08 + stride * 0.03;
-    parts.weaponAnchor.position.set(0.02, -ARM_HEIGHT + 0.04, -0.05);
-    parts.weaponAnchor.rotation.set(-0.05, 0.1, 0);
+    // Right arm forward, slight inward roll; left arm idle swing while running.
+    parts.rightArm.position.set(rightShoulderX, parts.rightArm.position.y, -0.1);
+    parts.leftArm.position.set(leftShoulderX, parts.leftArm.position.y, -0.02);
+    parts.rightArm.rotation.set(0.95 + stride * 0.06, -0.18, 0.22);
+    parts.leftArm.rotation.set(0.2 - stride * 0.35, 0.05, -0.12);
+    parts.weaponAnchor.position.set(0.05, -ARM_HEIGHT + 0.02, 0.0);
+    // Compensate arm swing so the barrel stays roughly horizontal / forward.
+    parts.weaponAnchor.rotation.set(-1.05, 0.4, 0.12);
   } else if (weapon === "rifle") {
-    parts.rightArm.rotation.set(-1.05 + stride * 0.06, 0.12, -0.18);
-    parts.leftArm.rotation.set(-0.95 + stride * 0.04, 0.45, 0.35);
-    parts.leftArm.position.z = -0.12;
-    parts.rightArm.position.z = -0.1;
-    parts.weaponAnchor.position.set(0.0, -ARM_HEIGHT + 0.06, -0.02);
-    parts.weaponAnchor.rotation.set(0.05, 0.05, 0.05);
+    // Pull left arm toward center/foregrip.
+    parts.rightArm.position.set(rightShoulderX - 0.04, parts.rightArm.position.y, -0.12);
+    parts.leftArm.position.set(leftShoulderX + 0.18, parts.leftArm.position.y, -0.14);
+    parts.rightArm.rotation.set(1.12 + stride * 0.03, -0.08, 0.28);
+    parts.leftArm.rotation.set(1.05 + stride * 0.02, 0.42, -0.38);
+    parts.weaponAnchor.position.set(0.02, -ARM_HEIGHT + 0.04, 0.02);
+    parts.weaponAnchor.rotation.set(-1.15, 0.25, 0.05);
   } else {
-    // grenade_launcher — slightly bulkier two-hand stance
-    parts.rightArm.rotation.set(-1.0 + stride * 0.05, 0.1, -0.2);
-    parts.leftArm.rotation.set(-0.9 + stride * 0.03, 0.4, 0.32);
-    parts.leftArm.position.z = -0.1;
-    parts.rightArm.position.z = -0.08;
-    parts.weaponAnchor.position.set(0.0, -ARM_HEIGHT + 0.05, -0.02);
-    parts.weaponAnchor.rotation.set(0.02, 0.05, 0.08);
+    // grenade_launcher — bulkier two-hand stance, still in front of the torso
+    parts.rightArm.position.set(rightShoulderX - 0.03, parts.rightArm.position.y, -0.1);
+    parts.leftArm.position.set(leftShoulderX + 0.16, parts.leftArm.position.y, -0.12);
+    parts.rightArm.rotation.set(1.08 + stride * 0.03, -0.1, 0.3);
+    parts.leftArm.rotation.set(1.0 + stride * 0.02, 0.38, -0.35);
+    parts.weaponAnchor.position.set(0.02, -ARM_HEIGHT + 0.03, 0.02);
+    parts.weaponAnchor.rotation.set(-1.1, 0.22, 0.08);
   }
 }
 
